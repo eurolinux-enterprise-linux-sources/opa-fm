@@ -1,6 +1,6 @@
 # BEGIN_ICS_COPYRIGHT8 ****************************************
 # 
-# Copyright (c) 2015-2017, Intel Corporation
+# Copyright (c) 2015-2018, Intel Corporation
 # 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -81,7 +81,7 @@ LIB_TARGETS_MISC	=
 # targets to build during CMDS phase
 CMD_TARGETS_SHLIB	= 
 CMD_TARGETS_EXE		= $(EXECUTABLE)
-CMD_TARGETS_MISC	= fm_cmdall opafm fm_capture \
+CMD_TARGETS_MISC	= fm_cmdall opafm fm_capture opafm_pp.xml \
 				  opafm.xml $(BUILDDIR)/opaxmlextract $(BUILDDIR)/opaxmlfilter \
 				  $(BUILDDIR)/opafmd opafmctrl 
 # files to remove during clean phase
@@ -111,6 +111,8 @@ INCLUDE_SUBDIR		=
 #LOCALLIBS		= User libraries to use when linking [Empty]
 #				(in addition to LOCALDEPLIBS)
 #LOCAL_LIB_DIRS	= User library directories for libpaths [Empty]
+
+LIB_DIRS += /usr/lib64
 
 CLOCAL	=  $(CPIE)
 LOCALDEPLIBS = cs ibaccess public config vslogu Xml expat opamgt-priv
@@ -157,17 +159,11 @@ fm_capture: sm_capture
 $(BUILDDIR)/config_convert: $(PROJ_BIN_DIR)/config_convert
 	cp $(PROJ_BIN_DIR)/config_convert $(BUILDDIR)
 
-# for now, there is no gen2 xml for host - it lives
-# in the vxworks directory for the APR build only
-ifeq "$(STL_GEN)" "2"
-#opafm_src.xml: opafm_src.xml.gen2
-else
-opafm_src.xml: opafm_src.xml.gen1
-endif
-	cp $< $@
-
 opafm.xml : opafm_src.xml $(BUILDDIR)/config_convert
 	$(BUILDDIR)/config_convert dummy.config opafm_src.xml > opafm.xml
+
+opafm_pp.xml : opafm_src.xml $(BUILDDIR)/config_convert
+	$(BUILDDIR)/config_convert multitenant.config opafm_src.xml > opafm_pp.xml
 
 opafmctrl: opafmctrl.sh
 	cp opafmctrl.sh opafmctrl

@@ -39,6 +39,35 @@ static void sm_dispatch_cntxt_callback(cntxt_entry_t *, Status_t, void *, Mai_t 
 static Status_t sm_dispatch_send(sm_dispatch_req_t *req);
 static Status_t sm_dispatch_passthrough(sm_dispatch_req_t *req);
 
+boolean sm_callback_check(cntxt_entry_t *cntxt, Status_t status,
+	Node_t *nodep, Port_t *portp, Mai_t *mad)
+{
+	char portStr[32] = {0};
+	char nodeStr[128] = {0};
+	if (sm_valid_port(portp)) {
+		snprintf(portStr, 32, " Port %u", portp->index);
+	}
+	if (nodep) {
+		snprintf(nodeStr, 128, "NodeGuid "FMT_U64" [%s]",
+			nodep->nodeInfo.NodeGUID, sm_nodeDescString(nodep));
+	} else {
+		snprintf(nodeStr, 128, "LID 0x%08x", cntxt->lid);
+	}
+	if (status != VSTATUS_OK || mad == NULL) {
+		IB_LOG_ERROR_FMT(__func__, "Failed %s(%s) for %s%s; rc: %s",
+			cs_getMethodText(cntxt->mad.base.method),
+			cs_getAidName(cntxt->mad.base.mclass, cntxt->mad.base.aid),
+			nodeStr, portStr, cs_convert_status(status));
+		return FALSE;
+	} else if (mad->base.status != MAD_STATUS_OK) {
+		IB_LOG_ERROR_FMT(__func__, "Failed %s(%s) for %s%s; Mad Status: 0x%04x",
+			cs_getMethodText(cntxt->mad.base.method),
+			cs_getAidName(cntxt->mad.base.mclass, cntxt->mad.base.aid),
+			nodeStr, portStr, mad->base.status);
+		return FALSE;
+	}
+	return TRUE;
+}
 //---------------------------------------------------------------------------//
 
 static void sm_dispatch_free_req(sm_dispatch_req_t *req)
@@ -53,7 +82,6 @@ static void sm_dispatch_cntxt_callback(cntxt_entry_t *cntxt, Status_t cntxtStatu
 	sm_dispatch_t *disp = req->disp;
 	Node_t *nodep = NULL;
 	uint64_t now;
-
 	if (req->sweepPasscount == disp->sweepPasscount) {
 		nodep = req->nodep;
 	} else {
@@ -62,12 +90,14 @@ static void sm_dispatch_cntxt_callback(cntxt_entry_t *cntxt, Status_t cntxtStatu
               	cntxt->lid, cntxt->mad.base.aid, cntxt->mad.base.amod);
 	}
 
-	if (cntxtStatus == VSTATUS_TIMEOUT) {
+	if (cntxtStatus == VSTATUS_TIMEOUT && req->sendParams.fd->enforceTimeoutLimit) {
 		vs_time_get(&now);
 		sm_popo_report_timeout(&sm_popo, MAX(0, now - req->sendTime));
 	}
 
-	if (cntxt && cntxt->mad.base.aid == MAD_SMA_LFT) {
+	if (req->sendParams.callback) {
+		req->sendParams.callback(cntxt, cntxtStatus, req->sendParams.callbackContext, mad);
+	} else if (cntxt && cntxt->mad.base.aid == MAD_SMA_LFT) {
 		if (cntxtStatus == VSTATUS_TIMEOUT) {
 			if (nodep) {
 				IB_LOG_ERROR_FMT(__func__,
@@ -229,7 +259,7 @@ Status_t sm_dispatch_new_req(
 	if (status != VSTATUS_OK) {
 		IB_LOG_ERROR_FMT(__func__,
 			"failed to allocate dispatch request (rc %d) for fd 0x%08"PRIxN", method 0x%02x, aid 0x%04x\n",
-			status, sendParams->fd, sendParams->method, sendParams->aid);
+			status, sendParams->fd->fdMai, sendParams->method, sendParams->aid);
 		return status;
 	}
 

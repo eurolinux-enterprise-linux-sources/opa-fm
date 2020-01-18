@@ -1,0 +1,14 @@
+diff --git a/MakeTools/funcs-ext.sh b/MakeTools/funcs-ext.sh
+index 28c187d..07b4bc3 100755
+--- a/MakeTools/funcs-ext.sh
++++ b/MakeTools/funcs-ext.sh
+@@ -722,6 +722,9 @@ function os_vendor()
+             centos)
+                 rval=redhat
+                 ;;
++            scientific)
++                rval=redhat
++                ;;
+             *)
+                 rval=""
+                 ;;

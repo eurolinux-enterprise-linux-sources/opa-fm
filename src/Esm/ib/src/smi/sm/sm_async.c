@@ -71,7 +71,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "tms/idb/icsSmMib.h"
 #endif
 
-extern	IBhandle_t	fd_sminfo;
+extern	SmMaiHandle_t *fd_sminfo;
 extern	Status_t policy_main(Mai_t *);
 extern	Status_t policy_topology(Mai_t *);
 extern	Status_t policy_node(Mai_t *);
@@ -160,12 +160,11 @@ async_main(uint32_t argc, uint8_t ** argv) {
 	Filter_t	filter;
 	Mai_t		mad;
     uint64_t	lastTimeAged=0, timeout=0;
-    uint64_t    lastTimeDiscoveryRequested=0;
     uint32_t    index = 99;
     IBhandle_t  handles[2];
 	int			lastState;
     uint64_t    lastTimePortChecked=0;
-	uint8_t		path[64], localPortFailure=0;
+	uint8_t		localPortFailure=0;
 	STL_PORT_INFO	portInfo;
 
 	IB_ENTER(__func__, 0, 0, 0, 0);
@@ -188,7 +187,7 @@ async_main(uint32_t argc, uint8_t ** argv) {
     sm_notice_cntxt.hashTableDepth = CNTXT_HASH_TABLE_DEPTH;
     sm_notice_cntxt.poolSize = sm_notice_max_context;
     sm_notice_cntxt.maxRetries = sm_config.max_retries;
-    sm_notice_cntxt.ibHandle = fd_saTrap;
+    sm_notice_cntxt.ibHandle = fd_saTrap->fdMai;
     sm_notice_cntxt.errorOnSendFail = 0;
 #ifdef IB_STACK_OPENIB
 	// for openib we let umad do the timeouts.  Hence we add 1 second to
@@ -238,7 +237,7 @@ async_main(uint32_t argc, uint8_t ** argv) {
 	filter.mask.aid  = 0xffff;
 	MAI_SET_FILTER_NAME (&filter, "sm_async");
 
-	status = mai_filter_create(fd_async, &filter, VFILTER_SHARE);
+	status = mai_filter_create(fd_async->fdMai, &filter, VFILTER_SHARE);
 	if (status != VSTATUS_OK) {
 		smCsmLogMessage(CSM_SEV_NOTICE, CSM_COND_OTHER_ERROR, getMyCsmNodeId(), NULL,
 			"sm_async: can't create Get(SMInfo) filter %d", status);
@@ -258,7 +257,7 @@ async_main(uint32_t argc, uint8_t ** argv) {
 	filter.mask.aid  = 0xffff;
 	MAI_SET_FILTER_NAME (&filter, "sm_async");
 
-	status = mai_filter_create(fd_async, &filter, VFILTER_SHARE);
+	status = mai_filter_create(fd_async->fdMai, &filter, VFILTER_SHARE);
 	if (status != VSTATUS_OK) {
 		smCsmLogMessage(CSM_SEV_NOTICE, CSM_COND_OTHER_ERROR, getMyCsmNodeId(), NULL,
 			"sm_async: can't create Set(SMInfo) filter %d", status);
@@ -275,7 +274,7 @@ async_main(uint32_t argc, uint8_t ** argv) {
 	filter.mask.method  = 0xff;
 	MAI_SET_FILTER_NAME (&filter, "sm_async");
 
-	status = mai_filter_create(fd_async, &filter, VFILTER_SHARE);
+	status = mai_filter_create(fd_async->fdMai, &filter, VFILTER_SHARE);
 	if (status != VSTATUS_OK) {
 		smCsmLogMessage(CSM_SEV_NOTICE, CSM_COND_OTHER_ERROR, getMyCsmNodeId(), NULL,
 			"sm_async: can't create Trap(*) filter %s", status);
@@ -294,7 +293,7 @@ async_main(uint32_t argc, uint8_t ** argv) {
 	filter.mask.aid  = 0xffff;
 	MAI_SET_FILTER_NAME (&filter, "sm_saTrap");
 
-	status = mai_filter_create(fd_saTrap, &filter, VFILTER_SHARE | VFILTER_PURGE);
+	status = mai_filter_create(fd_saTrap->fdMai, &filter, VFILTER_SHARE | VFILTER_PURGE);
 	if (status != VSTATUS_OK) {
 		smCsmLogMessage(CSM_SEV_NOTICE, CSM_COND_OTHER_ERROR, getMyCsmNodeId(), NULL,
 			"sm_async: can't create CM_REPORT_RESP filter %d", status);
@@ -315,7 +314,7 @@ async_main(uint32_t argc, uint8_t ** argv) {
 	filter.mask.aid  = 0xffff;
 	MAI_SET_FILTER_NAME (&filter, "sm_saTrap_error");
 
-	status = mai_filter_create(fd_saTrap, &filter, VFILTER_SHARE | VFILTER_PURGE);
+	status = mai_filter_create(fd_saTrap->fdMai, &filter, VFILTER_SHARE | VFILTER_PURGE);
 	if (status != VSTATUS_OK) {
 		smCsmLogMessage(CSM_SEV_NOTICE, CSM_COND_OTHER_ERROR, getMyCsmNodeId(), NULL,
 			"sm_async: can't create CM_REPORT error filter %d", status);
@@ -338,8 +337,8 @@ async_main(uint32_t argc, uint8_t ** argv) {
     (void)vs_time_get(&lastTimeAged);
     nextTime = lastTimeAged + sm_masterCheckInterval;
 
-    handles[0] = fd_async;
-    handles[1] = fd_saTrap;
+    handles[0] = fd_async->fdMai;
+    handles[1] = fd_saTrap->fdMai;
 	while (1) {
         status = mai_recv_handles(handles, 2, delta_time, &index, &mad);
 
@@ -493,8 +492,10 @@ async_main(uint32_t argc, uint8_t ** argv) {
 		/* First time we come here, we will always check port state as lastTimePortChecked will be 0*/
 		if ((sm_state == SM_STATE_MASTER) && !smFabricDiscoveryNeeded && !isSweeping && 
 			((now - lastTimePortChecked) > (VTIMER_1S * 2))) {
+			uint8 path[64];
 			memset((void *)path, 0, 64);
-			status = SM_Get_PortInfo(fd_sminfo, 1<<24, path, &portInfo);
+			SmpAddr_t addr = SMP_ADDR_CREATE_DR(path);
+			status = SM_Get_PortInfo(fd_sminfo, 1<<24, &addr, &portInfo);
 			if (status != VSTATUS_OK) {
 				IB_LOG_ERRORRC("can't get SM port PortInfo rc:", status);
 			} else {
@@ -520,9 +521,6 @@ async_main(uint32_t argc, uint8_t ** argv) {
 					setResweepReason(SM_SWEEP_REASON_LOCAL_PORT_FAIL);
 				}
                 topology_wakeup_time = now;
-                /* clear the indicators */
-                lastTimeDiscoveryRequested = 0;
-                smFabricDiscoveryNeeded = 0;
             }
         }
 
@@ -597,7 +595,7 @@ int sm_send_xml_file(uint8_t activate) {
 
 	syncFile->version = DBSYNC_FILE_TRANSPORT_VERSION;
 	syncFile->length = sizeof(SMDBSyncFile_t);
-	cs_strlcpy(syncFile->name, "opafm.xml", SMDBSYNCFILE_NAME_LEN);
+	StringCopy(syncFile->name, "opafm.xml", SMDBSYNCFILE_NAME_LEN);
 	syncFile->type = DBSYNC_FILE_XML_CONFIG;
 	syncFile->activate = activate;
 
@@ -807,7 +805,7 @@ char* sm_getMibPKeyDescription(char* vfName) {
 	VirtualFabrics_t* VirtualFabrics = old_topology.vfs_ptr;
 	VF_t* vf = findVfPointer(VirtualFabrics, vfName);
 	if (vf == NULL)
-		cs_strlcpy(pkey_description, "Default PKey", sizeof(pkey_description));
+		StringCopy(pkey_description, "Default PKey", sizeof(pkey_description));
 	else 
 		sprintf(pkey_description, "Virtual Fabric - %s", vf->name);
 	return pkey_description;

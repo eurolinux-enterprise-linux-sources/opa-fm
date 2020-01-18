@@ -824,15 +824,66 @@ FSTATUS FindIocTypePoint(FabricData_t *fabricp, IocType type, Point *pPoint, uin
 	return FSUCCESS;
 }
 
-// search for the Ioc corresponding to the given Ioc Guid
-IocData * FindIocGuid(FabricData_t *fabricp, EUI64 guid)
+static int CompareGuid(const cl_map_item_t *p_item, const uint64 key)
 {
-	cl_map_item_t *mi;
+	IocData *iocp = PARENT_STRUCT(p_item, IocData, AllIOCsEntry);
+	if( key == iocp->IocProfile.IocGUID) {
+		return 0;
+	} else if(key < iocp->IocProfile.IocGUID) {
+		return 1;
+	} else {
+		return -1;
+	}
 
-	mi = cl_qmap_get(&fabricp->AllIOCs, guid);
-	if (mi == cl_qmap_end(&fabricp->AllIOCs))
-		return NULL;
-	return PARENT_STRUCT(mi, IocData, AllIOCsEntry);
+}
+
+static cl_map_item_t *GetLowestIocGuid(cl_map_item_t *p, EUI64 guid, cl_qmap_t* IocMap)
+{
+	cl_map_item_t *returnItem = NULL;
+	while(p != cl_qmap_end(IocMap))
+	{
+		IocData *iocp = PARENT_STRUCT(p, IocData, AllIOCsEntry);
+		if(iocp->IocProfile.IocGUID != guid)
+			break;
+		returnItem = p;
+		p =  cl_qmap_prev(p);
+	}
+	return returnItem;
+}
+
+static FSTATUS IocAppend(cl_map_item_t *p, EUI64 guid, Point *pPoint, cl_qmap_t* IocMap)
+{
+	FSTATUS status;
+	while(p != cl_qmap_end(IocMap)) {
+		IocData *iocp = PARENT_STRUCT(p, IocData, AllIOCsEntry);
+		if(iocp->IocProfile.IocGUID != guid)
+			break;
+		status = PointListAppend(pPoint, POINT_TYPE_IOC_LIST, iocp);
+		if (FSUCCESS != status)
+			return status;
+		p = cl_qmap_next(p);
+	}
+	if (! PointValid(pPoint)) {
+		return FNOT_FOUND;
+	}
+	PointCompress(pPoint);
+	return FSUCCESS;
+}
+
+// search for the Ioc corresponding to the given Ioc Guid
+FSTATUS FindIocGuid(FabricData_t *fabricp, EUI64 guid, Point *pPoint)
+{
+	FSTATUS status = FNOT_FOUND;
+	cl_map_item_t *p, *lowestItem;
+	p = cl_qmap_get_item_compare(&fabricp->AllIOCs, guid, CompareGuid);
+	if(p == cl_qmap_end(&fabricp->AllIOCs))
+		return status;
+	lowestItem = GetLowestIocGuid(p, guid, &fabricp->AllIOCs);
+	if(lowestItem)
+		status = IocAppend(lowestItem, guid, pPoint, &fabricp->AllIOCs);
+	return status;
+
+
 }
 #endif
 
@@ -1185,6 +1236,8 @@ FSTATUS FindCabinfLenPatPoint(FabricData_t *fabricp, const char* pattern, Point 
 {
 	FSTATUS status;
 	char *cur, scrubbed_pat[strlen(pattern) + 1];
+	char cablen_str[10] = {0}; // strlen("255") + 1 = 4
+	int cableInfoHighPageAddressOffset;
 
 	ASSERT(! PointValid(pPoint));
 	if (0 == (find_flag & FIND_FLAG_FABRIC))
@@ -1198,52 +1251,53 @@ FSTATUS FindCabinfLenPatPoint(FabricData_t *fabricp, const char* pattern, Point 
 
 	if (find_flag & FIND_FLAG_FABRIC) {
 		LIST_ITEM *p;
+		//For CableHealth Report the Low Addr page and High address page are accessed, so got to specify the offset.
+		if(fabricp->flags & FF_CABLELOWPAGE)
+			cableInfoHighPageAddressOffset = STL_CIB_STD_HIGH_PAGE_ADDR;
+		else
+			cableInfoHighPageAddressOffset = 0;
 
 		for (p=QListHead(&fabricp->AllPorts); p != NULL; p = QListNext(&fabricp->AllPorts, p)) {
 			PortData *portp = (PortData *)QListObj(p);
 			STL_CABLE_INFO_STD *pCableInfo;
 			STL_CABLE_INFO_UP0_DD *pCableInfoDD;
-			uint8 xmit_tech;
+			CableTypeInfoType cableTypeInfo;
 			boolean qsfp_dd;
+			boolean cableLenValid;
 
-			pCableInfo = (STL_CABLE_INFO_STD *)portp->pCableInfoData;
-			if (!pCableInfo)
+			if (!portp->pCableInfoData)
 				continue;
-			pCableInfoDD = (STL_CABLE_INFO_UP0_DD *)portp->pCableInfoData;
+
+			pCableInfo = (STL_CABLE_INFO_STD *)(portp->pCableInfoData + cableInfoHighPageAddressOffset);
+			pCableInfoDD = (STL_CABLE_INFO_UP0_DD *)(portp->pCableInfoData + cableInfoHighPageAddressOffset);
 			qsfp_dd = (portp->pCableInfoData[0] == STL_CIB_STD_QSFP_DD);
 
 			if (!qsfp_dd) {
-				xmit_tech = pCableInfo->dev_tech.s.xmit_tech;
-				if ( ( ( (xmit_tech <= STL_CIB_STD_TXTECH_1490_DFB) &&
-						(xmit_tech != STL_CIB_STD_TXTECH_OTHER) &&
-						(pCableInfo->connector == STL_CIB_STD_CONNECTOR_NO_SEP) ) ||
-						(xmit_tech >= STL_CIB_STD_TXTECH_CU_UNEQ) )) {
-					char cablen_str[4] = {0}; // strlen("255") + 1 = 4
+				StlCableInfoDecodeCableType(pCableInfo->dev_tech.s.xmit_tech, pCableInfo->connector, pCableInfo->ident, &cableTypeInfo);
+				cableLenValid = cableTypeInfo.cableLengthValid;
 
-					snprintf(cablen_str, sizeof(cablen_str), "%u", pCableInfo->len_om4);
-					if (fnmatch(scrubbed_pat, cablen_str, 0) != 0)
-						continue;
+				StlCableInfoOM4LengthToText(pCableInfo->len_om4, cableLenValid, sizeof(cablen_str), cablen_str);
+				if (NULL != (cur = strchr(cablen_str, 'm')))
+					*cur = '\0';
+				if (fnmatch(scrubbed_pat, cablen_str, 0) != 0)
+					continue;
 
-					status = PointListAppend(pPoint, POINT_TYPE_PORT_LIST, portp);
-					if (FSUCCESS != status)
-						return status;
-				}
+				status = PointListAppend(pPoint, POINT_TYPE_PORT_LIST, portp);
+				if (FSUCCESS != status)
+					return status;
 			} else {
-				xmit_tech = pCableInfoDD->cable_type;
-				if ( ( ( (xmit_tech <= STL_CIB_STD_TXTECH_1490_DFB) &&
-						(xmit_tech != STL_CIB_STD_TXTECH_OTHER) &&
-						(pCableInfoDD->connector == STL_CIB_STD_CONNECTOR_NO_SEP) ) ||
-						(xmit_tech >= STL_CIB_STD_TXTECH_CU_UNEQ) )) {
-					char cablen_str[16] = {0};  // can have decimal places
+				StlCableInfoDecodeCableType(pCableInfoDD->cable_type, pCableInfoDD->connector, pCableInfoDD->ident, &cableTypeInfo);
+				cableLenValid = cableTypeInfo.cableLengthValid;
 
-					StlCableInfoDDCableLengthToText(pCableInfoDD->cableLengthEnc, sizeof(cablen_str), cablen_str);
-					if (fnmatch(scrubbed_pat, cablen_str, 0) != 0)
-						continue;
+				StlCableInfoDDCableLengthToText(pCableInfoDD->cableLengthEnc, cableLenValid, sizeof(cablen_str), cablen_str);
+				if (NULL != (cur = strchr(cablen_str, 'm')))
+					*cur = '\0';
+				if (fnmatch(scrubbed_pat, cablen_str, 0) != 0)
+					continue;
 
-					status = PointListAppend(pPoint, POINT_TYPE_PORT_LIST, portp);
-					if (FSUCCESS != status)
-						return status;
-				}
+				status = PointListAppend(pPoint, POINT_TYPE_PORT_LIST, portp);
+				if (FSUCCESS != status)
+					return status;
 			}
 		}
 	}
@@ -1272,6 +1326,7 @@ FSTATUS FindCabinfVendNamePatPoint(FabricData_t *fabricp, const char* pattern, P
 	STL_CABLE_INFO_UP0_DD *pCableInfoDD;
 	char bf_pattern[sizeof(pCableInfo->vendor_name) + 1];
 	boolean qsfp_dd;
+	int cableInfoHighPageAddressOffset;
 
 	ASSERT(! PointValid(pPoint));
 	if (0 == (find_flag & FIND_FLAG_FABRIC))
@@ -1286,14 +1341,21 @@ FSTATUS FindCabinfVendNamePatPoint(FabricData_t *fabricp, const char* pattern, P
 
 	if (find_flag & FIND_FLAG_FABRIC) {
 		LIST_ITEM *p;
+		//For CableHealth Report the Low Addr page and High address page are accessed, so got to specify the offset.
+		if(fabricp->flags & FF_CABLELOWPAGE)
+			cableInfoHighPageAddressOffset = STL_CIB_STD_HIGH_PAGE_ADDR;
+		else
+			cableInfoHighPageAddressOffset = 0;
+
 		for (p=QListHead(&fabricp->AllPorts); p != NULL; p = QListNext(&fabricp->AllPorts, p)) {
 			PortData *portp = (PortData *)QListObj(p);
 			char tempStr[sizeof(pCableInfo->vendor_name) + 1];
 
-			pCableInfo = (STL_CABLE_INFO_STD *)portp->pCableInfoData;
-			if (! pCableInfo)
+			if (!portp->pCableInfoData)
 				continue;
-			pCableInfoDD = (STL_CABLE_INFO_UP0_DD *)portp->pCableInfoData;
+
+			pCableInfo = (STL_CABLE_INFO_STD *)(portp->pCableInfoData + cableInfoHighPageAddressOffset);
+			pCableInfoDD = (STL_CABLE_INFO_UP0_DD *)(portp->pCableInfoData + cableInfoHighPageAddressOffset);
 			qsfp_dd = (portp->pCableInfoData[0] == STL_CIB_STD_QSFP_DD);
 			if (!qsfp_dd) {
 				memcpy(tempStr, pCableInfo->vendor_name, sizeof(pCableInfo->vendor_name));
@@ -1335,6 +1397,7 @@ FSTATUS FindCabinfVendPNPatPoint(FabricData_t *fabricp, const char* pattern, Poi
 	STL_CABLE_INFO_UP0_DD *pCableInfoDD;
 	char bf_pattern[sizeof(pCableInfo->vendor_pn) + 1];
 	boolean qsfp_dd;
+	int cableInfoHighPageAddressOffset;
 
 	ASSERT(! PointValid(pPoint));
 	if (0 == (find_flag & FIND_FLAG_FABRIC))
@@ -1349,14 +1412,21 @@ FSTATUS FindCabinfVendPNPatPoint(FabricData_t *fabricp, const char* pattern, Poi
 
 	if (find_flag & FIND_FLAG_FABRIC) {
 		LIST_ITEM *p;
+		//For CableHealth Report the Low Addr page and High address page are accessed, so got to specify the offset.
+		if(fabricp->flags & FF_CABLELOWPAGE)
+			cableInfoHighPageAddressOffset = STL_CIB_STD_HIGH_PAGE_ADDR;
+		else
+			cableInfoHighPageAddressOffset = 0;
+
 		for (p=QListHead(&fabricp->AllPorts); p != NULL; p = QListNext(&fabricp->AllPorts, p)) {
 			PortData *portp = (PortData *)QListObj(p);
 			char tempStr[sizeof(pCableInfo->vendor_pn) + 1];
 
-			pCableInfo = (STL_CABLE_INFO_STD *)portp->pCableInfoData;
-			if (! pCableInfo)
+			if (!portp->pCableInfoData)
 				continue;
-			pCableInfoDD = (STL_CABLE_INFO_UP0_DD *)portp->pCableInfoData;
+
+			pCableInfo = (STL_CABLE_INFO_STD *)(portp->pCableInfoData + cableInfoHighPageAddressOffset);
+			pCableInfoDD = (STL_CABLE_INFO_UP0_DD *)(portp->pCableInfoData + cableInfoHighPageAddressOffset);
 			qsfp_dd = (portp->pCableInfoData[0] == STL_CIB_STD_QSFP_DD);
 			if (!qsfp_dd) {
 				memcpy(tempStr, pCableInfo->vendor_pn, sizeof(pCableInfo->vendor_pn));
@@ -1398,6 +1468,7 @@ FSTATUS FindCabinfVendRevPatPoint(FabricData_t *fabricp, const char* pattern, Po
 	STL_CABLE_INFO_UP0_DD *pCableInfoDD;
 	char bf_pattern[sizeof(pCableInfo->vendor_rev) + 1];
 	boolean qsfp_dd;
+	int cableInfoHighPageAddressOffset;
 
 	ASSERT(! PointValid(pPoint));
 	if (0 == (find_flag & FIND_FLAG_FABRIC))
@@ -1412,14 +1483,21 @@ FSTATUS FindCabinfVendRevPatPoint(FabricData_t *fabricp, const char* pattern, Po
 
 	if (find_flag & FIND_FLAG_FABRIC) {
 		LIST_ITEM *p;
+		//For CableHealth Report the Low Addr page and High address page are accessed, so got to specify the offset.
+		if(fabricp->flags & FF_CABLELOWPAGE)
+			cableInfoHighPageAddressOffset = STL_CIB_STD_HIGH_PAGE_ADDR;
+		else
+			cableInfoHighPageAddressOffset = 0;
+
 		for (p=QListHead(&fabricp->AllPorts); p != NULL; p = QListNext(&fabricp->AllPorts, p)) {
 			PortData *portp = (PortData *)QListObj(p);
 			char tempStr[sizeof(pCableInfo->vendor_rev) + 1];
 
-			pCableInfo = (STL_CABLE_INFO_STD *)portp->pCableInfoData;
-			if (! pCableInfo)
+			if (!portp->pCableInfoData)
 				continue;
-			pCableInfoDD = (STL_CABLE_INFO_UP0_DD *)portp->pCableInfoData;
+
+			pCableInfo = (STL_CABLE_INFO_STD *)(portp->pCableInfoData + cableInfoHighPageAddressOffset);
+			pCableInfoDD = (STL_CABLE_INFO_UP0_DD *)(portp->pCableInfoData + cableInfoHighPageAddressOffset);
 			qsfp_dd = (portp->pCableInfoData[0] == STL_CIB_STD_QSFP_DD);
 			if (!qsfp_dd) {
 				memcpy(tempStr, pCableInfo->vendor_rev, sizeof(pCableInfo->vendor_rev));
@@ -1461,6 +1539,7 @@ FSTATUS FindCabinfVendSNPatPoint(FabricData_t *fabricp, const char* pattern, Poi
 	STL_CABLE_INFO_UP0_DD *pCableInfoDD;
 	char bf_pattern[sizeof(pCableInfo->vendor_sn) + 1];
 	boolean qsfp_dd;
+	int cableInfoHighPageAddressOffset;
 
 	ASSERT(! PointValid(pPoint));
 	if (0 == (find_flag & FIND_FLAG_FABRIC))
@@ -1475,14 +1554,21 @@ FSTATUS FindCabinfVendSNPatPoint(FabricData_t *fabricp, const char* pattern, Poi
 
 	if (find_flag & FIND_FLAG_FABRIC) {
 		LIST_ITEM *p;
+		//For CableHealth Report the Low Addr page and High address page are accessed, so got to specify the offset.
+		if(fabricp->flags & FF_CABLELOWPAGE)
+			cableInfoHighPageAddressOffset = STL_CIB_STD_HIGH_PAGE_ADDR;
+		else
+			cableInfoHighPageAddressOffset = 0;
+
 		for (p=QListHead(&fabricp->AllPorts); p != NULL; p = QListNext(&fabricp->AllPorts, p)) {
 			PortData *portp = (PortData *)QListObj(p);
 			char tempStr[sizeof(pCableInfo->vendor_sn) + 1];
 
-			pCableInfo = (STL_CABLE_INFO_STD *)portp->pCableInfoData;
-			if (! pCableInfo)
+			if (!portp->pCableInfoData)
 				continue;
-			pCableInfoDD = (STL_CABLE_INFO_UP0_DD *)portp->pCableInfoData;
+
+			pCableInfo = (STL_CABLE_INFO_STD *)(portp->pCableInfoData + cableInfoHighPageAddressOffset);
+			pCableInfoDD = (STL_CABLE_INFO_UP0_DD *)(portp->pCableInfoData + cableInfoHighPageAddressOffset);
 			qsfp_dd = (portp->pCableInfoData[0] == STL_CIB_STD_QSFP_DD);
 			if (!qsfp_dd) {
 				memcpy(tempStr, pCableInfo->vendor_sn, sizeof(pCableInfo->vendor_sn));
@@ -1520,6 +1606,7 @@ FSTATUS FindCabinfCableTypePoint(FabricData_t *fabricp, char *pattern, Point *pP
 {
 	FSTATUS status;
 	int len;
+	int cableInfoHighPageAddressOffset;
 
 	len = strlen(pattern);
 
@@ -1528,6 +1615,12 @@ FSTATUS FindCabinfCableTypePoint(FabricData_t *fabricp, char *pattern, Point *pP
 		return FINVALID_OPERATION;
 	if (find_flag & FIND_FLAG_FABRIC) {
 		LIST_ITEM *p;
+		//For CableHealth Report the Low Addr page and High address page are accessed, so got to specify the offset.
+		if(fabricp->flags & FF_CABLELOWPAGE)
+			cableInfoHighPageAddressOffset = STL_CIB_STD_HIGH_PAGE_ADDR;
+		else
+			cableInfoHighPageAddressOffset = 0;
+
 		for (p=QListHead(&fabricp->AllPorts); p != NULL; p = QListNext(&fabricp->AllPorts, p)) {
 			PortData *portp = (PortData *)QListObj(p);
 			STL_CABLE_INFO_STD *pCableInfo;
@@ -1538,10 +1631,12 @@ FSTATUS FindCabinfCableTypePoint(FabricData_t *fabricp, char *pattern, Point *pP
 			/* omit switch port 0, no cable connected to port0 */
 			if (portp->PortNum == 0)
 				continue;
-			pCableInfo = (STL_CABLE_INFO_STD *)portp->pCableInfoData;
-			if (! pCableInfo)
+
+			if (!portp->pCableInfoData)
 				continue;
-			pCableInfoDD = (STL_CABLE_INFO_UP0_DD *)portp->pCableInfoData;
+
+			pCableInfo = (STL_CABLE_INFO_STD *)(portp->pCableInfoData + cableInfoHighPageAddressOffset);
+			pCableInfoDD = (STL_CABLE_INFO_UP0_DD *)(portp->pCableInfoData + cableInfoHighPageAddressOffset);
 			qsfp_dd = (portp->pCableInfoData[0] == STL_CIB_STD_QSFP_DD);
 			if (!qsfp_dd)
 				xmit_tech = pCableInfo->dev_tech.s.xmit_tech;

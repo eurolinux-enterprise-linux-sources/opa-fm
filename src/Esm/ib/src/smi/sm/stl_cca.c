@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT7 ****************************************
 
-Copyright (c) 2015-2017, Intel Corporation
+Copyright (c) 2015-2018, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <iba/stl_sm_priv.h>
 #include "stl_cca.h"
+#include "sm_parallelsweep.h"
+
 Status_t stl_sm_cca_hfi_ref_acquire(HfiCongestionControlTableRefCount_t** congConrfCount, uint32_t tableSize) {
 	Status_t status;
 	if ((status = vs_pool_alloc(&sm_pool, tableSize, (void *)&(*congConrfCount))) != VSTATUS_OK) {
@@ -132,7 +134,7 @@ int cap)
 	return VSTATUS_OK;
 }
 
-Status_t stl_sm_cca_configure_hfi(Node_t *nodep)
+Status_t stl_sm_cca_configure_hfi(ParallelSweepContext_t *psc, SmMaiHandle_t *fd, Node_t *nodep)
 {
 	Status_t status;
 	Port_t *portp;
@@ -140,10 +142,9 @@ Status_t stl_sm_cca_configure_hfi(Node_t *nodep)
 	STL_LID dlid;
 
 	// Can be called for ESP0. Return if Switch port 0 has no congestion table capacity.
-	if ( (nodep->nodeInfo.NodeType==STL_NODE_SW) &&
-			(!nodep->switchInfo.u2.s.EnhancedPort0 ||
-			(nodep->congestionInfo.ControlTableCap == 0)) ) {
-		return (VSTATUS_OK);
+	if(nodep->nodeInfo.NodeType==STL_NODE_SW) {
+		if(!is_cc_supported_by_enhanceport0(nodep))
+			return (VSTATUS_OK);
 	}
 	memset(&hfiCongSett, 0, sizeof(STL_HFI_CONGESTION_SETTING));
 	if (sm_config.congestion.enable) {
@@ -178,8 +179,12 @@ Status_t stl_sm_cca_configure_hfi(Node_t *nodep)
 					payloadBlocks = numBlocks - i;  // Calculate how many blocks are left to be sent
 					payloadBlocks = MIN(payloadBlocks, maxBlocks);  // Limit the number of blocks to be sent
 					amod = payloadBlocks << 24 | i;
-					status = SM_Set_HfiCongestionControl_LR(fd_topology, congConRefCount->hfiCongCon.CCTI_Limit,
-														 payloadBlocks, amod, sm_lid, dlid, &congConRefCount->hfiCongCon.CCT_Block_List[i], sm_config.mkey);
+					SmpAddr_t addr = SMP_ADDR_CREATE_LR(sm_lid, dlid);
+					psc_unlock(psc);
+					status = SM_Set_HfiCongestionControl(fd, congConRefCount->hfiCongCon.CCTI_Limit,
+							payloadBlocks, amod, &addr,
+							&congConRefCount->hfiCongCon.CCT_Block_List[i], sm_config.mkey);
+					psc_lock(psc);
 					if(status != VSTATUS_OK)
 						break;
 					else
@@ -225,7 +230,10 @@ Status_t stl_sm_cca_configure_hfi(Node_t *nodep)
 
 	if (0 != memcmp(&nodep->hfiCongestionSetting, &hfiCongSett, sizeof(STL_HFI_CONGESTION_SETTING))) { // if not same
 		dlid = portp->portData->lid;
-		status = SM_Set_HfiCongestionSetting_LR(fd_topology, 0, sm_lid, dlid, &hfiCongSett, sm_config.mkey);
+		SmpAddr_t addr = SMP_ADDR_CREATE_LR(sm_lid, dlid);
+		psc_unlock(psc);
+		status = SM_Set_HfiCongestionSetting(fd, 0, &addr, &hfiCongSett, sm_config.mkey);
+		psc_lock(psc);
 		if (status != VSTATUS_OK) {
 			IB_LOG_ERROR_FMT(__func__,
 				"Failed to set HFI Congestion Setting Table for NodeGUID "FMT_U64" [%s]; rc: %d",
@@ -239,7 +247,18 @@ Status_t stl_sm_cca_configure_hfi(Node_t *nodep)
 	return VSTATUS_OK;
 }
 
-Status_t stl_sm_cca_configure_sw(Node_t *nodep)
+
+uint16 stl_sm_cca_resolve_marking_rate(Node_t *nodep, uint16 rate)
+{
+	// PRR limitation of 0-255 for Marking_Rate (HSD 291608)
+	uint16 new_rate = MIN(255,rate);
+
+
+	return new_rate;
+}
+
+
+Status_t stl_sm_cca_configure_sw(ParallelSweepContext_t *psc, SmMaiHandle_t *fd, Node_t *nodep)
 {
 	Status_t status=VSTATUS_OK;
 	STL_SWITCH_CONGESTION_SETTING setting;
@@ -250,23 +269,19 @@ Status_t stl_sm_cca_configure_sw(Node_t *nodep)
 	Port_t *portp;
 
 	if (nodep->switchInfo.u2.s.EnhancedPort0) 
-		stl_sm_cca_configure_hfi(nodep);
+		stl_sm_cca_configure_hfi(psc, fd, nodep);
 
 	memset(&setting, 0, sizeof(STL_SWITCH_CONGESTION_SETTING));
 	if (sm_config.congestion.enable) {
 
 		setting.Control_Map = CC_SWITCH_CONTROL_MAP_VICTIM_VALID
-							| CC_SWITCH_CONTROL_MAP_CREDIT_VALID
 							| CC_SWITCH_CONTROL_MAP_CC_VALID
-							| CC_SWITCH_CONTROL_MAP_CS_VALID
 							| CC_SWITCH_CONTROL_MAP_MARKING_VALID;
 
-		setting.Threshold     = sm_config.congestion.sw.threshold;
+		setting.Threshold      = sm_config.congestion.sw.threshold;
 		setting.Packet_Size    = sm_config.congestion.sw.packet_size;
-		setting.CS_Threshold   = sm_config.congestion.sw.cs_threshold;
-		setting.CS_ReturnDelay = sm_config.congestion.sw.cs_return_delay;
-		// PRR limitation of 0-255 for Marking_Rate (HSD 291608)
-		setting.Marking_Rate   = MIN(255,sm_config.congestion.sw.marking_rate);
+		setting.Marking_Rate   = stl_sm_cca_resolve_marking_rate(nodep, sm_config.congestion.sw.marking_rate);
+
 
 		if(sm_config.congestion.sw.victim_marking_enable){
 
@@ -276,7 +291,7 @@ Status_t stl_sm_cca_configure_sw(Node_t *nodep)
 			// Sets victim_marking_enable on all valid ports of the switch.
 			setting.Victim_Mask[31 - i] = (1<<(port_count % 8)) - 1; 
 			while (i > 0) setting.Victim_Mask[31 - --i] = 0xff;
-			if (!nodep->switchInfo.u2.s.EnhancedPort0) setting.Victim_Mask[31] &= 0xfe;
+			setting.Victim_Mask[31] &= 0xfe;			//As SWP0 doesn't support CC.
 		}
 		
 	} else {
@@ -292,7 +307,10 @@ Status_t stl_sm_cca_configure_sw(Node_t *nodep)
 
 	dlid = portp->portData->lid;
 	if (0 != memcmp(&nodep->swCongestionSetting, &setting, sizeof(STL_SWITCH_CONGESTION_SETTING))) { // if not same
-		status = SM_Set_SwitchCongestionSetting_LR(fd_topology, 0, sm_lid, dlid, &setting, sm_config.mkey);
+		SmpAddr_t addr = SMP_ADDR_CREATE_LR(sm_lid, dlid);
+		psc_unlock(psc);
+		status = SM_Set_SwitchCongestionSetting(fd, 0, &addr, &setting, sm_config.mkey);
+		psc_lock(psc);
 		if (status != VSTATUS_OK) {
 			IB_LOG_ERROR_FMT(__func__,
 				"Failed to set switch Congestion Setting for NodeGUID "FMT_U64" [%s]; rc: %d",
@@ -312,7 +330,10 @@ Status_t stl_sm_cca_configure_sw(Node_t *nodep)
 		return VSTATUS_NOMEM;
 	}
 
-	status = SM_Get_SwitchPortCongestionSetting_LR(fd_topology, ((uint32_t)port_count)<<24, sm_lid, dlid, swPortSet);
+	SmpAddr_t addr = SMP_ADDR_CREATE_LR(sm_lid, dlid);
+	psc_unlock(psc);
+	status = SM_Get_SwitchPortCongestionSetting(fd, ((uint32_t)port_count)<<24, &addr, swPortSet);
+	psc_lock(psc);
 	if (status != VSTATUS_OK) {
 		IB_LOG_ERROR_FMT(__func__,
 			"Failed to get Switch Port Congestion Settings for NodeGUID "FMT_U64" [%s]; rc %d",

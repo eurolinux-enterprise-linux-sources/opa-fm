@@ -380,46 +380,54 @@ void PmPrintExceededPortDetailsIntegrity(PmPort_t *pmportp, PmPort_t *pmportneig
 		logMessage += strlen(logMessage);
 	}
 
-	IB_LOG_WARN_FMT(NULL, message);
+	IB_LOG_WARN_FMT(NULL, "%s", message);
 }
+
 void PmPrintExceededPortDetailsCongestion(PmPort_t *pmportp, PmPort_t *pmportneighborp, uint32 imageIndex, uint32 lastImageIndex)
 {
 	PmPortImage_t *portImage = &pmportp->Image[imageIndex];
 	PmPortImage_t *portImageNeighbor = (pmportneighborp ? &pmportneighborp->Image[imageIndex] : NULL);
-
 	char message[256] = {0};
 	char * logMessage = message;
 	int buffSpace = sizeof(message);
-
 	uint64 DeltaXmitData = GET_DELTA_COUNTER(PortXmitData);
-
-
 	uint64 DeltaXmitPkts = GET_DELTA_COUNTER(PortXmitPkts);
 	uint64 DeltaRcvPkts = GET_DELTA_COUNTER(PortRcvPkts);
 	uint64 DeltaXmitPkts_N = GET_NEIGHBOR_DELTA_COUNTER(PortXmitPkts);
-
 	uint64 DeltaXmitWait = GET_DELTA_COUNTER(PortXmitWait);
 	uint64 DeltaXmitTimeCong = GET_DELTA_COUNTER(PortXmitTimeCong);
 	uint64 DeltaRcvBECN = GET_DELTA_COUNTER(PortRcvBECN);
 	uint64 DeltaMarkFECN = GET_DELTA_COUNTER(PortMarkFECN);
 	uint64 DeltaRcvFECN_N = GET_NEIGHBOR_DELTA_COUNTER(PortRcvFECN);
 	uint64 DeltaSwPortCong = GET_DELTA_COUNTER(SwPortCongestion);
-
 	uint32 XmitWaitPct, XmitTimeCongPct;
 
-	{
-		/* Convert switch wait counter units from cycle time to flit time */
-		if (pmportp->pmnodep->nodeType == STL_NODE_SW) {
-			DeltaXmitWait = DeltaXmitWait * 2 *
-				(4 / StlLinkWidthToInt(portImage->u.s.txActiveWidth));
-			DeltaXmitTimeCong = DeltaXmitTimeCong * 2 *
-				(4 / StlLinkWidthToInt(portImage->u.s.txActiveWidth));
+	if (pm_config.process_vl_counters && DeltaXmitWait) {
+		/* If VlXmitWait counters are available, use worst VL to properly weight the
+		 * port-level counter to prevent low levels of congestion appearing as severe congestion.
+		 */
+		uint64_t MaxDeltaVLXmitWait = 0;
+		uint32_t i, vlmask = portImage->vlSelectMask;
+		for (i = 0; i < STL_MAX_VLS && vlmask; i++, vlmask >>= 1) {
+			if (vlmask & 0x1) {
+				UPDATE_MAX(MaxDeltaVLXmitWait, GET_DELTA_VLCOUNTER(PortVLXmitWait, vl_to_idx(i)));
+			}
 		}
-		XmitWaitPct = (uint32)(DeltaXmitWait ?
-			(DeltaXmitWait * 10000) / (DeltaXmitWait + DeltaXmitData) : 0);
-		XmitTimeCongPct = (uint32)(DeltaXmitTimeCong ?
-			(DeltaXmitTimeCong * 1000) / (DeltaXmitTimeCong + DeltaXmitData) : 0);
+		DeltaXmitWait = (uint64_t)((double)MaxDeltaVLXmitWait * (double)MaxDeltaVLXmitWait / (double)DeltaXmitWait);
 	}
+
+	/* Convert switch wait counter units from cycle time to flit time */
+	if (pmportp->pmnodep->nodeType == STL_NODE_SW) {
+		DeltaXmitWait = DeltaXmitWait * 2 *
+			(4 / StlLinkWidthToInt(portImage->u.s.txActiveWidth));
+		DeltaXmitTimeCong = DeltaXmitTimeCong * 2 *
+			(4 / StlLinkWidthToInt(portImage->u.s.txActiveWidth));
+	}
+	XmitWaitPct = (uint32)(DeltaXmitWait ?
+		(DeltaXmitWait * 10000) / (DeltaXmitWait + DeltaXmitData) : 0);
+	XmitTimeCongPct = (uint32)(DeltaXmitTimeCong ?
+		(DeltaXmitTimeCong * 1000) / (DeltaXmitTimeCong + DeltaXmitData) : 0);
+
 	uint32 RcvFECNPct = (uint32)(DeltaXmitPkts_N ?
 		(DeltaRcvFECN_N * 1000) / (DeltaXmitPkts_N) : 0);
 
@@ -459,8 +467,9 @@ void PmPrintExceededPortDetailsCongestion(PmPort_t *pmportp, PmPort_t *pmportnei
 		logMessage += strlen(logMessage);
 	}
 
-	IB_LOG_WARN_FMT(NULL, message);
+	IB_LOG_WARN_FMT(NULL, "%s", message);
 }
+
 void PmPrintExceededPortDetailsSmaCongestion(PmPort_t *pmportp, PmPort_t *pmportneighborp, uint32 imageIndex, uint32 lastImageIndex)
 {
 	PmPortImage_t *portImage = &pmportp->Image[imageIndex];
@@ -469,35 +478,29 @@ void PmPrintExceededPortDetailsSmaCongestion(PmPort_t *pmportp, PmPort_t *pmport
 	char message[256] = {0};
 	char * logMessage = message;
 	int buffSpace = sizeof(message);
-
-
 	uint64 DeltaVLXmitData = GET_DELTA_VLCOUNTER(PortVLXmitData, PM_VL15);
 	uint64 DeltaVLXmitPkts = GET_DELTA_VLCOUNTER(PortVLXmitPkts, PM_VL15);
 	uint64 DeltaVLRcvPkts = GET_DELTA_VLCOUNTER(PortVLRcvPkts, PM_VL15);
 	uint64 DeltaVLXmitPkts_N = GET_NEIGHBOR_DELTA_VLCOUNTER(PortVLXmitPkts, PM_VL15);
-
 	uint64 DeltaVLXmitWait = GET_DELTA_VLCOUNTER(PortVLXmitWait, PM_VL15);
 	uint64 DeltaVLXmitTimeCong = GET_DELTA_VLCOUNTER(PortVLXmitTimeCong, PM_VL15);
 	uint64 DeltaVLRcvBECN = GET_DELTA_VLCOUNTER(PortVLRcvBECN, PM_VL15);
 	uint64 DeltaVLMarkFECN = GET_DELTA_VLCOUNTER(PortVLMarkFECN, PM_VL15);
 	uint64 DeltaVLRcvFECN_N = GET_NEIGHBOR_DELTA_VLCOUNTER(PortVLRcvFECN, PM_VL15);
 	uint64 DeltaVLSwPortCong = GET_DELTA_VLCOUNTER(SwPortVLCongestion, PM_VL15);
-
 	uint32 VLXmitWaitPct, VLXmitTimeCongPct;
 
-	{
-		/* Convert switch wait counter units from cycle time to flit time */
-		if (pmportp->pmnodep->nodeType == STL_NODE_SW) {
-			DeltaVLXmitWait = DeltaVLXmitWait * 2 *
-				(4 / StlLinkWidthToInt(portImage->u.s.txActiveWidth));
-			DeltaVLXmitTimeCong = DeltaVLXmitTimeCong * 2 *
-				(4 / StlLinkWidthToInt(portImage->u.s.txActiveWidth));
-		}
-		VLXmitWaitPct = (uint32)(DeltaVLXmitWait ?
-			(DeltaVLXmitWait * 10000) / (DeltaVLXmitWait + DeltaVLXmitData) : 0);
-		VLXmitTimeCongPct = (uint32)(DeltaVLXmitTimeCong ?
-			(DeltaVLXmitTimeCong * 1000) / (DeltaVLXmitTimeCong + DeltaVLXmitData) : 0);
+	/* Convert switch wait counter units from cycle time to flit time */
+	if (pmportp->pmnodep->nodeType == STL_NODE_SW) {
+		DeltaVLXmitWait = DeltaVLXmitWait * 2 *
+			(4 / StlLinkWidthToInt(portImage->u.s.txActiveWidth));
+		DeltaVLXmitTimeCong = DeltaVLXmitTimeCong * 2 *
+			(4 / StlLinkWidthToInt(portImage->u.s.txActiveWidth));
 	}
+	VLXmitWaitPct = (uint32)(DeltaVLXmitWait ?
+		(DeltaVLXmitWait * 10000) / (DeltaVLXmitWait + DeltaVLXmitData) : 0);
+	VLXmitTimeCongPct = (uint32)(DeltaVLXmitTimeCong ?
+		(DeltaVLXmitTimeCong * 1000) / (DeltaVLXmitTimeCong + DeltaVLXmitData) : 0);
 
 	uint32 VLRcvFECNPct = (uint32)(DeltaVLXmitPkts_N ?
 		(DeltaVLRcvFECN_N * 1000) / (DeltaVLXmitPkts_N) : 0);
@@ -538,43 +541,39 @@ void PmPrintExceededPortDetailsSmaCongestion(PmPort_t *pmportp, PmPort_t *pmport
 		logMessage += strlen(logMessage);
 	}
 
-	IB_LOG_WARN_FMT(NULL, message);
+	IB_LOG_WARN_FMT(NULL, "%s", message);
 }
+
 void PmPrintExceededPortDetailsBubble(PmPort_t *pmportp, PmPort_t *pmportneighborp, uint32 imageIndex, uint32 lastImageIndex)
 {
 	PmPortImage_t *portImage = &pmportp->Image[imageIndex];
 	PmPortImage_t *portImageNeighbor = (pmportneighborp ? &pmportneighborp->Image[imageIndex] : NULL);
-
-
 	uint64 DeltaXmitData = GET_DELTA_COUNTER(PortXmitData);
 	uint64 DeltaRcvData_N = GET_NEIGHBOR_DELTA_COUNTER(PortRcvData);
-
 	uint64 DeltaXmitWastedBW = GET_DELTA_COUNTER(PortXmitWastedBW);
 	uint64 DeltaXmitWaitData = GET_DELTA_COUNTER(PortXmitWaitData);
 	uint64 DeltaRcvBubble_N = GET_NEIGHBOR_DELTA_COUNTER(PortRcvBubble);
 	uint64 DeltaXmitBubble = DeltaXmitWastedBW + DeltaXmitWaitData;
-
 	uint32 XmitBubblePct, RcvBubblePct;
 
-	{
-		/* Convert switch wait counter units from cycle time to flit time */
-		if (pmportp->pmnodep->nodeType == STL_NODE_SW) {
-			DeltaXmitBubble = DeltaXmitBubble * 2 *
-				(4 / StlLinkWidthToInt(portImage->u.s.txActiveWidth));
-		}
-		if (pmportneighborp && pmportneighborp->pmnodep->nodeType == STL_NODE_SW) {
-			DeltaRcvBubble_N = DeltaRcvBubble_N * 2 *
-				(4 / StlLinkWidthToInt(portImageNeighbor->u.s.txActiveWidth));
-		}
-		XmitBubblePct = (uint32)(DeltaXmitBubble ?
-			(DeltaXmitBubble * 10000) / (DeltaXmitData + DeltaXmitBubble) : 0);
-		RcvBubblePct = (uint32)(DeltaRcvBubble_N ?
-			(DeltaRcvBubble_N * 10000) / (DeltaRcvData_N + DeltaRcvBubble_N) : 0);
+	/* Convert switch wait counter units from cycle time to flit time */
+	if (pmportp->pmnodep->nodeType == STL_NODE_SW) {
+		DeltaXmitBubble = DeltaXmitBubble * 2 *
+			(4 / StlLinkWidthToInt(portImage->u.s.txActiveWidth));
 	}
+	if (pmportneighborp && pmportneighborp->pmnodep->nodeType == STL_NODE_SW) {
+		DeltaRcvBubble_N = DeltaRcvBubble_N * 2 *
+			(4 / StlLinkWidthToInt(portImageNeighbor->u.s.txActiveWidth));
+	}
+	XmitBubblePct = (uint32)(DeltaXmitBubble ?
+		(DeltaXmitBubble * 10000) / (DeltaXmitData + DeltaXmitBubble) : 0);
+	RcvBubblePct = (uint32)(DeltaRcvBubble_N ?
+		(DeltaRcvBubble_N * 10000) / (DeltaRcvData_N + DeltaRcvBubble_N) : 0);
 
 	IB_LOG_WARN_FMT(NULL, "WBW=%"PRIu64", TxWD=%"PRIu64", TxBbPct=%u, neighbor RxBb=%"PRIu64" neighbor RxBbPct=%u ",
 		DeltaXmitWastedBW, DeltaXmitWaitData, XmitBubblePct, DeltaRcvBubble_N, RcvBubblePct);
 }
+
 void PmPrintExceededPortDetailsSecurity(PmPort_t *pmportp, PmPort_t *pmportneighborp, uint32 imageIndex, uint32 lastImageIndex)
 {
 	PmPortImage_t *portImage = &pmportp->Image[imageIndex];
@@ -1148,13 +1147,12 @@ FSTATUS PmClearNodeRunningCounters(PmNode_t *pmnodep, CounterSelectMask_t select
 }
 
 FSTATUS PmClearPortRunningVFCounters(PmPort_t *pmportp, 
-					STLVlCounterSelectMask select, char *vfName)
+	STLVlCounterSelectMask select, int vfIdx, boolean useHiddenVF)
 {
 	PmCompositeVLCounters_t *pVLRunning;
 	PmPortImage_t *portImage = &pmportp->Image[g_pmSweepData.SweepIndex];
 	int vl = 0, j = 0;
-	boolean useHiddenVF = !strcmp(HIDDEN_VL15_VF, vfName);
-	int i = (useHiddenVF ? -1 : 0);
+	int i = (useHiddenVF ? -1 : vfIdx);
 	FSTATUS status = FNOT_FOUND | STL_MAD_STATUS_STL_PA_NO_VF;
 
 	pVLRunning = &pmportp->StlVLPortCountersTotal[0];
@@ -1162,30 +1160,25 @@ FSTATUS PmClearPortRunningVFCounters(PmPort_t *pmportp,
 #define CLEAR_SELECTED(counter) \
 	do { if (select.s.counter) pVLRunning[j].counter = 0; } while (0)
 
-	for (; i < (int)portImage->numVFs; i++) {
-		if ((i == -1) || (portImage->vfvlmap[i].pVF && !strcmp(portImage->vfvlmap[i].pVF->Name, vfName)) ) {
-			uint32 vlmask = (i == -1) ? 0x8000 : portImage->vfvlmap[i].vlmask;
-			for (vl = 0; vl < STL_MAX_VLS && vlmask; vl++, vlmask >>= 1) {
-				if ((vlmask & 0x1) == 0) continue;
-				j = vl_to_idx(vl);
-				CLEAR_SELECTED(PortVLXmitData);
-				CLEAR_SELECTED(PortVLRcvData);
-				CLEAR_SELECTED(PortVLXmitPkts);
-				CLEAR_SELECTED(PortVLRcvPkts);
-				CLEAR_SELECTED(PortVLXmitDiscards);
-				CLEAR_SELECTED(SwPortVLCongestion);
-				CLEAR_SELECTED(PortVLXmitWait);
-				CLEAR_SELECTED(PortVLRcvFECN);
-				CLEAR_SELECTED(PortVLRcvBECN);
-				CLEAR_SELECTED(PortVLXmitTimeCong);
-				CLEAR_SELECTED(PortVLXmitWastedBW);
-				CLEAR_SELECTED(PortVLXmitWaitData);
-				CLEAR_SELECTED(PortVLRcvBubble);
-				CLEAR_SELECTED(PortVLMarkFECN);
-				status = FSUCCESS;
-			}
-			break;
-		}
+	uint32 vlmask = (i == -1) ? 0x8000 : portImage->vfvlmap[i].vlmask;
+	for (vl = 0; vl < STL_MAX_VLS && vlmask; vl++, vlmask >>= 1) {
+		if ((vlmask & 0x1) == 0) continue;
+		j = vl_to_idx(vl);
+		CLEAR_SELECTED(PortVLXmitData);
+		CLEAR_SELECTED(PortVLRcvData);
+		CLEAR_SELECTED(PortVLXmitPkts);
+		CLEAR_SELECTED(PortVLRcvPkts);
+		CLEAR_SELECTED(PortVLXmitDiscards);
+		CLEAR_SELECTED(SwPortVLCongestion);
+		CLEAR_SELECTED(PortVLXmitWait);
+		CLEAR_SELECTED(PortVLRcvFECN);
+		CLEAR_SELECTED(PortVLRcvBECN);
+		CLEAR_SELECTED(PortVLXmitTimeCong);
+		CLEAR_SELECTED(PortVLXmitWastedBW);
+		CLEAR_SELECTED(PortVLXmitWaitData);
+		CLEAR_SELECTED(PortVLRcvBubble);
+		CLEAR_SELECTED(PortVLMarkFECN);
+		status = FSUCCESS;
 	}
 #undef CLEAR_SELECTED
 	return status;
@@ -1196,7 +1189,7 @@ FSTATUS PmClearPortRunningVFCounters(PmPort_t *pmportp,
 // have a history feature.
 // caller must have totalsLock held for write and imageLock held for read
 FSTATUS PmClearNodeRunningVFCounters(PmNode_t *pmnodep,
-					STLVlCounterSelectMask select, char *vfName)
+	STLVlCounterSelectMask select, int vfIdx, boolean useHiddenVF)
 {
 	FSTATUS status = FNOT_FOUND | STL_MAD_STATUS_STL_PA_NO_PORT;
 	if (pmnodep->nodeType == STL_NODE_SW) {
@@ -1205,10 +1198,10 @@ FSTATUS PmClearNodeRunningVFCounters(PmNode_t *pmnodep,
 		for (i=0; i<=pmnodep->numPorts; ++i) {
 			PmPort_t *pmportp = pmnodep->up.swPorts[i];
 			if (pmportp)
-				status |= PmClearPortRunningVFCounters(pmportp, select, vfName);
+				status |= PmClearPortRunningVFCounters(pmportp, select, vfIdx, useHiddenVF);
 		}
 		return status;
 	} else {
-		return PmClearPortRunningVFCounters(pmnodep->up.caPortp, select, vfName);
+		return PmClearPortRunningVFCounters(pmnodep->up.caPortp, select, vfIdx, useHiddenVF);
 	}
 }

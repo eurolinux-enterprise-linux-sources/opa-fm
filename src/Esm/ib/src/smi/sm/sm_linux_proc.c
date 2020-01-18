@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT7 ****************************************
 
-Copyright (c) 2015-2017, Intel Corporation
+Copyright (c) 2015-2018, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -91,7 +91,6 @@ extern void* getSmXmlParserMemory(uint32_t size, char* info);
 extern void freeSmXmlParserMemory(void *address, uint32_t size, char* info);
 extern Status_t initSmXmlMemoryPool(void);
 extern Status_t sm_parse_xml_config(void);
-extern Status_t handleVfDgMemory(void);
 extern Status_t sm_initialize_sm_pool(void);
 extern void smLogLevelOverride(void);
 
@@ -100,7 +99,11 @@ extern void smLogLevelOverride(void);
  */
 void sm_linux_signal_handler(int a) {
 	if (a == SIGHUP) {
-		sm_control_reconfig();
+		if (sm_state == SM_STATE_MASTER)
+			sm_control_reconfig();
+		else {
+			IB_LOG_WARN_FMT(__func__, "Reconfigure request ignored: SM is not master (%s)", sm_getStateText(sm_state));
+		}
 	}
 	else {
 		sm_control_shutdown(NULL);
@@ -119,7 +122,7 @@ main(int argc, char *argv[]) {
 	sm_starttime = time(NULL);
 
 	/* Set the default environment name. */
-	cs_strlcpy((void *)sm_env, "sm_0", sizeof(sm_env));
+	StringCopy((void *)sm_env, "sm_0", sizeof(sm_env));
 
 	// initialize XML memory pool here since we need it for XML parsing
 	status = initSmXmlMemoryPool();
@@ -156,19 +159,12 @@ main(int argc, char *argv[]) {
 		exit(1);
 	}
 
-	// Initialize SM memory pool so that we can allocate and copy sm_vfdg_config data
+	// Initialize SM memory pool so that we can allocate and copy dg_config data
 	// This parallels Esm_Init which also allocates the sm_pool early giving it the ability to
-	// allocate memory that will be used for the sm_vfdg_config copy from the xml_config
+	// allocate memory that will be used for the dg_config copy from the xml_config
 	status = sm_initialize_sm_pool();
 	if (status != VSTATUS_OK) {
 		printf("sm_initialize_sm_pool not successful; exiting\n");
-		exit(2);
-	}
-
-	// Allocate memory for and copy VF and DG information from xml config to sm_vfdg_config
-	status = handleVfDgMemory();
-	if (status != VSTATUS_OK) {
-		printf("handleVfDgMemory not successful; exiting\n");
 		exit(2);
 	}
 

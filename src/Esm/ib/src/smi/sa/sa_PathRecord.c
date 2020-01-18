@@ -132,12 +132,32 @@ sa_PathRecord(Mai_t *maip, sa_cntxt_t* sa_cntxt) {
 
 	IB_ENTER("sa_PathRecord", maip, 0, 0, 0);
 
-	if (cversion != SA_MAD_CVERSION) {
+	// Check Method
+	if (maip->base.method == SA_CM_GET) {
+		INCREMENT_COUNTER(smCounterSaRxGetPathRecord);
+	} else if (maip->base.method == SA_CM_GETTABLE) {
+		INCREMENT_COUNTER(smCounterSaRxGetTblPathRecord);
+	} else {
+		// Generate an error response and return.
+		maip->base.status = MAD_STATUS_BAD_METHOD;
+		IB_LOG_WARN_FMT(__func__, "invalid Method: %s (%u)",
+			cs_getMethodText(maip->base.method), maip->base.method);
+		(void)sa_send_reply(maip, sa_cntxt);
+		IB_EXIT(__func__, VSTATUS_OK);
+		return VSTATUS_OK;
+	}
+
+	// Check Base and Class Version
+	if (maip->base.bversion == IB_BASE_VERSION && maip->base.cversion == SA_MAD_CVERSION) {
+		// IB Path Records
+	} else {
+		// Generate an error response and return.
 		maip->base.status = MAD_STATUS_BAD_CLASS;
-		(void) sa_send_reply(maip, sa_cntxt);
-		IB_LOG_WARN("invalid CLASS:", cversion);
-		IB_EXIT("sa_PathRecord", VSTATUS_OK);
-		return (VSTATUS_OK);
+		IB_LOG_WARN_FMT(__func__, "invalid Base and/or Class Versions: Base %u, Class %u",
+			maip->base.bversion, maip->base.cversion);
+		(void)sa_send_reply(maip, sa_cntxt);
+		IB_EXIT(__func__, VSTATUS_OK);
+		return VSTATUS_OK;
 	}
 
 	//
@@ -150,21 +170,6 @@ sa_PathRecord(Mai_t *maip, sa_cntxt_t* sa_cntxt) {
 	//
 	(void)vs_rdlock(&old_topology_lock);
 	bytes = 0;
-
-	//
-	//	Check the basic assumptions.
-	//
-	if (maip->base.method != SA_CM_GET) {
-		if (maip->base.method != SA_CM_GETTABLE) {
-			maip->base.status = MAD_STATUS_SA_REQ_INVALID;
-			IB_LOG_WARN("sa_PathRecord: bad method:", maip->base.method);
-			goto reply_PathRecord;
-		} else {
-			INCREMENT_COUNTER(smCounterSaRxGetTblPathRecord);
-		}
-	} else {
-		INCREMENT_COUNTER(smCounterSaRxGetPathRecord);
-	}
 
 	//
 	//  Verify the size of the data received for the request
@@ -879,7 +884,7 @@ sa_PathRecord_Set(uint8_t * query, uint32_t* records, uint8_t cversion, uint32_t
 				status = VSTATUS_BAD;
 				goto done_PathRecordSet;
 			}
-			portno = sm_get_route(&old_topology, next_nodep, inPortNum, last_portp->portData->lid);
+			portno = sm_get_route(&old_topology, next_nodep, inPortNum, last_portp->portData->lid, 0);
 			if (portno == 255) {
 				/* PR#101984 - no path from this node for given Lid */
 				IB_LOG_WARN_FMT("sa_PathRecord_Set",
@@ -932,17 +937,20 @@ sa_PathRecord_Set(uint8_t * query, uint32_t* records, uint8_t cversion, uint32_t
 	//
 
 	VirtualFabrics_t *VirtualFabrics = old_topology.vfs_ptr;
+	uint32_t qos_idx;
 
 	for (vf=0; (vf = bitset_find_next_one(&vfs, vf)) != -1; vf++) {
 		if (VirtualFabrics->v_fabric_all[vf].standby) continue;
+
+		qos_idx = VirtualFabrics->v_fabric_all[vf].qos_index;
 
 		pkey = VirtualFabrics->v_fabric_all[vf].pkey; 
 		vfMtu = Min(mtu, VirtualFabrics->v_fabric_all[vf].max_mtu_int);
 		vfRate = linkrate_gt(rate, VirtualFabrics->v_fabric_all[vf].max_rate_int) ?
 			VirtualFabrics->v_fabric_all[vf].max_rate_int : rate;
-		lifeMult = (!VirtualFabrics->v_fabric_all[vf].pkt_lifetime_specified) ? 0 :
-			VirtualFabrics->v_fabric_all[vf].pkt_lifetime_mult;
-		sl = VirtualFabrics->v_fabric_all[vf].base_sl;
+		lifeMult = (!VirtualFabrics->qos_all[qos_idx].pkt_lifetime_specified) ? 0 :
+			VirtualFabrics->qos_all[qos_idx].pkt_lifetime_mult;
+		sl = VirtualFabrics->qos_all[qos_idx].base_sl;
 
 		//
 		// Check for other VFs sharing same pkey & sls (same path).
@@ -951,9 +959,11 @@ sa_PathRecord_Set(uint8_t * query, uint32_t* records, uint8_t cversion, uint32_t
 		for (vf2 = vf+1; (vf2 = bitset_find_next_one(&vfs, vf2)) != -1; vf2++) {
 			if (VirtualFabrics->v_fabric_all[vf2].standby) continue;
 
+			qos_idx = VirtualFabrics->v_fabric_all[vf2].qos_index;
+
 			if (PKEY_VALUE(pkey) != PKEY_VALUE(VirtualFabrics->v_fabric_all[vf2].pkey)) continue;
 
-			if (sl != VirtualFabrics->v_fabric_all[vf2].base_sl)
+			if (sl != VirtualFabrics->qos_all[qos_idx].base_sl)
 				continue;
 
 
@@ -963,9 +973,9 @@ sa_PathRecord_Set(uint8_t * query, uint32_t* records, uint8_t cversion, uint32_t
 			if (linkrate_gt(vfRate, VirtualFabrics->v_fabric_all[vf2].max_rate_int)) {
 				vfRate = VirtualFabrics->v_fabric_all[vf2].max_rate_int;
 			}
-			if (VirtualFabrics->v_fabric_all[vf2].pkt_lifetime_specified &&
-				lifeMult < VirtualFabrics->v_fabric_all[vf2].pkt_lifetime_mult) {
-				lifeMult = VirtualFabrics->v_fabric_all[vf2].pkt_lifetime_mult;
+			if (VirtualFabrics->qos_all[qos_idx].pkt_lifetime_specified &&
+				lifeMult < VirtualFabrics->qos_all[qos_idx].pkt_lifetime_mult) {
+				lifeMult = VirtualFabrics->qos_all[qos_idx].pkt_lifetime_mult;
 			}
 
 			// Clear vf so dual path not reported.

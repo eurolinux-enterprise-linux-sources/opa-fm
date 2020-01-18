@@ -460,6 +460,7 @@ static FSTATUS ParseIocGuidPoint(FabricData_t *fabricp, char *arg, Point *pPoint
 {
 	char *param;
 	EUI64 guid;
+	FSTATUS status;
 	
 	ASSERT(! PointValid(pPoint));
 	if (FSUCCESS != StringToUint64(&guid, arg, pp, 0, TRUE))  {
@@ -475,15 +476,10 @@ static FSTATUS ParseIocGuidPoint(FabricData_t *fabricp, char *arg, Point *pPoint
 	if (0 == (find_flag & FIND_FLAG_FABRIC))
 		return FINVALID_OPERATION;
 	if (find_flag & FIND_FLAG_FABRIC) {
-		IocData *iocp;
-		iocp = FindIocGuid(fabricp, guid);
-		if (iocp) {
-			pPoint->u.iocp = iocp;
-			pPoint->Type = POINT_TYPE_IOC;
-		}
+		status = FindIocGuid(fabricp, guid, pPoint);
 	}
 	// N/A for FIND_FLAG_ENODE, FIND_FLAG_ESM and FIND_FLAG_ELINK
-	if (PointValid(pPoint)) {
+	if (status == FSUCCESS) {
 		if (NULL != (param = ComparePrefix(*pp, ":port:"))) {
 			return ParsePointPort(fabricp, param, pPoint, find_flag, NULL, NULL, pp);
 		}
@@ -491,7 +487,7 @@ static FSTATUS ParseIocGuidPoint(FabricData_t *fabricp, char *arg, Point *pPoint
 	} else {
 		fprintf(stderr, "%s: IOC GUID Not Found: 0x%016"PRIx64"\n",
 						g_Top_cmdname, guid);
-		return FNOT_FOUND;
+		return status;
 	}
 }
 #endif
@@ -568,7 +564,7 @@ static FSTATUS ParseNodeNamePoint(FabricData_t *fabricp, char *arg, Point *pPoin
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Name, arg, p-arg);
+		StringCopy(Name, arg, sizeof(Name));
 		Name[p-arg] = '\0';
 		*pp = p;
 		arg = Name;
@@ -623,7 +619,7 @@ static FSTATUS ParseNodeNamePatPoint(FabricData_t *fabricp, char *arg, Point *pP
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Pattern, arg, p-arg);
+		StringCopy(Pattern, arg, sizeof(Pattern));
 		Pattern[p-arg] = '\0';
 		*pp = p;
 		arg = Pattern;
@@ -663,7 +659,7 @@ static FSTATUS ParseNodeDetPatPoint(FabricData_t *fabricp, char *arg, Point *pPo
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Pattern, arg, p-arg);
+		StringCopy(Pattern, arg, sizeof(Pattern));
 		Pattern[p-arg] = '\0';
 		*pp = p;
 		arg = Pattern;
@@ -770,7 +766,7 @@ static FSTATUS ParseIocNamePoint(FabricData_t *fabricp, char *arg, Point *pPoint
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Name, arg, p-arg);
+		StringCopy(Name, arg, sizeof(Name));
 		Name[p-arg] = '\0';
 		*pp = p;
 		arg = Name;
@@ -809,7 +805,7 @@ static FSTATUS ParseIocNamePatPoint(FabricData_t *fabricp, char *arg, Point *pPo
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Pattern, arg, p-arg);
+		StringCopy(Pattern, arg, sizeof(Pattern));
 		Pattern[p-arg] = '\0';
 		*pp = p;
 		arg = Pattern;
@@ -851,7 +847,7 @@ static FSTATUS ParseIocTypePoint(FabricData_t *fabricp, char *arg, Point *pPoint
 			return FINVALID_PARAMETER;
 		}
 		len = (int)(p-arg);
-		strncpy(Type, arg, len);
+		StringCopy(Type, arg, sizeof(Type));
 		Type[len] = '\0';
 		*pp = p;
 		arg = Type;
@@ -903,7 +899,7 @@ static FSTATUS ParseRatePoint(FabricData_t *fabricp, char *arg, Point *pPoint, u
 			return FINVALID_PARAMETER;
 		}
 		len = (int)(p-arg);
-		strncpy(Rate, arg, len);
+		StringCopy(Rate, arg, sizeof(Rate));
 		Rate[len] = '\0';
 		*pp = p;
 		arg = Rate;
@@ -959,7 +955,7 @@ static FSTATUS ParseLedPoint(FabricData_t *fabricp, char *arg, Point *pPoint, ui
 			return FINVALID_PARAMETER;
 		}
 		len = (int)(p-arg);
-		strncpy(LedState, arg, len);
+		StringCopy(LedState, arg, sizeof(LedState));
 		LedState[len] = '\0';
 		*pp = p;
 		arg = LedState;
@@ -1005,7 +1001,7 @@ static FSTATUS ParsePortStatePoint(FabricData_t *fabricp, char *arg, Point *pPoi
 			return FINVALID_PARAMETER;
 		}
 		len = (int)(p-arg);
-		strncpy(State, arg, len);
+		StringCopy(State, arg, sizeof(State));
 		State[len] = '\0';
 		*pp = p;
 		arg = State;
@@ -1057,7 +1053,7 @@ static FSTATUS ParsePortPhysStatePoint(FabricData_t *fabricp, char *arg, Point *
 			return FINVALID_PARAMETER;
 		}
 		len = (int)(p-arg);
-		strncpy(PhysState, arg, len);
+		StringCopy(PhysState, arg, sizeof(PhysState));
 		PhysState[len] = '\0';
 		*pp = p;
 		arg = PhysState;
@@ -1128,7 +1124,7 @@ static FSTATUS ParseCableLabelPatPoint(FabricData_t *fabricp, char *arg, Point *
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Pattern, arg, p-arg);
+		StringCopy(Pattern, arg, sizeof(Pattern));
 		Pattern[p-arg] = '\0';
 		*pp = p;
 		arg = Pattern;
@@ -1160,7 +1156,7 @@ static FSTATUS ParseCableLenPatPoint(FabricData_t *fabricp, char *arg, Point *pP
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Pattern, arg, p-arg);
+		StringCopy(Pattern, arg, sizeof(Pattern));
 		Pattern[p-arg] = '\0';
 		*pp = p;
 		arg = Pattern;
@@ -1192,7 +1188,7 @@ static FSTATUS ParseCableDetailsPatPoint(FabricData_t *fabricp, char *arg, Point
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Pattern, arg, p-arg);
+		StringCopy(Pattern, arg, sizeof(Pattern));
 		Pattern[p-arg] = '\0';
 		*pp = p;
 		arg = Pattern;
@@ -1224,7 +1220,7 @@ static FSTATUS ParseCabinfLenPatPoint(FabricData_t *fabricp, char *arg, Point *p
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Pattern, arg, p-arg);
+		StringCopy(Pattern, arg, sizeof(Pattern));
 		Pattern[p-arg] = '\0';
 		*pp = p;
 		arg = Pattern;
@@ -1254,7 +1250,7 @@ static FSTATUS ParseCabinfVendNamePatPoint(FabricData_t *fabricp, char *arg, Poi
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Pattern, arg, p-arg);
+		StringCopy(Pattern, arg, sizeof(Pattern));
 		Pattern[p-arg] = '\0';
 		*pp = p;
 		arg = Pattern;
@@ -1284,7 +1280,7 @@ static FSTATUS ParseCabinfVendPNPatPoint(FabricData_t *fabricp, char *arg, Point
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Pattern, arg, p-arg);
+		StringCopy(Pattern, arg, sizeof(Pattern));
 		Pattern[p-arg] = '\0';
 		*pp = p;
 		arg = Pattern;
@@ -1314,7 +1310,7 @@ static FSTATUS ParseCabinfVendRevPatPoint(FabricData_t *fabricp, char *arg, Poin
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Pattern, arg, p-arg);
+		StringCopy(Pattern, arg, sizeof(Pattern));
 		Pattern[p-arg] = '\0';
 		*pp = p;
 		arg = Pattern;
@@ -1344,7 +1340,7 @@ static FSTATUS ParseCabinfVendSNPatPoint(FabricData_t *fabricp, char *arg, Point
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Pattern, arg, p-arg);
+		StringCopy(Pattern, arg, sizeof(Pattern));
 		Pattern[p-arg] = '\0';
 		*pp = p;
 		arg = Pattern;
@@ -1377,7 +1373,7 @@ static FSTATUS ParseCabinfCableTypePoint(FabricData_t *fabricp, char *arg, Point
 			fprintf(stderr, "%s: Available Cable Types are: optical, passive_copper, active_copper and unknown.\n",g_Top_cmdname);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(cabletype, arg, p-arg);
+		StringCopy(cabletype, arg, sizeof(cabletype));
 		cabletype[p-arg] = '\0';
 		*pp = p;
 		arg = cabletype;
@@ -1419,7 +1415,7 @@ static FSTATUS ParseLinkDetailsPatPoint(FabricData_t *fabricp, char *arg, Point 
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Pattern, arg, p-arg);
+		StringCopy(Pattern, arg, sizeof(Pattern));
 		Pattern[p-arg] = '\0';
 		*pp = p;
 		arg = Pattern;
@@ -1451,7 +1447,7 @@ static FSTATUS ParsePortDetailsPatPoint(FabricData_t *fabricp, char *arg, Point 
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Pattern, arg, p-arg);
+		StringCopy(Pattern, arg, sizeof(Pattern));
 		Pattern[p-arg] = '\0';
 		*pp = p;
 		arg = Pattern;
@@ -1506,7 +1502,7 @@ static FSTATUS ParseSmDetailsPatPoint(FabricData_t *fabricp, char *arg, Point *p
 							g_Top_cmdname, (int)(p-arg), arg);
 			return FINVALID_PARAMETER;
 		}
-		strncpy(Pattern, arg, p-arg);
+		StringCopy(Pattern, arg, sizeof(Pattern));
 		Pattern[p-arg] = '\0';
 		*pp = p;
 		arg = Pattern;

@@ -1,6 +1,6 @@
 Name: opa-fm
 Epoch: 1
-Version: 10.7.0.0.141
+Version: 10.9.0.0.204
 Release: 1%{?dist}
 Summary: Intel Omni-Path Fabric Management Software
 
@@ -11,13 +11,15 @@ Url: https://github.com/01org/opa-fm
 # git clone https://github.com/01org/opa-fm.git
 # cd opa-fm
 # git archive --format=tar --prefix=opa-fm-%{version}/ \
-# ea3548c1fceea2be961387bffaf23e139aa44e0b | xz > opa-fm-%{version}.tar.xz
+# d6ef451205996ba48a72a0a68ef674e002099e53 | xz > opa-fm-%{version}.tar.xz
 Source0: %{name}-%{version}.tar.xz
+Source2:	opa-fm.ini
 
 # bz1262327 needs Patch0002
 Patch0002: 0001-Fix-well-known-tempfile-issue-in-script.patch
+Patch3:	opa-fm_add_dist_to_list.patch
 
-BuildRequires: openssl-devel, expat-devel
+BuildRequires: openssl-devel, expat-devel, python, gcc
 BuildRequires: libibverbs-devel >= 1.2.0
 BuildRequires: libibumad-devel
 Requires(post): systemd
@@ -34,6 +36,7 @@ Fabric Executive, and some fabric management tools.
 %prep
 %setup -q
 %patch0002 -p1
+%patch3 -p1
 
 # Make it possible to override hardcoded compiler flags
 sed -i -r -e 's/(release_C(C)?OPT_Flags\s*)=/\1?=/' Makerules/Target.LINUX.GNU.*
@@ -65,16 +68,29 @@ chmod a-x %{buildroot}/%{_prefix}/share/opa-fm/opafm_src.xml
 %doc Esm/README
 %{_unitdir}/opafm.service
 %config(noreplace) %{_sysconfdir}/opa-fm/opafm.xml
+%config(noreplace) %{_sysconfdir}/opa-fm/opafm_pp.xml
+%{_sysconfdir}/opa-fm/vfs
+%{_sysconfdir}/opa-fm/dgs
 %{_prefix}/lib/opa-fm/bin/*
 %{_prefix}/lib/opa-fm/runtime/*
 %{_prefix}/share/opa-fm/*
-%{_prefix}/lib/opa/.comp_opafm.pl
 %{_sbindir}/opafmcmd
 %{_sbindir}/opafmcmdall
+%{_sbindir}/opafmconfigpp
 %{_mandir}/man8/*
 
 
 %changelog
+* Thu Aug 08 2019 Scientific Linux Auto Patch Process <SCIENTIFIC-LINUX-DEVEL@LISTSERV.FNAL.GOV>
+- Added Patch: opa-fm_add_dist_to_list.patch
+-->  Detect SL is an EL
+- Added Source: opa-fm.ini
+-->  Config file for automated patch script
+
+* Wed Jan 30 2019 Honggang Li <honli@redhat.com> - 10.9.0.0.204-1
+- Rebase to upstream release 10.9.0.0.204
+- Resolves: bz1637241
+
 * Thu Apr 19 2018 Honggang Li <honli@redhat.com> - 10.7.0.0.141-1
 - Rebase to upstream release 10.7.0.0.141
 - Resolves: bz1483559
