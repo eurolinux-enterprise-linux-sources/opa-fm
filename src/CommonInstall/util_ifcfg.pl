@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 ## BEGIN_ICS_COPYRIGHT8 ****************************************
 # 
-# Copyright (c) 2015, Intel Corporation
+# Copyright (c) 2015-2017, Intel Corporation
 # 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -43,6 +43,7 @@ use strict;
 # used for IPoIB at present but generalized so could support VNIC or
 # iPathEther also
 
+my $FirstIPoIBInterface=0; # first device is ib0
 my $MAX_HFI_PORTS=20;	# maximum valid ports
 
 # Validate the passed in IP address (or netmask).
@@ -624,11 +625,6 @@ sub Remove_ifcfg($$$)
 	my($WhichDriver) = shift();	# driver name
 	my($compname) = shift();
 	my($prefix) = shift();
-
-	if (IsModuleLoaded("$WhichDriver") == 1) 
-	{
-		print "Warning: '$WhichDriver' module still loaded? continuing...\n";
-	}
 
 	# This could be an 'update' where we might not want to clobber the
 	# IPoIB config files.

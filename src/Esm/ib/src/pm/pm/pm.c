@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT5 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -51,8 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "sm_l.h"
 #include "sm_dbsync.h"
 #include "pm_topology.h"
-#include "iba/ib_pa.h"
-#include "iba/stl_pa.h"
+#include "iba/stl_pa_priv.h"
 
 #ifdef __LINUX__
 #define static
@@ -113,12 +112,12 @@ static uint8_t  *gdata;
 uint32_t 		pm_engineDebug = 0;
 
 // XM config consistency checking
-uint32_t        pm_overall_checksum = 0;
-uint32_t        pm_consistency_checksum = 0;
+uint32_t    pm_overall_checksum = 0;
+uint32_t    pm_consistency_checksum = 0;
 
 uint32_t		pm_master_consistency_check_level = DEFAULT_CCC_LEVEL;
 uint32_t		sm_master_consistency_check_level = DEFAULT_CCC_LEVEL;
-int             pm_inconsistency_posted = FALSE;
+int		        pm_inconsistency_posted = FALSE;
 
 #define EXIT(a) exit (a)
 
@@ -379,9 +378,9 @@ Status_t doRegisterPM(uint8_t masterPm)
     uint32_t rc;
     uint64_t lease;
     uint16_t flags;
-    uint8_t pmState = (masterPm) ? PM_MASTER : PM_STANDBY;
-    uint64_t pmSrvId = (masterPm) ? PM_SERVICE_ID : PM_SERVICE_ID_SEC;
-    char *pmSrvNm = (masterPm) ? PM_SERVICE_NAME : PM_SERVICE_NAME_SEC;
+    uint8_t pmState = (masterPm) ? STL_PM_MASTER : STL_PM_STANDBY;
+    uint64_t pmSrvId = (masterPm) ? STL_PM_SERVICE_ID : STL_PM_SERVICE_ID_SEC;
+    char *pmSrvNm = (masterPm) ? STL_PM_SERVICE_NAME : STL_PM_SERVICE_NAME_SEC;
 
 
     lease = 2 * pm_interval;
@@ -391,7 +390,7 @@ Status_t doRegisterPM(uint8_t masterPm)
 	vs_unlock(&smRecords.smLock);
 
     BuildRecord(&pmServRer, (void *)pmSrvNm, pmSrvId, flags, lease,
-			    PmEngineRunning() ? PM_VERSION : 0,
+			    PmEngineRunning() ? STL_PM_VERSION : 0,
 				PmEngineRunning() ? pmState : 0);
     rc = vfi_mngr_register(pm_fd, vfi_mclass, VFI_DEFAULT_GUID, &pmServRer,
                            VFI_SVRREC_GID | VFI_SVREC_NAME | VFI_SVRREC_ID, VFI_REGFORCE_FABRIC);
@@ -399,7 +398,8 @@ Status_t doRegisterPM(uint8_t masterPm)
     if (rc != VSTATUS_OK) {
         char msg[100];
 
-        sprintf(msg, "Registration as %s did not succeed rc:", (masterPm) ? "MASTER" : "STANDBY");
+        snprintf(msg, sizeof(msg), "Registration as %s did not succeed rc:", (masterPm) ? "MASTER" : "STANDBY");
+        msg[sizeof(msg)-1] = 0;
         IB_LOG_VERBOSERC(msg, rc);
         return rc;
     }
@@ -429,7 +429,7 @@ registerPM(void)
 
     memset((void *)&pmServRer, 0, sizeof(pmServRer));
     memset((void *)&pathr[0], 0, sizeof(pathr));
-    BuildRecord(&pmServRer, (void *)PM_SERVICE_NAME, PM_SERVICE_ID, flags, lease, PM_VERSION, PM_MASTER);
+    BuildRecord(&pmServRer, (void *)STL_PM_SERVICE_NAME, STL_PM_SERVICE_ID, flags, lease, STL_PM_VERSION, STL_PM_MASTER);
 
     rc = vfi_mngr_find_cmp(pm_fd, vfi_mclass,
                            VFI_LMC_BASELID, &pmServRer,
@@ -464,7 +464,7 @@ registerPM(void)
 		pm_inconsistency_posted = FALSE;
 
     sguid = pm_config.port_guid;
-	dguid = ntoh64(*(uint64_t *)(pmServRer.RID.ServiceGID.Raw + 8));
+	dguid = pmServRer.RID.ServiceGID.Type.Global.InterfaceID;
 
     if (IB_LOG_IS_INTERESTED(VS_LOG_VERBOSE)) {
         IB_LOG_VERBOSE("Our      PRI = ", pm_config.priority);
@@ -472,7 +472,7 @@ registerPM(void)
         IB_LOG_VERBOSELX("source      GUID ", sguid);
         IB_LOG_VERBOSELX("destination GUID ", dguid);
     }
-    memset((void *)&pmServRer, 0, sizeof(ServiceRecord_t));
+    memset((void *)&pmServRer, 0, sizeof(pmServRer));
 
     if (dguid == 0) {
         IB_LOG_ERROR0("existing PM is invalid! SA query must have failed");
@@ -595,7 +595,7 @@ pm_compute_pool_size(void)
 		// Allocate space for all history records
 		// check that imagesPerComposite isn't 0
 		if (pm_config.shortTermHistory.imagesPerComposite == 0) 
-			IB_FATAL_ERROR("Invalid Short Term History configuration, imagesPerComposite must not be 0");
+			IB_FATAL_ERROR_NODUMP("Invalid Short Term History configuration, imagesPerComposite must not be 0");
 		g_pmPoolSize +=
 			sizeof(PmHistoryRecord_t)*((3600*pm_config.shortTermHistory.totalHistory)/(pm_config.shortTermHistory.imagesPerComposite*pm_config.sweep_interval))
 			// also allocate space for the 'current' composite and the 'cached' composite
@@ -682,7 +682,7 @@ pm_main()
 	// for CAL_IBACCESS, this call just returns values, does not open IbAccess
 	status = ib_init_devport(&pm_config.hca, &pm_config.port, &pm_config.port_guid);
 	if (status != VSTATUS_OK)
-		IB_FATAL_ERROR("sm_main: Failed to bind to device; terminating");
+		IB_FATAL_ERROR_NODUMP("pm_main: Failed to bind to device; terminating");
 #endif
 
     // register PM with the OFED stack
@@ -691,7 +691,7 @@ pm_main()
         IB_LOG_ERRORRC("Failed to register management classes, rc:", rc);
         goto bail;
 #else
-		IB_FATAL_ERROR("Failed to register management classes; terminating");
+		IB_FATAL_ERROR_NODUMP("Failed to register management classes; terminating");
 #endif
        }
 		{
@@ -711,7 +711,7 @@ pm_main()
 #endif
 		}
 
-       /* Allocatations */
+       /* Allocations */
        status = vs_pool_create(&pm_pool, 0, (void *)"pm_pool", NULL, g_pmPoolSize);
        if (status != VSTATUS_OK) {
            IB_LOG_ERRORRC("Failed to create PM pool rc:", status);
@@ -931,34 +931,34 @@ pm_main()
                    "Received cmd 0x%.8x  insize %d", cmd, insize);
             switch (cmd)
             {
-	    	case PA_ATTRID_GET_CLASSPORTINFO:
-	    	case PA_ATTRID_GET_GRP_CFG:
-	    	case PA_ATTRID_GET_GRP_INFO:
-	    	case PA_ATTRID_GET_GRP_LIST:
-	    	case PA_ATTRID_GET_PORT_CTRS:
-	    	case PA_ATTRID_CLR_PORT_CTRS:
-	    	case PA_ATTRID_CLR_ALL_PORT_CTRS:
-	    	case PA_ATTRID_GET_PM_CONFIG:
-	    	case PA_ATTRID_FREEZE_IMAGE:
-	    	case PA_ATTRID_RELEASE_IMAGE:
-	    	case PA_ATTRID_RENEW_IMAGE:
-	    	case PA_ATTRID_GET_FOCUS_PORTS:
-	    	case PA_ATTRID_GET_IMAGE_INFO:
-	    	case PA_ATTRID_MOVE_FREEZE_FRAME:
-	    	case STL_PA_ATTRID_GET_VF_LIST:
-	    	case STL_PA_ATTRID_GET_VF_INFO:
-	    	case STL_PA_ATTRID_GET_VF_CONFIG:
-	    	case STL_PA_ATTRID_GET_VF_PORT_CTRS:
-	    	case STL_PA_ATTRID_CLR_VF_PORT_CTRS:
-	    	case STL_PA_ATTRID_GET_VF_FOCUS_PORTS:
+			case STL_PA_ATTRID_GET_CLASSPORTINFO:
+			case STL_PA_ATTRID_GET_GRP_CFG:
+			case STL_PA_ATTRID_GET_GRP_INFO:
+			case STL_PA_ATTRID_GET_GRP_LIST:
+			case STL_PA_ATTRID_GET_PORT_CTRS:
+			case STL_PA_ATTRID_CLR_PORT_CTRS:
+			case STL_PA_ATTRID_CLR_ALL_PORT_CTRS:
+			case STL_PA_ATTRID_GET_PM_CONFIG:
+			case STL_PA_ATTRID_FREEZE_IMAGE:
+			case STL_PA_ATTRID_RELEASE_IMAGE:
+			case STL_PA_ATTRID_RENEW_IMAGE:
+			case STL_PA_ATTRID_GET_FOCUS_PORTS:
+			case STL_PA_ATTRID_GET_IMAGE_INFO:
+			case STL_PA_ATTRID_MOVE_FREEZE_FRAME:
+			case STL_PA_ATTRID_GET_VF_LIST:
+			case STL_PA_ATTRID_GET_VF_INFO:
+			case STL_PA_ATTRID_GET_VF_CONFIG:
+			case STL_PA_ATTRID_GET_VF_PORT_CTRS:
+			case STL_PA_ATTRID_CLR_VF_PORT_CTRS:
+			case STL_PA_ATTRID_GET_VF_FOCUS_PORTS:
+			case STL_PA_ATTRID_GET_FOCUS_PORTS_MULTISELECT:
+			case STL_PA_ATTRID_GET_GRP_NODE_INFO:
+			case STL_PA_ATTRID_GET_GRP_LINK_INFO:
 				break;
 
-		      default:
-			  {
-			      IB_LOG_ERROR("Unknown command:",cmd);
-			  }
-
-            }  // end switch on CMD
+			default:
+				IB_LOG_ERROR("Unknown command:", cmd);
+			}  // end switch on CMD
 
 		} // end case VSTATUS_OK
 		break;

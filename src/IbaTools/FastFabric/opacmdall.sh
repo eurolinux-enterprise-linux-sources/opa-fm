@@ -1,7 +1,7 @@
 #!/bin/bash
 # BEGIN_ICS_COPYRIGHT8 ****************************************
 # 
-# Copyright (c) 2015, Intel Corporation
+# Copyright (c) 2015-2017, Intel Corporation
 # 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -91,7 +91,7 @@ Usage_full()
 	echo "  Operations on chassis" >&2
 	echo "   opacmdall -C 'ismPortStats -noprompt'" >&2
 	echo "   opacmdall -C -H 'chassis1 chassis2' 'ismPortStats -noprompt'" >&2
-	echo "   CHASSIS='chassis1 chassis2' opacmdall 'ismPortStats -noprompt'" >&2
+	echo "   CHASSIS='chassis1 chassis2' opacmdall -C 'ismPortStats -noprompt'" >&2
 	exit 0
 }
 

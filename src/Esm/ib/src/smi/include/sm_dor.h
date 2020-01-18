@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT2 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -87,6 +87,9 @@ typedef struct  _DorTopology {
 	// contiguous within these bounds
 	int8_t coordMaximums[SM_DOR_MAX_DIMENSIONS];
 	int8_t coordMinimums[SM_DOR_MAX_DIMENSIONS];
+	// keep track of coords measured in mesh dimension
+	int8_t measuredMaximums[SM_DOR_MAX_DIMENSIONS];
+	int8_t measuredMinimums[SM_DOR_MAX_DIMENSIONS];
 	// for each dimension, true if toroidal
 	uint8_t toroidal[SM_DOR_MAX_DIMENSIONS];
 	// the configured number of toroidal dimensions

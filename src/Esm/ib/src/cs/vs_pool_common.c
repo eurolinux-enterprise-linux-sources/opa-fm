@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT5 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -49,10 +49,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 * DKJ       03/26/02    LINT cleanup
 * DKJ       04/01/02    PR1676. OS API 2.0g updates
 ***********************************************************************/
-#if defined (LINT) || defined (_lint)
-#include <bits/sigset.h>
-#include <stdlib.h>
-#endif
 #include <cs_g.h>
 #include "cs_log.h"
 #define function __FUNCTION__

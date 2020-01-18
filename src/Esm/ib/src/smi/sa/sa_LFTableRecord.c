@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT5 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -126,7 +126,7 @@ sa_LFTableRecord(Mai_t *maip, sa_cntxt_t* sa_cntxt ) {
 
 Status_t
 sa_LFTableRecord_Set(uint8_t *lftp, Node_t *nodep, Port_t *portp, uint16_t index) {
-	Lid_t		    lid;
+	STL_LID		    lid;
 	Port_t          *lftPortp;
 	uint32_t		length;
 	STL_LINEAR_FORWARDING_TABLE_RECORD lftRecord;
@@ -179,7 +179,7 @@ sa_LFTableRecord_GetTable(Mai_t *maip, uint32_t *records) {
 	STL_SA_MAD		samad;
 	Status_t	status;
 	bool_t		checkLid;
-	uint16_t	portZeroLid = 0;
+	STL_LID		portZeroLid = 0;
 
 	IB_ENTER("sa_LFTableRecord_GetTable", maip, *records, 0, 0);
 

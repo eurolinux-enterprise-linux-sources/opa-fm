@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT7 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -55,9 +55,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mai_g.h"
 #include "sm_l.h"
 #include "sa_l.h"
-//#include "if3.h"
-//#include "if3_def.h"
-//#include "cs_queue.h"
 #include "sm_dbsync.h"
 #include "time.h"
 #ifdef __VXWORKS__
@@ -188,15 +185,15 @@ void sm_dbsync_initSmRec(SmRecp smrecp) {
 	/* fill in the XML consistency check version and clear data */
 	smrecp->dbsyncCCC.protocolVersion = FM_PROTOCOL_VERSION;
 	smrecp->dbsyncCCC.smVfChecksum = smrecp->dbsyncCCC.smConfigChecksum = 0;
-	smrecp->dbsyncCCC.pmConfigChecksum = smrecp->dbsyncCCC.feConfigChecksum = 0;
+	smrecp->dbsyncCCC.pmConfigChecksum = 0;
 	smrecp->dbsyncCCC.spare1 = smrecp->dbsyncCCC.spare2 = smrecp->dbsyncCCC.spare3 = smrecp->dbsyncCCC.spare4 = 0;
-	smrecp->dbsyncCCC.spare5 = smrecp->dbsyncCCC.spare6 = smrecp->dbsyncCCC.spare7 = smrecp->dbsyncCCC.spare8 = 0;
+	smrecp->dbsyncCCC.spare5 = smrecp->dbsyncCCC.spare6 = smrecp->dbsyncCCC.spare7 = 0;
 }
 
 /*
  * send sync request on sync queue to db_sync thread
 */
-void sm_dbsync_queueMsg(DBSyncType_t syncType, DBSyncDatTyp_t syncDataTye, Lid_t lid, Guid_t portguid, uint8_t isEmbedded, SMSyncData_t data) {
+void sm_dbsync_queueMsg(DBSyncType_t syncType, DBSyncDatTyp_t syncDataTye, STL_LID lid, Guid_t portguid, uint8_t isEmbedded, SMSyncData_t data) {
     SMSyncReqp      srp;
     Status_t        status;
 
@@ -286,7 +283,7 @@ sm_dbsync_addSm(Node_t *nodep, Port_t * portp, STL_SMINFO_RECORD *sminforec)
         if ((smrecp = (SmRecp) malloc(sizeof(SmRec_t))) == NULL) {
             (void)vs_unlock(&smRecords.smLock);
             free(smreckeyp);
-            IB_FATAL_ERROR("sm_dbsync_addSm: Can't allocate SM Record table entry");
+            IB_FATAL_ERROR_NODUMP("sm_dbsync_addSm: Can't allocate SM Record table entry");
             IB_EXIT(__func__, VSTATUS_NOMEM);
             return;
         }
@@ -316,7 +313,7 @@ sm_dbsync_addSm(Node_t *nodep, Port_t * portp, STL_SMINFO_RECORD *sminforec)
         if (!cs_hashtable_insert(smRecords.smMap, smreckeyp, smrecp)) {
             (void)vs_unlock(&smRecords.smLock);
             IB_LOG_ERROR_FMT(__func__, 
-                   "Failed to ADD SM record at portGuid "FMT_U64", lid 0x%.4X to SM record table",
+                   "Failed to ADD SM record at portGuid "FMT_U64", lid 0x%.8X to SM record table",
                    *smreckeyp, sminforec->RID.LID);
             free(smrecp);
             free(smreckeyp);
@@ -771,13 +768,6 @@ Status_t sm_dbsync_configCheck(SmRecKey_t recKey, SMDBCCCSyncp smSyncSetting) {
 					condition = CSM_COND_SECONDARY_PM_DEACTIVATION;
 					smrecp->syncCapability = DBSYNC_CAP_NOTSUPPORTED;
 				}
-				if (smSyncSetting->feConfigChecksum != smRecords.ourChecksums.feConfigChecksum) {
-					IB_LOG_WARN_FMT(__func__,
-						"SM at %s, portGuid="FMT_U64" detected a different FE configuration consistency checksum [%u] from us [%u]",
-						smrecp->nodeDescString, recKey, smSyncSetting->feConfigChecksum, smRecords.ourChecksums.feConfigChecksum);
-
-					mismatchDetected = 1;
-				}
 
 				if (mismatchDetected) {
 					IB_LOG_WARN_FMT(__func__,
@@ -789,7 +779,7 @@ Status_t sm_dbsync_configCheck(SmRecKey_t recKey, SMDBCCCSyncp smSyncSetting) {
 						sm_dbsync_disableStandbySm(smrecp, condition); 
 					else {
 						IB_LOG_WARN_FMT(__func__,
-										"Skipping DEACTIVATION of standby SM %s : "FMT_U64"; consistency check level not set",
+										"Skipping DEACTIVATION of standby SM %s : "FMT_U64" consistency check level not set",
 										smrecp->nodeDescString, recKey);
 					}
 				}
@@ -820,7 +810,8 @@ Status_t sm_dbsync_disableStandbySm(SmRecp smRecp, SmCsmMsgCondition_t condition
 
 	smRecp->configDiff = 1;
 	smInfoCopy = sm_smInfo;
-	status = SM_Set_SMInfo(fd_dbsync, SM_AMOD_DISABLE, smRecp->path, &smInfoCopy, sm_config.mkey);
+	SmpAddr_t addr = SMP_ADDR_CREATE_DR(smRecp->path);
+	status = SM_Set_SMInfo(fd_dbsync, SM_AMOD_DISABLE, &addr, &smInfoCopy, sm_config.mkey);
 	if (status != VSTATUS_OK) {
 		IB_LOG_WARN_FMT(__func__,
 						"could not DEACTIVATE standby SM %s : "FMT_U64"",
@@ -926,7 +917,7 @@ Status_t sm_dbsync_upsmlist(void) {
     Port_t          *portp=NULL;
 	uint32_t		moreEntries;
     Status_t        status=VSTATUS_OK;
-	InformRecordp	iRecordp = NULL;
+	STL_INFORM_INFO_RECORD	*iRecordp = NULL;
     SubscriberKeyp  subsKeyp = NULL;
 	OpaServiceRecord_t	*osrp;
     ServiceRecKeyp  srkeyp;
@@ -1064,7 +1055,7 @@ Status_t sm_dbsync_upsmlist(void) {
                     moreEntries = cs_hashtable_iterator_remove(&itr);
                     IB_LOG_INFO_FMT(__func__,
                            "Deleted subscription record ID 0x%x for GID="FMT_GID, 
-                           iRecordp->id, ntoh64(*(uint64_t *)&subsKeyp->subscriberGid[0]), 
+                           iRecordp->RID.Enum, ntoh64(*(uint64_t *)&subsKeyp->subscriberGid[0]), 
                            ntoh64(*(uint64_t *)&subsKeyp->subscriberGid[8]));
                     free(iRecordp);
                 } else {
@@ -1126,7 +1117,7 @@ Status_t sm_dbsync_upsmlist(void) {
 
                         // delete this member
                         mcmp = mcMember->next;
-                        if (!(mcMember->state & MCMEMBER_JOIN_FULL_MEMBER)) {
+                        if (!(mcMember->state & MCMEMBER_STATE_FULL_MEMBER)) {
                             IB_LOG_INFO_FMT(__func__, "Non full mcMember "FMT_U64" of multicast group "
                                    "GID "FMT_U64":"FMT_U64" is no longer in fabric",
                                    mcMember->portGuid, mcastGid[0], mcastGid[1]);
@@ -1704,7 +1695,7 @@ void sm_dbsync_showSms(void) {
             do {
                 smrecp = cs_hashtable_iterator_value(&itr);
                 /* dump the sm records */
-                sysPrintf("%s SM node at %s, LID 0x%04X, PortGuid "FMT_U64"\n", 
+                sysPrintf("%s SM node at %s, LID 0x%08X, PortGuid "FMT_U64"\n", 
                           sm_getStateText(smrecp->smInfoRec.SMInfo.u.s.SMStateCurrent), smrecp->nodeDescString, 
                           (int)smrecp->smInfoRec.RID.LID, smrecp->smInfoRec.SMInfo.PortGUID);
                 sysPrintf("     Sync Capability is  %s\n", getSyncCapText(smrecp->syncCapability));

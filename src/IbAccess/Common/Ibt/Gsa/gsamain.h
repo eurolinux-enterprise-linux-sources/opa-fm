@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT4 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -9,7 +9,7 @@ modification, are permitted provided that the following conditions are met:
       this list of conditions and the following disclaimer.
     * Redistributions in binary form must reproduce the above copyright
       notice, this list of conditions and the following disclaimer in the
-     documentation and/or other materials provided with the distribution.
+      documentation and/or other materials provided with the distribution.
     * Neither the name of Intel Corporation nor the names of its contributors
       may be used to endorse or promote products derived from this software
       without specific prior written permission.
@@ -34,7 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "datatypes.h"
 #include "stl_types.h"
-#include "stl_mad.h"
+#include "stl_mad_priv.h"
 #include "vpi.h"
 #include "sma_osd.h"
 #include "ib_debug_osd.h"
@@ -54,7 +54,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "imath.h"
 #include "isyscallback.h"
 #include "smagsa.h"
-//#include "ContextMgr.h"
 #include "gsi_params.h"
 
 #if defined (__cplusplus)

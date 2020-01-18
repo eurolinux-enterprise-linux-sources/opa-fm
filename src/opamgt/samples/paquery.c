@@ -13,27 +13,33 @@
 
 void Usage(void)
 {
-	fprintf(stderr, "Usage:paquery [-v] [-h hfi] [-p port] -o type [-g groupName] [-l nodeLid]\n");
-	fprintf(stderr, "                   [-b oob_host] [-P portNumber] [-d] [-U]\n");
-	fprintf(stderr, "                   [-f focus] [-S start] [-r range] [-n imgNum]\n");
-	fprintf(stderr, "                   [-O imgOff] [-y imgTime] [-m moveImgNum] [-M moveImgOff]\n");
-	fprintf(stderr, "                   [-V vfName]\n");
+	fprintf(stderr, "Usage:paquery [-v] [-h hfi] [-p port] [-t ms] [-b oob_host] -o type\n");
+	fprintf(stderr, "              [-g groupName] [-l nodeLid] [-P portNumber] [-d] [-U]\n");
+	fprintf(stderr, "              [-G nodeGuid] [-D nodeDesc] [-f focus] [-S start] [-r range]\n");
+	fprintf(stderr, "              [-n imgNum] [-O imgOff] [-y imgTime] [-m moveImgNum]\n");
+	fprintf(stderr, "              [-M moveImgOff] [-V vfName]\n");
 	fprintf(stderr, "    --help             - display this help text\n");
 	fprintf(stderr, "    -v/--verbose       - verbose output\n");
 	fprintf(stderr, "    -h/--hfi hfi       - hfi, numbered 1..n, 0= -p port will be a system wide\n");
 	fprintf(stderr, "                         port num (default is 0)\n");
 	fprintf(stderr, "    -p/--port port     - port, numbered 1..n, 0=1st active (default is 1st\n");
 	fprintf(stderr, "                         active)\n");
+	fprintf(stderr, "    -t/--timeout       - timeout in ms\n");
 	fprintf(stderr, "    -b  oob_host       - perform out of band query. For this example, oob_host\n");
 	fprintf(stderr, "                         should have format hostname[:port] or a.b.c.d[:port]\n");
 	fprintf(stderr, "    -o/--output        - output type, default is groupList\n");
 	fprintf(stderr, "    -g/--groupName     - group name for groupInfo query\n");
-	fprintf(stderr, "    -l/--lid           - lid of node for portCounters query\n");
-	fprintf(stderr, "    -P/--portNumber    - port number for portCounters query\n");
+	fprintf(stderr, "    -l/--lid           - lid of node\n");
+	fprintf(stderr, "    -P/--portNumber    - port number\n");
+	fprintf(stderr, "    -G/--nodeGuid      - node GUID\n");
+	fprintf(stderr, "    -D/--nodeDesc      - node Description\n");
 	fprintf(stderr, "    -d/--delta         - delta flag for portCounters query\n");
 	fprintf(stderr, "    -U/--userCntrs     - user controlled counters flag for portCounters query\n");
 	fprintf(stderr, "    -f/--focus         - focus select value for getting focus ports\n");
 	fprintf(stderr, "           focus select values:\n");
+	fprintf(stderr, "           unexpclrport  - list of unexpectedly cleared ports - LID ordered\n");
+	fprintf(stderr, "           failedport    - list of failed ports - LID ordered\n");
+	fprintf(stderr, "           skippedport   - list of skipped ports - LID ordered\n");
 	fprintf(stderr, "           utilhigh      - sorted by utilization - highest first\n");
 	fprintf(stderr, "           pktrate       - sorted by packet rate - highest first\n");
 	fprintf(stderr, "           utillow       - sorted by utilization - lowest first\n");
@@ -46,10 +52,8 @@ void Usage(void)
 	fprintf(stderr, "    -S/--start           - start of window for focus ports - should always be 0\n");
 	fprintf(stderr, "                           for now\n");
 	fprintf(stderr, "    -r/--range           - size of window for focus ports list\n");
-	fprintf(stderr, "    -n/--imgNum          - 64-bit image number - may be used with groupInfo,\n");
-	fprintf(stderr, "                           groupConfig, portCounters (delta)\n");
-	fprintf(stderr, "    -O/--imgOff          - image offset - may be used with groupInfo, groupConfig,\n");
-	fprintf(stderr, "                           portCounters (delta)\n");
+	fprintf(stderr, "    -n/--imgNum          - 64-bit image number \n");
+	fprintf(stderr, "    -O/--imgOff          - image offset \n");
 	fprintf(stderr, "    -y/--imgTime         - image time - may be used with imageinfo, groupInfo,\n");
 	fprintf(stderr, "                           groupInfo, groupConfig, freezeImage, focusPorts,\n");
 	fprintf(stderr, "                           vfInfo, vfConfig, and vfFocusPorts. Will return\n");
@@ -76,6 +80,12 @@ void Usage(void)
 	fprintf(stderr, "                         for groupName\n");
 	fprintf(stderr, "    groupConfig        - configuration of a PA group - requires -g option for\n");
 	fprintf(stderr, "                         groupName\n");
+	fprintf(stderr, "    groupNodeInfo      - Node Information of a PA group - requires -g option for\n");
+	fprintf(stderr, "                         groupName, options -l (lid), -G (nodeGuid) and\n");
+	fprintf(stderr, "                         -D (node description) are optional\n");
+	fprintf(stderr, "    groupLinkInfo      - Link Information of a PA group - requires -g option for\n");
+	fprintf(stderr, "                         groupName, options -l (lid) and -P (port) are optional\n");
+	fprintf(stderr, "                         -P 255 is for all ports\n");
 	fprintf(stderr, "    portCounters       - port counters of fabric port - requires -l (lid) and\n");
 	fprintf(stderr, "                         -P (port) options, -d (delta) is optional\n");
 	fprintf(stderr, "    pmConfig           - retrieve PM configuration information\n");
@@ -106,6 +116,13 @@ void Usage(void)
 	fprintf(stderr, "    paquery -o groupList\n");
 	fprintf(stderr, "    paquery -o groupInfo -g All\n");
 	fprintf(stderr, "    paquery -o groupConfig -g All\n");
+	fprintf(stderr, "    paquery -o groupNodeInfo -g All -G <nodeGuid>\n");
+	fprintf(stderr, "    paquery -o groupNodeInfo -g All -D <nodeDesc>\n");
+	fprintf(stderr, "    paquery -o groupNodeInfo -g All -l 1 \n");
+	fprintf(stderr, "    paquery -o groupNodeInfo -g All -l 1 -G <nodeGuid>\n");
+	fprintf(stderr, "    paquery -o groupLinkInfo -g All\n");
+	fprintf(stderr, "    paquery -o groupLinkInfo -g All -l 1 -P 1\n");
+	fprintf(stderr, "    paquery -o groupLinkInfo -g All -l 1 -P 255\n");
 	fprintf(stderr, "    paquery -o portCounters -l 1 -P 1 -d 1\n");
 	fprintf(stderr, "    paquery -o portCounters -l 1 -P 1 -d 1 -n 0x20000000d02 -O 1\n");
 	fprintf(stderr, "    paquery -o portCounters -l 1 -P 1 -y 1494873266 \n");
@@ -131,6 +148,9 @@ typedef struct OutputFocusMap {
 } OutputFocusMap_t;
 
 OutputFocusMap_t OutputFocusTable[]= {
+	{"unexpclrport",     0x00010101},
+	{"failedport",       0x00010102},
+	{"skippedport",      0x00010103},
 	{"utilhigh",         0x00020001},
 	{"pktrate",          0x00020082},
 	{"utillow",          0x00020101},
@@ -163,10 +183,13 @@ struct option options[] = {
 	{ "verbose", required_argument, NULL, 'v' },
 	{ "hfi", required_argument, NULL, 'h' },
 	{ "port", required_argument, NULL, 'p' },
+	{ "timeout", required_argument, NULL, 't' },
 	{ "lid", required_argument, NULL, 'l' },
 
 	{ "groupName", required_argument, NULL, 'g' },
 	{ "portNumber", required_argument, NULL, 'P' },
+	{ "nodeGuid", required_argument, NULL, 'G' },
+	{ "nodeDesc", required_argument, NULL, 'D' },
 	{ "delta", no_argument, NULL, 'd' },
 	{ "userCntrs", no_argument, NULL, 'U' },
 	{ "focus", required_argument, NULL, 'f' },
@@ -191,6 +214,7 @@ int main(int argc, char **argv)
 	int exitcode = 0;
 	struct omgt_port * port = NULL;
 	int i,c,index;
+	int pa_service_state = OMGT_SERVICE_STATE_UNKNOWN;
 	uint32_t num_data;
 
 	int debug = 0;
@@ -198,31 +222,42 @@ int main(int argc, char **argv)
 	char * type = "groupList";
 	int hfi_num = 1;
 	int port_num = 1;
+	int ms_timeout = OMGT_DEF_TIMEOUT_MS;
 	char * oob_addr = NULL;
 
-	int select,start,range;
+	int select = 0;
+	int start = 0;
+	int range = 0;
+
 	char name_data[256];
+	char nodeDesc[64] = "";
 
 	int lid = 1, counters_port = 1;
+	int nodeGuid = 1;
 
-	int delta, user_counters;
+	int delta = 0;
+	int user_counters = 0;
+	int got_imageTime = 0;
 
 	//where applicable, get current data by default
 	STL_PA_IMAGE_ID_DATA image_id_query = {.imageNumber = PACLIENT_IMAGE_CURRENT};
 	STL_PA_IMAGE_ID_DATA response_id;
 
 	STL_PA_IMAGE_ID_DATA image_id_move = {0};
-	while (-1 != (c = getopt_long(argc, argv, "h:p:o:l:P:n:g:dUO:y:m:M:f:S:r:V:b:v$", options, &index))){
+	while (-1 != (c = getopt_long(argc, argv, "h:p:t:o:l:P:n:g:G:dUO:y:m:M:f:S:r:V:b:v$", options, &index))){
 		switch (c)
 		{
 			case '$':
 				Usage();
 				break;
 			case 'h':
-				hfi_num = strtoul(optarg, NULL, 0);
+				hfi_num = strtol(optarg, NULL, 0);
 				break;
 			case 'p':
-				port_num = strtoul(optarg, NULL, 0);
+				port_num = strtol(optarg, NULL, 0);
+				break;
+			case 't':
+				ms_timeout = strtol(optarg, NULL, 0);
 				break;
 			case 'o':
 				type = optarg;
@@ -232,6 +267,12 @@ int main(int argc, char **argv)
 				break;
 			case 'P':
 				counters_port = strtoul(optarg, NULL, 0);
+				break;
+			case 'G':
+				nodeGuid = strtoul(optarg, NULL, 0);
+				break;
+			case 'D':
+				snprintf(nodeDesc, 64, "%s", optarg);
 				break;
 			case 'n':
 				image_id_query.imageNumber = strtoul(optarg, NULL, 0);
@@ -250,6 +291,7 @@ int main(int argc, char **argv)
 			case 'y':
 				image_id_query.imageNumber = PACLIENT_IMAGE_TIMED;
 				image_id_query.imageTime.absoluteTime = strtoul(optarg, NULL, 0);
+				got_imageTime = 1;
 				break;
 			case 'm':
 				image_id_move.imageNumber = strtoul(optarg, NULL, 0);
@@ -303,15 +345,79 @@ int main(int argc, char **argv)
 		status = omgt_oob_connect(&port, &oob_input, &session_params);
 	} else {
 		status = omgt_open_port_by_num(&port, hfi_num, port_num, &session_params);
+
+		/* (Optional) Check if the PA Service is Operational
+		 * All PA queries will do an initial pa service state check if not already
+		 * operational, so this is more of a verbose sanity check.
+		 */
+		if (status == OMGT_STATUS_SUCCESS) {
+			status = omgt_port_get_pa_service_state(port, &pa_service_state, OMGT_REFRESH_SERVICE_ANY_STATE);
+			if (status == OMGT_STATUS_SUCCESS) {
+				if (pa_service_state != OMGT_SERVICE_STATE_OPERATIONAL) {
+					fprintf(stderr, "failed to connect, PA service state is Not Operational: %s (%d)\n",
+						omgt_service_state_totext(pa_service_state), pa_service_state);
+					exitcode = 1;
+					goto fail2;
+				}
+			} else {
+				fprintf(stderr, "failed to get and refresh PA service state: %s (%u)\n",
+					omgt_status_totext(status), status);
+				exitcode = 1;
+				goto fail2;
+			}
+		}
 	}
 
 	if (OMGT_STATUS_SUCCESS != status){
-		fprintf(stderr, "failed to open port\n");
+		fprintf(stderr, "failed to open port: %s (%u)\n",
+			omgt_status_totext(status), status);
 		exitcode=1;
 		goto fail1;
 	}
 
-	void * pa_data;
+	//set timeout for PA operations
+	omgt_set_timeout(port, ms_timeout);
+
+	// verify PA has necessary capabilities
+	STL_CLASS_PORT_INFO *portInfo;
+	status = omgt_pa_get_classportinfo(port, &portInfo);
+	if(OMGT_STATUS_SUCCESS != status){
+		fprintf(stderr, "failed to get ClassPortInfo\n");
+		exitcode=1;
+		goto fail2;
+	}
+	STL_PA_CLASS_PORT_INFO_CAPABILITY_MASK paCap;
+	memcpy(&paCap, &portInfo->CapMask, sizeof(STL_PA_CLASS_PORT_INFO_CAPABILITY_MASK));
+	//if trying to query by time, check if feature available
+	if (got_imageTime ){
+			if (!(paCap.s.IsAbsTimeQuerySupported)){
+				fprintf(stderr, "PA does not support time queries\n");
+				exitcode=1;
+				free(portInfo);
+				goto fail2;
+			}
+	}
+	//if trying to query extended focus port selects, check if feature is available
+	if (select == STL_PA_SELECT_UNEXP_CLR_PORT || select == STL_PA_SELECT_NO_RESP_PORT ||
+			select == STL_PA_SELECT_SKIPPED_PORT){
+			if (!(paCap.s.IsExtFocusTypesSupported)){
+				fprintf(stderr, "PA does not support extended focus ports\n");
+				exitcode=1;
+				free(portInfo);
+				goto fail2;
+			}
+	}
+	//if querying for nodeinfo and linkinfo check if feature is available
+	if ((!strcasecmp(type, "groupNodeInfo")) || (!strcasecmp(type, "groupLinkInfo"))){
+		if (!(paCap.s.IsTopologyInfoSupported)){
+			fprintf(stderr, "PA does not support Topology Information from PM\n");
+			exitcode=1;
+			free(portInfo);
+			goto fail2;
+		}
+	}
+
+
 	//perform the requested operation
 	if (!strcasecmp(type, "pmconfig")){
 		STL_PA_PM_CFG_DATA pa_data;
@@ -386,6 +492,30 @@ int main(int argc, char **argv)
 			}
 			omgt_pa_release_group_config(&pa_data);
 		}
+	} else if (!strcasecmp(type, "groupNodeInfo")){
+		STL_PA_GROUP_NODEINFO_RSP *pa_data = NULL;
+
+		status = omgt_pa_get_group_nodeinfo(port, image_id_query, name_data, lid, nodeGuid, nodeDesc,  &response_id, &num_data, &pa_data);
+		if (OMGT_STATUS_SUCCESS != status){
+			fprintf(stderr, "failed to execute query. MadStatus=0x%x\n", omgt_get_pa_mad_status(port));
+		} else {
+			for(i = 0; i < num_data; ++i){
+				printf("Group Member: %s\n", pa_data[i].nodeDesc);
+			}
+			omgt_pa_release_group_nodeinfo(&pa_data);
+		}
+	} else if (!strcasecmp(type, "groupLinkInfo")){
+		STL_PA_GROUP_LINKINFO_RSP *pa_data = NULL;
+
+		status = omgt_pa_get_group_linkinfo(port, image_id_query, name_data, lid, port_num, &response_id, &num_data, &pa_data);
+		if (OMGT_STATUS_SUCCESS != status){
+			fprintf(stderr, "failed to execute query. MadStatus=0x%x\n", omgt_get_pa_mad_status(port));
+		} else {
+			for(i = 0; i < num_data; ++i){
+				printf("To LID: 0x%08X\n", pa_data[i].toLID);
+			}
+			omgt_pa_release_group_linkinfo(&pa_data);
+		}
 	} else if (!strcasecmp(type, "vfConfig")){
 		STL_PA_VF_CFG_RSP *pa_data = NULL;
 
@@ -425,7 +555,7 @@ int main(int argc, char **argv)
 	} else if (!strcasecmp(type, "portCounters")){
 		STL_PORT_COUNTERS_DATA pa_data;
 
-		status = omgt_pa_get_port_stats(port, image_id_query, lid, counters_port, &response_id, &pa_data, NULL, delta, user_counters);
+		status = omgt_pa_get_port_stats2(port, image_id_query, lid, counters_port, &response_id, &pa_data, NULL, delta, user_counters);
 		if (OMGT_STATUS_SUCCESS != status){
 			fprintf(stderr, "failed to execute query. MadStatus=0x%x\n", omgt_get_pa_mad_status(port));
 		} else {
@@ -434,7 +564,7 @@ int main(int argc, char **argv)
 	} else if (!strcasecmp(type, "vfPortCounters")){
 		STL_PA_VF_PORT_COUNTERS_DATA pa_data;
 
-		status = omgt_pa_get_vf_port_stats(port, image_id_query, name_data, lid, counters_port, &response_id, &pa_data, NULL, delta, user_counters);
+		status = omgt_pa_get_vf_port_stats2(port, image_id_query, name_data, lid, counters_port, &response_id, &pa_data, NULL, delta, user_counters);
 		if (OMGT_STATUS_SUCCESS != status){
 			fprintf(stderr, "failed to execute query. MadStatus=0x%x\n", omgt_get_pa_mad_status(port));
 		} else {
@@ -472,19 +602,11 @@ int main(int argc, char **argv)
 			printf("Success\n");
 		}
 	} else if (!strcasecmp(type, "classPortInfo")){
-		STL_CLASS_PORT_INFO * pa_data;
-		status = omgt_pa_get_classportinfo(port, &pa_data);
-
-		if(OMGT_STATUS_SUCCESS != status){
-			fprintf(stderr, "failed to get ClassPortInfo\n");
-		} else {
-			printf("PA Capability Mask: 0x%x\n", pa_data->CapMask);
-
-			//must free when done
-			free(pa_data);
-		}
+		printf("PA Capability Mask: 0x%x\n", portInfo->CapMask);
 	}
-
+	//Frees the portInfo structure
+	if(portInfo)
+		free(portInfo);
 fail2:
 	omgt_close_port(port);
 fail1:

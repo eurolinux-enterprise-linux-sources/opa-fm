@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT7 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -9,7 +9,7 @@ modification, are permitted provided that the following conditions are met:
       this list of conditions and the following disclaimer.
     * Redistributions in binary form must reproduce the above copyright
       notice, this list of conditions and the following disclaimer in the
-     documentation and/or other materials provided with the distribution.
+      documentation and/or other materials provided with the distribution.
     * Neither the name of Intel Corporation nor the names of its contributors
       may be used to endorse or promote products derived from this software
       without specific prior written permission.
@@ -39,7 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdarg.h>
 #include "stl_print.h"
 #include <iba/stl_helper.h>
-#include <iba/stl_sa.h>
+#include <iba/stl_sa_priv.h>
 
 #define SIZE_TIME 256   // used in buffer to generate time string for output
 
@@ -207,6 +207,7 @@ PrintStlLinearFDBRecord(PrintDest_t * dest, int indent,
 					  LinearFdbData, pLinearFDBRecord->RID.BlockNum, 0);
 }
 
+
 void
 PrintStlVLArbTableRecord(PrintDest_t * dest, int indent,
 						 const STL_VLARBTABLE_RECORD * pVLArbTableRecord)
@@ -217,6 +218,7 @@ PrintStlVLArbTableRecord(PrintDest_t * dest, int indent,
 	PrintStlVLArbTable(dest, indent, &pVLArbTableRecord->VLArbTable,
 					   pVLArbTableRecord->RID.BlockNum, 0);
 }
+
 
 void
 PrintStlMcMemberRecord(PrintDest_t * dest, int indent,
@@ -264,10 +266,14 @@ void
 PrintStlLinkRecord(PrintDest_t * dest, int indent,
 				   const STL_LINK_RECORD * pLinkRecord)
 {
-	PrintFunc(dest, "%*sLID: 0x%08x -> 0x%08x Port: %3u -> %3u\n",
+	{
+
+		PrintFunc(dest, "%*sLID: 0x%08x -> 0x%08x Port: %3u -> %3u\n",
 			  indent, "",
 			  pLinkRecord->RID.FromLID, pLinkRecord->ToLID,
 			  pLinkRecord->RID.FromPort, pLinkRecord->ToPort);
+	}
+
 }
 
 
@@ -303,6 +309,7 @@ void PrintStlVfInfoRecord_detail(PrintDest_t *dest, int indent, int detail,
 		slStrPtr += ret;
 	}
 
+
 	if (pVfInfo->slMulticastSpecified) {
 		ret = snprintf(slStrPtr, remChars, " McastSL: %d", pVfInfo->slMulticast);
 		if (ret > 0 && ret <= remChars) {
@@ -321,7 +328,6 @@ void PrintStlVfInfoRecord_detail(PrintDest_t *dest, int indent, int detail,
 
 		// FormatTimeoutMult(buf, pVfInfo->s1.pktLifeTimeInc);
 		snprintf(buf, 8, "%d", 1<<pVfInfo->s1.pktLifeTimeInc);
-		buf[7]=0; // snprintf() always '\0' terminates the string; why do this?
 
 		PrintFunc(dest,"%*sPKey: 0x%x   SL: %s  Select: 0x%x%s %s%s  PktLifeTimeMult: %s \n",
 					indent, "",
@@ -329,8 +335,8 @@ void PrintStlVfInfoRecord_detail(PrintDest_t *dest, int indent, int detail,
 					slStr,
 					pVfInfo->s1.selectFlags,
 					pVfInfo->s1.selectFlags? ":" : "",
-					(pVfInfo->s1.selectFlags&VEND_PKEY_SEL) ? "PKEY " : "",
-					(pVfInfo->s1.selectFlags&VEND_SL_SEL) ? "SL ": "",
+					(pVfInfo->s1.selectFlags&STL_VFINFO_REC_SEL_PKEY_QUERY) ? "PKEY " : "",
+					(pVfInfo->s1.selectFlags&STL_VFINFO_REC_SEL_SL_QUERY) ? "SL ": "",
 					pVfInfo->s1.pktLifeSpecified? buf: "unspecified");
 
 		if (pVfInfo->s1.mtuSpecified) {
@@ -347,13 +353,13 @@ void PrintStlVfInfoRecord_detail(PrintDest_t *dest, int indent, int detail,
 		PrintFunc(dest, "%*sOptions: 0x%02x%s %s%s%s\n", indent, "",
 					pVfInfo->optionFlags,
 					pVfInfo->optionFlags? ":" : "",
-					(pVfInfo->optionFlags&OPT_VF_SECURITY) ? "Security " : "",
-					(pVfInfo->optionFlags&OPT_VF_QOS) ? "QoS " : "",
-					(pVfInfo->optionFlags&OPT_VF_FLOW_DISABLE) ? "FlowCtrlDisable" : "");
+					(pVfInfo->optionFlags&STL_VFINFO_REC_OPT_SECURITY) ? "Security " : "",
+					(pVfInfo->optionFlags&STL_VFINFO_REC_OPT_QOS) ? "QoS " : "",
+					(pVfInfo->optionFlags&STL_VFINFO_REC_OPT_FLOW_DISABLE) ? "FlowCtrlDisable" : "");
 
 		FormatTimeoutMult(buf, pVfInfo->hoqLife);
 
-		if (pVfInfo->optionFlags&OPT_VF_QOS) {
+		if (pVfInfo->optionFlags&STL_VFINFO_REC_OPT_QOS) {
 			if (pVfInfo->priority) {
 				if (pVfInfo->bandwidthPercent) {
 					PrintFunc(dest,"%*sQOS: Bandwidth: %3d%%  Priority: %s  PreemptionRank: %u  HoQLife: %s\n",
@@ -370,7 +376,7 @@ void PrintStlVfInfoRecord_detail(PrintDest_t *dest, int indent, int detail,
 					indent, "", pVfInfo->preemptionRank, buf);
 		}
 	} else {
-		PrintFunc(dest, "%*sPKey:0x%x %s\n", indent, "", pVfInfo->pKey, slStr);
+		PrintFunc(dest, "%*sPKey: 0x%x   SL: %s\n", indent, "", pVfInfo->pKey, slStr);
 	}
 }
 
@@ -379,45 +385,53 @@ void PrintStlVfInfoRecord(PrintDest_t *dest, int indent, const STL_VFINFO_RECORD
 	PrintStlVfInfoRecord_detail(dest, indent, 255, pVfInfo, 1);
 }
 
-// output VFINFO in a delimited format for easy parsing in shell scripts
-void PrintStlVfInfoRecordCSV(PrintDest_t *dest, int indent, const STL_VFINFO_RECORD *pVfInfo)
+// implementation of single-line VFInfo output
+// @param enumsAsText - when true, convert enumerated values to human-readable text, when false print enums as integer values
+static void PrintStlVfInfoRecordCSV_impl(PrintDest_t *dest, int indent, const STL_VFINFO_RECORD *pVfInfo, boolean enumsAsText)
 {
 	char mcastSl[4] = "";
 
 	if (pVfInfo->slMulticastSpecified)
-		snprintf(mcastSl, sizeof(mcastSl), "%d", pVfInfo->slMulticast);
+		snprintf(mcastSl, sizeof(mcastSl), "%u", pVfInfo->slMulticast);
 
-	PrintFunc(dest,"%*s%s:%d:0x%x:%d:%s:%s:0x%x::%s\n",
-				indent, "",
-				pVfInfo->vfName,
-				pVfInfo->vfIndex,
-				pVfInfo->pKey,
-				pVfInfo->s1.slBase,
-				(pVfInfo->s1.mtuSpecified)? IbMTUToText(pVfInfo->s1.mtu):"unlimited",
-				pVfInfo->s1.rateSpecified ? IbStaticRateToText(pVfInfo->s1.rate) : "unlimited",
-			    pVfInfo->optionFlags,
-				mcastSl);
+	if (enumsAsText) {
+		PrintFunc(dest,"%*s%s:%d:0x%x:%d:%s:%s:0x%x:%s\n",
+
+			indent, "",
+			pVfInfo->vfName,
+			pVfInfo->vfIndex,
+			pVfInfo->pKey,
+			pVfInfo->s1.slBase,
+			(pVfInfo->s1.mtuSpecified)? IbMTUToText(pVfInfo->s1.mtu):"unlimited",
+			pVfInfo->s1.rateSpecified ? IbStaticRateToText(pVfInfo->s1.rate) : "unlimited",
+			pVfInfo->optionFlags,
+			mcastSl);
+	} else {
+		PrintFunc(dest,"%*s%s:%d:0x%x:%d:%d:%d:0x%x:%s\n",
+			indent, "",
+			pVfInfo->vfName,
+			pVfInfo->vfIndex,
+			pVfInfo->pKey,
+			pVfInfo->s1.slBase,
+			(pVfInfo->s1.mtuSpecified)? pVfInfo->s1.mtu:0,
+			pVfInfo->s1.rateSpecified ? pVfInfo->s1.rate:0,
+			pVfInfo->optionFlags,
+			mcastSl);
+	}
 }
 
 // output VFINFO in a delimited format for easy parsing in shell scripts
 void PrintStlVfInfoRecordCSV2(PrintDest_t *dest, int indent, const STL_VFINFO_RECORD *pVfInfo)
 {
-	char mcastSl[4] = "";
-
-	if (pVfInfo->slMulticastSpecified)
-		snprintf(mcastSl, sizeof(mcastSl), "%d", pVfInfo->slMulticast);
-
-	PrintFunc(dest,"%*s%s:%d:0x%x:%d:%d:%d:0x%x::%s\n",
-				indent, "",
-				pVfInfo->vfName,
-				pVfInfo->vfIndex,
-				pVfInfo->pKey,
-				pVfInfo->s1.slBase,
-				(pVfInfo->s1.mtuSpecified)? pVfInfo->s1.mtu:0,
-				pVfInfo->s1.rateSpecified ? pVfInfo->s1.rate:0,
-				pVfInfo->optionFlags,
-				mcastSl);
+	PrintStlVfInfoRecordCSV_impl(dest, indent, pVfInfo, 0);
 }
+
+// output VFINFO in a delimited format for easy parsing in shell scripts
+void PrintStlVfInfoRecordCSV(PrintDest_t *dest, int indent, const STL_VFINFO_RECORD *pVfInfo)
+{
+	PrintStlVfInfoRecordCSV_impl(dest, indent, pVfInfo, 1);
+}
+
 
 void PrintStlTraceRecord(PrintDest_t *dest, int indent, const STL_TRACE_RECORD *pTraceRecord)
 {
@@ -507,6 +521,11 @@ void PrintQuarantinedNodeRecord(PrintDest_t *dest, int indent, const STL_QUARANT
 					violStrLen - strlen(violationString));
 		previousViolation = 1;
 	}
+	if(pQuarantinedNodeRecord->quarantineReasons & STL_QUARANTINE_REASON_MAXLID) {
+		strncat(violationString, previousViolation ? ", MaximumLID unsupportable" : "MaximumLID unsupportable", 
+					violStrLen - strlen(violationString));
+		previousViolation = 1;
+	}
 
 	PrintFunc(dest, "%*sConnected to Port %d of (LID: 0x%x, NodeGUID: 0x%016" PRIx64 ")\n", indent, "", pQuarantinedNodeRecord->trustedPortNum, pQuarantinedNodeRecord->trustedLid, pQuarantinedNodeRecord->trustedNodeGUID);
 	PrintFunc(dest, "%*s    Offending Node Actual NodeGUID: 0x%016" PRIx64 "\n", indent, "", pQuarantinedNodeRecord->trustedNeighborNodeGUID);
@@ -571,13 +590,13 @@ void PrintStlCableInfoRecord(PrintDest_t *dest, int indent, const STL_CABLE_INFO
 	PrintFunc(dest, "%*sLID %d Port %d:\nPortType: %s\n", indent, "", 
 				pCableInfoRecord->LID, pCableInfoRecord->Port, StlPortTypeToText(pCableInfoRecord->u1.s.PortType));
 	PrintStlCableInfo(dest, indent, pCableInfoRecord->Data, 
-				pCableInfoRecord->u1.s.Address, pCableInfoRecord->Length+1, pCableInfoRecord->u1.s.PortType, CABLEINFO_DETAIL_ALL, 0);
+				pCableInfoRecord->u1.s.Address, pCableInfoRecord->Length+1, pCableInfoRecord->u1.s.PortType, CABLEINFO_DETAIL_ALL, 0, FALSE);
 }
 
 void PrintStlPortGroupTabRecord(PrintDest_t *dest, int indent, const STL_PORT_GROUP_TABLE_RECORD *pRecord)
 {
 	PrintFunc(dest, "%*sLID %d Block %d:\n", indent, "", pRecord->RID.LID, pRecord->RID.BlockNum);
-    PrintStlPortGroupTable(dest, indent, pRecord->GroupBlock, pRecord->RID.BlockNum, 0, 0);
+	PrintStlPortGroupTable(dest, indent, pRecord->GroupBlock, pRecord->RID.BlockNum, 0, 0);
 }
 
 void PrintStlPortGroupFwdTabRecord(PrintDest_t *dest, int indent, const STL_PORT_GROUP_FORWARDING_TABLE_RECORD *pRecord)
@@ -585,6 +604,42 @@ void PrintStlPortGroupFwdTabRecord(PrintDest_t *dest, int indent, const STL_PORT
 
 	PrintFunc(dest, "%*sSwitch LID: 0x%08x BlockNum: %6u\n", indent, "", pRecord->RID.LID, pRecord->RID.u1.s.BlockNum);
 	PrintStlPortGroupFDB(dest, indent+4, (STL_PORT_GROUP_FORWARDING_TABLE *) pRecord->PGFdbData, pRecord->RID.u1.s.BlockNum, 0);
+}
+void PrintStlDeviceGroupMemberRecord(PrintDest_t *dest, int indent, const STL_DEVICE_GROUP_MEMBER_RECORD *pRecord)
+{
+	PrintFunc(dest,"%*sDevice Group: %s LID: 0x%08x Port: %d PortGUID: 0x%016" PRIx64 " Node Description: %s\n", indent, "",
+		pRecord->DeviceGroupName, pRecord->LID, pRecord->Port, pRecord->GUID, pRecord->NodeDescription.NodeString);
+}
+
+void PrintStlDeviceGroupNameRecord(PrintDest_t *dest, int indent, const STL_DEVICE_GROUP_NAME_RECORD *pRecord, int record_no)
+{
+	PrintFunc(dest,"%*sGroup %d: %s\n", indent, "",
+		record_no, pRecord->DeviceGroupName);
+}
+
+
+void PrintStlDeviceTreeMemberRecord(PrintDest_t *dest, int indent, const STL_DEVICE_TREE_MEMBER_RECORD *pRecord)
+{
+	char buf_act[256];
+	char buf_mode[256];
+	int length = strlen("Ports :"); // The string from FormatStlPortMask()
+
+	FormatStlPortMask(buf_act, pRecord->portMaskAct, MAX_STL_PORTS, sizeof(buf_act));
+	FormatStlPortMask(buf_mode, pRecord->portMaskPortLinkMode, MAX_STL_PORTS, sizeof(buf_mode));
+
+	PrintFunc(dest,"%*sNodeLID: 0x%08x NodeGUID: 0x%016" PRIx64 " NodeSystemImageGUID: 0x%016" PRIx64 " Type: [%s] Node Description: [%s] NumPorts: %d Active %s\n",
+		indent, "", pRecord->LID, pRecord->GUID, pRecord->SystemImageGUID, StlNodeTypeToText(pRecord->NodeType), pRecord->NodeDescription.NodeString, pRecord->NumPorts,
+		strlen(buf_act) > length ? buf_act : "ports: none");
+
+}
+
+void PrintStlSwitchCostRecord(PrintDest_t *dest, int indent, const STL_SWITCH_COST_RECORD *pRecord)
+{
+	int i;
+	PrintFunc(dest, "%*sSource LID: 0x%08x\n", indent, "", pRecord->SLID);
+	for(i = 0; (i < STL_SWITCH_COST_NUM_ENTRIES) && (pRecord->Cost[i].DLID != 0); ++i){
+		PrintFunc(dest, "%*sLID: 0x%08x -> Cost: %u\n", indent+4, "", pRecord->Cost[i].DLID, pRecord->Cost[i].value);
+	}
 }
 
 #define HEXTOCHAR(c) ((isgraph(c)||(c)==' ')?(c):'.')

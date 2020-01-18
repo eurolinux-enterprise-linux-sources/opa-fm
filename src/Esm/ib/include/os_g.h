@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT2 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -117,7 +117,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //---------------------------------------------------------------------//
 
 #elif   defined(__VXWORKS__)
-//#include <isysutil.h>	// causes warnings due to duplicates of SM typdefs
 extern unsigned long SystemGetRandom(void);
 /* Get a random number between two numbers.
  * a%b will return a value between 0 and b-1 (inclusive).

@@ -1,7 +1,7 @@
 #!/bin/bash
 # BEGIN_ICS_COPYRIGHT8 ****************************************
 # 
-# Copyright (c) 2015, Intel Corporation
+# Copyright (c) 2015-2017, Intel Corporation
 # 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -60,7 +60,21 @@
 
 # rebuild OpenMPI to target a specific compiler
 
-PREREQ=("libibverbs-devel" "librdmacm-devel" "mpi-selector")
+ID=""
+VERSION_ID=""
+
+if [ -e /etc/os-release ]; then
+	. /etc/os-release
+else
+    echo /etc/os-release is not available !!!
+fi
+
+if [[ ( "$ID" == "rhel"  &&  $(echo "$VERSION_ID > 7.3" | bc -l) == 1 ) || \
+	( "$ID" == "sles"  && $(echo "$VERSION_ID > 12.2" | bc -l) == 1 ) ]]; then
+    PREREQ=("rdma-core-devel" "mpi-selector")
+else
+    PREREQ=("libibverbs-devel" "librdmacm-devel" "mpi-selector")
+fi
 
 CheckPreReqs()
 {
@@ -86,7 +100,7 @@ CheckPreReqs()
 		fi
 		echo
 		exit 2
-	fi	
+	fi
 }
 
 Usage()
@@ -95,7 +109,7 @@ Usage()
 	echo "       -d - use default settings for openmpi options" >&2
 	echo "            if omitted, will be prompted for each option" >&2
 	echo "       -Q - build the MPI targeted for the PSM API." >&2
-	echo "       -O - build the MPI targeted for the Omnipath HFI PSM API." >&2
+	echo "       -O - build the MPI targeted for the Omni-path HFI PSM2 and OFI API." >&2
 	echo "       -C - build the MPI targeted for the Omnipath HFI PSM with CUDA." >&2
 	echo "       config_opt - a compiler selection option (gcc, pathscale, pgi or intel)" >&2
 	echo "             if config_opt is not specified, the user will be prompted" >&2
@@ -288,7 +302,7 @@ then
 	if rpm -qa|grep libpsm2 >/dev/null 2>&1
 	then
 		echo
-		get_yes_no "Build for Omnipath HFI PSM" "y"
+		get_yes_no "Build for Omnipath HFI PSM2 and OFI" "y"
 		if [ "$ans" = 1 ]
 		then
 			Oflag=y
@@ -312,7 +326,7 @@ fi
 if [ "$Qflag" = y ]
 then
 	PREREQ+=('infinipath-devel')
-	
+
 	openmpi_conf_psm=
 	# PSM indicated by qlc suffix so user can ID PSM vs verbs MPIs
 	openmpi_path_suffix="-qlc"
@@ -320,16 +334,21 @@ then
 	interface=psm
 elif [ "$Oflag" = y ]
 then
-	PREREQ+=('libpsm2')
-	
-	openmpi_conf_psm='--with-psm=/usr --with-psm2=/usr --disable-oshmem'
+	PREREQ+=('libpsm2-devel')
+	if [[ -f /etc/redhat-release && ($(cat /etc/redhat-release | grep 6.7) ) ]]; then
+                openmpi_conf_psm='--with-psm=/usr --with-psm2=/usr --disable-oshmem'
+        else
+                PREREQ+=('libfabric-devel')
+                openmpi_conf_psm='--with-psm=/usr --with-psm2=/usr --disable-oshmem --with-libfabric=/usr'
+        fi
+
 	# PSM indicated by qlc suffix so user can ID PSM vs verbs MPIs
 	openmpi_path_suffix="-hfi"
 	openmpi_rpm_suffix="_hfi"
 	interface=psm
 elif [ "$Cflag" = y ]
 then
-	PREREQ+=('libpsm2' 'cuda')
+	PREREQ+=('libpsm2-devel' 'cuda')
 	
 	openmpi_conf_psm='--with-psm=/usr --with-psm2=/usr --disable-oshmem --with-cuda=/usr/local/cuda'
 	# PSM indicated by qlc suffix so user can ID PSM vs verbs MPIs
@@ -385,7 +404,10 @@ logfile=make.openmpi.$interface.$compiler
 		mpitests_srpm=./SRPMS/mpitests-*.src.rpm
 	fi
 	openmpi_version=$(ls $openmpi_srpm 2>/dev/null|head -1|cut -f2 -d-)
-	openmpi_fullversion=$(ls $openmpi_srpm 2>/dev/null|head -1|cut -f2- -d-|sed -e 's/.src.rpm//')
+
+	# For RHEL7x: %{?dist} resolves to '.el7'. For SLES, an empty string
+	# E.g. on rhel7.x: openmpi_gcc_hfi-2.1.2-11.el7.x86_64.rpm; on SLES openmpi_gcc_hfi-2.1.2-11.x86_64.rpm
+	openmpi_fullversion=$(ls $openmpi_srpm 2>/dev/null|head -1|cut -f2- -d-|sed -e 's/.src.rpm//')$(rpm --eval %{?dist})
 	mpitests_version=$(ls $mpitests_srpm 2>/dev/null|head -1|cut -f2 -d-)
 	mpitests_fullversion=$(ls $mpitests_srpm 2>/dev/null|head -1|cut -f2- -d-|sed -e 's/.src.rpm//')
 	MPICH_PREFIX=${MPICH_PREFIX:-$STACK_PREFIX/mpi/$compiler/openmpi-$openmpi_version$openmpi_path_suffix}
@@ -453,12 +475,20 @@ logfile=make.openmpi.$interface.$compiler
 		openmpi_comp_env=""
 	fi
 
+	# determine is it is required to build with MPI C++ bindings based on user input
+	if [[ "$CONFIG_OPTIONS" =~ .*disable-mpi-cxx*. ]]
+	then
+		enable_cxx_bindings=""
+	else
+		enable_cxx_bindings="--enable-mpi-cxx"
+	fi
+
 	case "$compiler" in
 	gcc)
 		openmpi_comp_env="$openmpi_comp_env CC=gcc CFLAGS=-O3"
 		if have_comp g++
 		then
-			openmpi_comp_env="$openmpi_comp_env CXX=g++"
+			openmpi_comp_env="$openmpi_comp_env CXX=g++ $enable_cxx_bindings"
 		else
 			openmpi_comp_env="$openmpi_comp_env --disable-mpi-cxx"
 		fi
@@ -477,7 +507,7 @@ logfile=make.openmpi.$interface.$compiler
 		disable_auto_requires="--define 'disable_auto_requires 1'"
 		if have_comp pathCC
 		then
-			openmpi_comp_env="$openmpi_comp_env CXX=pathCC"
+			openmpi_comp_env="$openmpi_comp_env CXX=pathCC $enable_cxx_bindings"
 		else
 			openmpi_comp_env="$openmpi_comp_env --disable-mpi-cxx"
 		fi
@@ -500,7 +530,7 @@ logfile=make.openmpi.$interface.$compiler
 		use_default_rpm_opt_flags=0
 		if have_comp pgCC
 		then
-			openmpi_comp_env="$openmpi_comp_env CXX=pgCC"
+			openmpi_comp_env="$openmpi_comp_env CXX=pgCC $enable_cxx_bindings"
 			# See http://www.pgroup.com/userforum/viewtopic.php?p=2371
 			openmpi_wrapper_cxx_flags="-fpic"
 		else
@@ -524,7 +554,7 @@ logfile=make.openmpi.$interface.$compiler
 		openmpi_comp_env="$openmpi_comp_env CC=icc"
 		if have_comp icpc
 		then
-			openmpi_comp_env="$openmpi_comp_env CXX=icpc"
+			openmpi_comp_env="$openmpi_comp_env CXX=icpc $enable_cxx_bindings"
 		else
 			openmpi_comp_env="$openmpi_comp_env --disable-mpi-cxx"
 		fi
@@ -565,6 +595,11 @@ logfile=make.openmpi.$interface.$compiler
 	if [ "$STACK_PREFIX" != "/usr" ]
 	then
 		pref_env="$pref_env LD_LIBRARY_PATH=$STACK_PREFIX/lib64:$STACK_PREFIX/lib:\$LD_LIBRARY_PATH"
+	fi
+
+	if [ "$Cflag" = y ]
+	then
+		pref_env = "$pref_env MPI_STRESS_CUDA=1"
 	fi
 
 	cmd="$pref_env rpmbuild --rebuild \
@@ -642,7 +677,7 @@ logfile=make.openmpi.$interface.$compiler
 		echo "error: mpitests_openmpi_$compiler$openmpi_rpm_suffix Build ERROR: bad exit code"
 		exit 1
 	fi
-	
+
 	if [ "$iflag" = n ]
 	then
 		mv $RPM_DIR/RPMS/$target_cpu/mpitests_openmpi_$compiler$openmpi_rpm_suffix-$mpitests_fullversion.$target_cpu.rpm $DESTDIR

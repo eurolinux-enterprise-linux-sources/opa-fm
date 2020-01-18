@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT2 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -9,7 +9,7 @@ modification, are permitted provided that the following conditions are met:
       this list of conditions and the following disclaimer.
     * Redistributions in binary form must reproduce the above copyright
       notice, this list of conditions and the following disclaimer in the
-     documentation and/or other materials provided with the distribution.
+      documentation and/or other materials provided with the distribution.
     * Neither the name of Intel Corporation nor the names of its contributors
       may be used to endorse or promote products derived from this software
       without specific prior written permission.
@@ -34,18 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "opamgt_priv.h"
 #include <iba/stl_sd.h>
-
-#define OPAMGT_DEFAULT_PORT_NUM 1
-
-struct ibv_sa_event {
-	void *context;
-	int status;
-	int attr_count;
-	int attr_size;
-	int attr_offset;
-	uint16_t attr_id;
-	void *attr;
-};
 
 /*
  * Convert old QUERY_INPUT_VALUE to new OMGT_QUERY_INPUT_VALUE
@@ -82,103 +70,6 @@ FSTATUS omgt_query_sa(struct omgt_port *port,
  */
 void omgt_free_query_result_buffer(IN void * pQueryResult);
 
-/**
- * Initiates a registration for the specified trap.
- *
- * @param port      port opened by omgt_open_port_*
- * @param trap_num  The trap number to register for
- * @param context   optional opaque info
- *
- * @return   0 if success, else error code
- */
-FSTATUS omgt_sa_register_trap(struct omgt_port *port,
-							 uint16_t trap_num,
-							 void *context);
-
-/**
- * Unregisters for the specified trap.
- *
- * @param port      port opened by omgt_open_port_*
- * @param trap_num  The trap number to unregister 
- *  
- * @return   0 if success, else error code 
- */
-FSTATUS omgt_sa_unregister_trap(struct omgt_port *port, uint16_t trap_num);
-
-/**
- * Fetches the next available notice.  Blocks in kernel (interrupted on
- * process signal).
- *
- * @param port           port opened by omgt_open_port_*
- * @param target_buf     Pointer to buffer to place notice into
- * @param buf_size       Size of the target buffer
- * @param bytes_written  OUTPUT: Set to the number of bytes written
- *                       written into the buffer
- *  
- * @return   0 if success, else error code 
- */ 
-FSTATUS omgt_sa_get_event(struct omgt_port *port, void *target_buf,
-						 size_t buf_size, int *bytes_written);
-
-/**
- * Set the buffer counts for QP creation.
- *
- * This function must be called after omgt_open_port but
- * before omgt_sa_register_trap.
- *
- * @param port       port opened by omgt_open_port_*
- * @param send_count number of send buffers to use on port (0 for no change) 
- * @param recv_count number of receive buffers to use on port (0 for no change)
- *  
- * @return   0 if success, else error code
- */
-FSTATUS omgt_set_sa_buf_cnt(struct omgt_port *port, 
-						   int send_count,
-						   int recv_count);
-
-/**
- * Get the buffer counts for QP creation.
- *
- * @param port       port opened by omgt_open_port_*
- * @param send_count number of send buffers used on port 
- * @param recv_count number of receive buffers used on port
- *  
- * @return   0 if success, else error code
- */
-FSTATUS omgt_get_sa_buf_cnt(struct omgt_port *port, 
-						   int *send_count,
-						   int *recv_count);
-
-/**
- * Retrieves the next pending event, if no event is pending
- * blocks waiting for an event.
- *  
- * @param port      port opened by omgt_open_port_* 
- * @param event     Allocated information about the next event.
- *  
- * @return          0 if success, else error code
- */
-FSTATUS omgt_get_sa_event(struct omgt_port *port, struct ibv_sa_event **event);
-
-/**
- * Cleans up allocated ibv_sa_event structure.
- *  
- * @param event     Allocated information about the next event.
- *  
- * @return          0 if success, else error code
- */
-FSTATUS omgt_ack_sa_event(struct ibv_sa_event *event);
-
-/**
- * Retrieves the next pending event, if no event is pending
- * waits for an event.
- *  
- * @param port      port opened by omgt_open_port_* 
- * @param event     Allocated information about the next event.
- *  
- * @return          0 if success, else error code
- */
-int ibv_sa_get_event(struct omgt_port *port, struct ibv_sa_event **event);
 
 
 #endif // __OPAMGT_PRIV_SA_H__

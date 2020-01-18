@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT7 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -141,13 +141,13 @@ void sm_dbsync_init(void) {
     if (!dbsync_initialized_flag) {
         dbsync_main_exit = 0;
         if (sm_dbsync_recInit() != VSTATUS_OK) {
-            IB_FATAL_ERROR("sa_main: Can't allocate SM Records hash table");
+            IB_FATAL_ERROR_NODUMP("sa_main: Can't allocate SM Records hash table");
         }
         /* initialize the SM-SA dbsync request queue */
         sm_dbsync_queue_size = 5 * sm_config.subnet_size; /* Be able to handle each end port ...
                                                       sending 4 registrations at once + extra */
         if ((sm_dbsync_queue = cs_queue_CreateQueue( &sm_pool, sm_dbsync_queue_size )) == NULL) {
-            IB_FATAL_ERROR("sm_dbsync: failed to initialize the SM-SA dbsync request queue, terminating!");
+            IB_FATAL_ERROR_NODUMP("sm_dbsync: failed to initialize the SM-SA dbsync request queue, terminating!");
         }
         dbsyncfd_if3 = -1;
         dbsync_initialized_flag = 1;
@@ -190,22 +190,21 @@ sm_DbsyncRecCompare(void *key1, void *key2) {
     }
 }
 
-
-Status_t sm_dbsync_checksums(uint32_t vfCsum, uint32_t smCsum, uint32_t pmCsum, uint32_t feCsum) {
+Status_t sm_dbsync_checksums(uint32_t vfCsum, uint32_t smCsum, uint32_t pmCsum) {
     Status_t    status=VSTATUS_OK;
 
     if ((status = vs_lock(&smRecords.smLock)) != VSTATUS_OK) {
-        IB_FATAL_ERROR("sm_dbsync_checksum: Can't lock SM Record table");
+        IB_FATAL_ERROR_NODUMP("sm_dbsync_checksum: Can't lock SM Record table");
     } else {
 		smRecords.ourChecksums.protocolVersion = FM_PROTOCOL_VERSION;
     	smRecords.ourChecksums.smVfChecksum = vfCsum;
     	smRecords.ourChecksums.smConfigChecksum = smCsum;
     	smRecords.ourChecksums.pmConfigChecksum = pmCsum;
-    	smRecords.ourChecksums.feConfigChecksum = feCsum;
 	}
     (void)vs_unlock(&smRecords.smLock);
     return status;
 }
+
 
 /*
  * SM records hash table initialization
@@ -214,21 +213,21 @@ Status_t sm_dbsync_recInit(void) {
     Status_t    status=VSTATUS_OK;
     memset(&smRecords, 0, sizeof(SmTable_t));
     if ((status = vs_lock_init(&smRecords.smLock, VLOCK_FREE, VLOCK_THREAD)) != VSTATUS_OK) {
-        IB_FATAL_ERROR("can't initialize SM table lock");
+        IB_FATAL_ERROR_NODUMP("can't initialize SM table lock");
     } else {
         if (NULL == (smRecords.smMap = 
                      cs_create_hashtable("sm_table", 16, sm_DbsyncRecHashFromKey, 
                                          sm_DbsyncRecCompare, CS_HASH_KEY_ALLOCATED))) {
             status = VSTATUS_NOMEM;
-            IB_FATAL_ERROR("sa_main: Can't allocate SM table");
+            IB_FATAL_ERROR_NODUMP("sa_main: Can't allocate SM table");
         }
     }
 
 	// Don't need to lock old_topology, we are still running single threaded
 	sm_dbsync_checksums(old_topology.vfs_ptr->consistency_checksum,
 						sm_config.consistency_checksum,
-						pm_config.consistency_checksum,
-						fe_config.consistency_checksum);
+						pm_config.consistency_checksum);
+
 
     return status;
 }
@@ -257,7 +256,7 @@ void sm_dbsync_recClear(void) {
     if (NULL == (smRecords.smMap = 
                  cs_create_hashtable("sm_table", 16, sm_DbsyncRecHashFromKey, 
                                      sm_DbsyncRecCompare, CS_HASH_KEY_ALLOCATED))) {
-        IB_FATAL_ERROR("sm_DbsyncRecClear: Can't reallocate SM table");
+        IB_FATAL_ERROR_NODUMP("sm_DbsyncRecClear: Can't reallocate SM table");
     }
     (void)vs_unlock(&smRecords.smLock);
 }
@@ -275,9 +274,9 @@ static Status_t dbsync_getSMDBSync(SMSyncReq_t *syncReqp) {
     IB_ENTER(__func__, syncReqp, 0, 0, 0);
 
     memset((void *)&smSyncCap, 0, sizeof(SMDBSync_t));
-    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= UNICAST_LID_MAX)) {
+    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= STL_GET_UNICAST_LID_MAX())) {
         if (if3_set_dlid (dbsyncfd_if3, syncReqp->standbyLid)) {
-            IB_FATAL_ERROR("dbsync_getSMDBSync: can't set destination lid on management info handle");
+            IB_FATAL_ERROR_NODUMP("dbsync_getSMDBSync: can't set destination lid on management info handle");
         }
         if ((status = dbSyncCmdToMgr(dbsyncfd_if3, DBSYNC_AID_SYNC, DBSYNC_AMOD_GET, 
                                    NULL, 0, msgbuf, &len, &resp_status)) != VSTATUS_OK) {
@@ -341,9 +340,9 @@ static Status_t dbsync_reconfigSMDBSync(SMSyncReq_t *syncReqp) {
     IB_ENTER(__func__, syncReqp, 0, 0, 0);
 
     memset((void *)&smSyncCap, 0, sizeof(SMDBSync_t));
-    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= UNICAST_LID_MAX)) {
+    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= STL_GET_UNICAST_LID_MAX())) {
         if (if3_set_dlid (dbsyncfd_if3, syncReqp->standbyLid)) {
-            IB_FATAL_ERROR("dbsync_getSMDBSync: can't set destination lid on management info handle");
+            IB_FATAL_ERROR_NODUMP("dbsync_reconfigSMDBSync: can't set destination lid on management info handle");
         }
         if ((status = dbSyncCmdToMgr(dbsyncfd_if3, DBSYNC_AID_SYNC, DBSYNC_AMOD_RECONFIG, 
                                    NULL, 0, msgbuf, &len, &resp_status)) != VSTATUS_OK) {
@@ -379,9 +378,9 @@ static Status_t dbsync_getSMDBCCCSync(SMSyncReq_t *syncReqp) {
     IB_ENTER(__func__, syncReqp, 0, 0, 0);
 
     memset((void *)&smSyncConsistency, 0, sizeof(SMDBCCCSync_t));
-    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= UNICAST_LID_MAX)) {
+    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= STL_GET_UNICAST_LID_MAX())) {
         if (if3_set_dlid (dbsyncfd_if3, syncReqp->standbyLid)) {
-            IB_FATAL_ERROR("dbsync_getSMDBSync: can't set destination lid on management info handle");
+            IB_FATAL_ERROR_NODUMP("dbsync_getSMDBCCCSync: can't set destination lid on management info handle");
         }
         if ((status = dbSyncCmdToMgr(dbsyncfd_if3, DBSYNC_AID_SYNC, DBSYNC_AMOD_GET_CCC, 
 			NULL, 0, msgbuf, &len, &resp_status)) != VSTATUS_OK) {
@@ -429,14 +428,14 @@ static Status_t dbsync_setSMDBSync(SMSyncReq_t *syncReqp) {
 
     IB_ENTER(__func__, syncReqp, 0, 0, 0);
 
-    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= UNICAST_LID_MAX)) {
+    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= STL_GET_UNICAST_LID_MAX())) {
         if ((status = sm_dbsync_getSmDbsync(syncReqp->portguid, &dbsync)) != VSTATUS_OK) {
             IB_LOG_ERROR_FMT(__func__,
                    "Failed to get SMDBSync settings for SM at portGuid "FMT_U64", LID=[0x%x] from SM table rc: %u", 
                    syncReqp->portguid, syncReqp->standbyLid, status);
         } else {
             if (if3_set_dlid (dbsyncfd_if3, syncReqp->standbyLid)) {
-                IB_FATAL_ERROR("dbsync_setSMDBSync: can't set destination lid on management info handle");
+                IB_FATAL_ERROR_NODUMP("dbsync_setSMDBSync: can't set destination lid on management info handle");
             }
             /* setup the sync data for output */
             (void)BSWAPCOPY_SM_DBSYNC_DATA(&dbsync, (SMDBSyncp)msgbuf);
@@ -484,14 +483,14 @@ static Status_t dbsync_sendFileSMDBSync(SMSyncReq_t *syncReqp) {
 
     IB_ENTER(__func__, syncReqp, 0, 0, 0);
 
-    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= UNICAST_LID_MAX)) {
+    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= STL_GET_UNICAST_LID_MAX())) {
         if ((status = sm_dbsync_getSmDbsync(syncReqp->portguid, &dbsync)) != VSTATUS_OK) {
             IB_LOG_ERROR_FMT(__func__,
                    "Failed to get SMDBSync settings for SM at portGuid "FMT_U64", LID=[0x%x] from SM table rc: %u", 
                    syncReqp->portguid, syncReqp->standbyLid, status);
         } else {
             if (if3_set_dlid (dbsyncfd_if3, syncReqp->standbyLid)) {
-                IB_FATAL_ERROR("dbsync_sendFileSMDBSync: can't set destination lid on management info handle");
+                IB_FATAL_ERROR_NODUMP("dbsync_sendFileSMDBSync: can't set destination lid on management info handle");
             }
 
 			memcpy(&syncFile, syncReqp->data, sizeof(SMDBSyncFile_t));
@@ -570,7 +569,7 @@ static Status_t processSMDBSyncGetSet(Mai_t *maip, uint8_t *msgbuf, uint32_t len
         /* lock out SM record table */
         if ((status = vs_lock(&smRecords.smLock)) != VSTATUS_OK) {
             status = dbSyncMngrReply (dbsyncfd_if3, maip, msgbuf, 0, VSTATUS_DROP);
-            IB_FATAL_ERROR("dbsync_getSMDBSyncResp: Can't lock SM Record table");
+            IB_FATAL_ERROR_NODUMP("dbsync_getSMDBSyncResp: Can't lock SM Record table");
         }
         /* return our current dbsync settings to caller */
         if ((smrecp = (SmRecp)cs_hashtable_search(smRecords.smMap, &reckey)) != NULL) {
@@ -602,7 +601,7 @@ static Status_t processSMDBSyncGetSet(Mai_t *maip, uint8_t *msgbuf, uint32_t len
         /* lock out SM record table */
         if ((status = vs_lock(&smRecords.smLock)) != VSTATUS_OK) {
             status = dbSyncMngrReply (dbsyncfd_if3, maip, msgbuf, 0, VSTATUS_DROP);
-            IB_FATAL_ERROR("dbsync_getSMDBSyncResp: Can't lock SM Record table");
+            IB_FATAL_ERROR_NODUMP("dbsync_getSMDBSyncResp: Can't lock SM Record table");
         }
 		if ((smrecp = (SmRecp)cs_hashtable_search(smRecords.smMap, &reckey)) != NULL) {
         	/* return our config consistency checksum info to caller */
@@ -724,7 +723,7 @@ static Status_t dbsync_setSMDBInform(SMSyncReq_t *syncReqp) {
 
     IB_ENTER(__func__, syncReqp, 0, 0, 0);
 
-    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= UNICAST_LID_MAX)) {
+    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= STL_GET_UNICAST_LID_MAX())) {
         /*
          *	create output buffer from hashtable records
          */
@@ -813,7 +812,7 @@ static Status_t dbsync_updateSMDBInform(SMSyncReq_t *syncReqp) {
 
     IB_ENTER(__func__, syncReqp, 0, 0, 0);
 
-    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= UNICAST_LID_MAX)) {
+    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= STL_GET_UNICAST_LID_MAX())) {
         numRecs++;
         ptr = (void *)syncReqp->data;
         memcpy((void *)&subsKey, ptr, sizeof(SubscriberKey_t));
@@ -1055,7 +1054,7 @@ static Status_t dbsync_setSMDBGroup(SMSyncReq_t *syncReqp) {
 
     IB_ENTER(__func__, syncReqp, 0, 0, 0);
 
-    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= UNICAST_LID_MAX)) {
+    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= STL_GET_UNICAST_LID_MAX())) {
     	if ((status = vs_lock(&sm_McGroups_lock)) != VSTATUS_OK) {
     		IB_LOG_ERROR0("Failed to get sm_McGroups_lock");
             return status;
@@ -1175,7 +1174,7 @@ static Status_t dbsync_updateSMDBGroup(SMSyncReq_t *syncReqp) {
 
     IB_ENTER(__func__, syncReqp, 0, 0, 0);
 
-    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= UNICAST_LID_MAX)) {
+    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= STL_GET_UNICAST_LID_MAX())) {
         memset((void *)&grpSync, 0, sizeof(grpSync));
         memset((void *)&membSync, 0, sizeof(membSync));
         if (syncReqp->type == DBSYNC_TYPE_UPDATE) {
@@ -1309,6 +1308,7 @@ static Status_t processGroupSync(Mai_t *maip, uint8_t *msgbuf, uint32_t reclen) 
             (void)BSWAPCOPY_SM_DBSYNC_MC_GROUP_DATA((McGroupSync_t *)&msgbuf[bufidx], &mcgs);
             bufidx += sizeof(McGroupSync_t);
             /* create the group */
+			(void)vs_rdlock(&old_topology_lock);
             (void)vs_lock(&sm_McGroups_lock);
             if ((status = sm_multicast_sync_lid(*((IB_GID*)mcgs.mGid), mcgs.pKey, mcgs.mtu, mcgs.rate, mcgs.mLid)) == VSTATUS_OK) {
                 McGroup_Create(mcGroup);
@@ -1326,6 +1326,7 @@ static Status_t processGroupSync(Mai_t *maip, uint8_t *msgbuf, uint32_t reclen) 
                 mcGroup->hopLimit = mcgs.hopLimit;
                 mcGroup->scope = mcgs.scope;
                 mcGroup->index_pool = mcgs.index_pool;
+				sm_multicast_mark_lid_in_use(mcgs.mLid);
                 /* add members to group */
                 while (bufidx < reclen && memcnt < mcgs.membercount) {
 				    BSWAPCOPY_STL_MCMEMBER_SYNCDB((STL_MCMEMBER_SYNCDB*)&msgbuf[bufidx], &mcms);
@@ -1344,32 +1345,33 @@ static Status_t processGroupSync(Mai_t *maip, uint8_t *msgbuf, uint32_t reclen) 
                 IB_LOG_INFO_FMT(__func__,
                        "created group " FMT_GID " with %d members", ((IB_GID*)mcgs.mGid)->Type.Global.SubnetPrefix, ((IB_GID*)mcgs.mGid)->Type.Global.InterfaceID, mcgs.membercount);
 
-				(void)vs_rdlock(&old_topology_lock);
 				VirtualFabrics_t *VirtualFabrics = old_topology.vfs_ptr;
 				if (VirtualFabrics) {
 					vfmGid[0] = mcGroup->mGid.AsReg64s.H;
 					vfmGid[1] = mcGroup->mGid.AsReg64s.L;
-        			for (vf=0; vf < VirtualFabrics->number_of_vfs; vf++) {
-            			if ((PKEY_VALUE(VirtualFabrics->v_fabric[vf].pkey) == PKEY_VALUE(mcGroup->pKey)) &&
-                			(smVFValidateMcDefaultGroup(vf, vfmGid) == VSTATUS_OK)) {
-                			uint32 vfIdx=VirtualFabrics->v_fabric[vf].index;
-                			bitset_set(&mcGroup->vfMembers, vfIdx);
+        			for (vf=0; vf < VirtualFabrics->number_of_vfs_all; vf++) {
+						if (VirtualFabrics->v_fabric_all[vf].standby) continue;
+						if ((PKEY_VALUE(VirtualFabrics->v_fabric_all[vf].pkey) == PKEY_VALUE(mcGroup->pKey)) &&
+                			(smVFValidateVfMGid(VirtualFabrics, vf, vfmGid) == VSTATUS_OK)) {
+                			bitset_set(&mcGroup->vfMembers, vf);
             			}
         			}
 				}
-				(void)vs_rwunlock(&old_topology_lock);
 
             } else {
 				// Remove this usage once ib_sa.h:McGroupSync_t:mGid changes type
                 IB_LOG_WARN_FMT(__func__,
                        "can't create group " FMT_GID " with %d members", ((IB_GID*)mcgs.mGid)->Type.Global.SubnetPrefix, ((IB_GID*)mcgs.mGid)->Type.Global.InterfaceID, mcgs.membercount);
                 (void)vs_unlock(&sm_McGroups_lock);
+				(void)vs_rwunlock(&old_topology_lock);
+
                 /* can't create the group on this side, drop the sync packet */
                 (void) dbSyncMngrReply (dbsyncfd_if3, maip, msgbuf, 0, VSTATUS_DROP);
                 IB_EXIT(__func__, status);
                 return status;
             }
             (void)vs_unlock(&sm_McGroups_lock);
+			(void)vs_rwunlock(&old_topology_lock);
         }
         /* return appropriate status to caller */
         (void) dbSyncMngrReply (dbsyncfd_if3, maip, msgbuf, 0, ((status == VSTATUS_OK) ? VSTATUS_OK : VSTATUS_DROP));
@@ -1379,6 +1381,7 @@ static Status_t processGroupSync(Mai_t *maip, uint8_t *msgbuf, uint32_t reclen) 
             (void)BSWAPCOPY_SM_DBSYNC_MC_GROUP_DATA((McGroupSync_t *)&msgbuf[bufidx], &mcgs);
             bufidx += sizeof(McGroupSync_t);
             /* delete group if exist */
+            (void)vs_rdlock(&old_topology_lock);
             (void)vs_lock(&sm_McGroups_lock);
     		if ((mcGroup = sm_find_multicast_gid(*((IB_GID*)mcgs.mGid)))) {
                 while (mcGroup->mcMembers) {
@@ -1408,6 +1411,7 @@ static Status_t processGroupSync(Mai_t *maip, uint8_t *msgbuf, uint32_t reclen) 
                 mcGroup->hopLimit = mcgs.hopLimit;
                 mcGroup->scope = mcgs.scope;
                 mcGroup->index_pool = mcgs.index_pool;
+                sm_multicast_mark_lid_in_use(mcgs.mLid);
                 /* add members to group */
                 while (bufidx < reclen && memcnt < mcgs.membercount) {
         		    BSWAPCOPY_STL_MCMEMBER_SYNCDB((STL_MCMEMBER_SYNCDB*)&msgbuf[bufidx], &mcms);
@@ -1421,20 +1425,19 @@ static Status_t processGroupSync(Mai_t *maip, uint8_t *msgbuf, uint32_t reclen) 
                     mcMember->record = mcms.member;
                     mcMember->index = mcms.index;
                 }
-                (void)vs_rdlock(&old_topology_lock);
+
                 VirtualFabrics_t *VirtualFabrics = old_topology.vfs_ptr;
                 if (VirtualFabrics) {
                     vfmGid[0] = mcGroup->mGid.AsReg64s.H;
                     vfmGid[1] = mcGroup->mGid.AsReg64s.L;
-                    for (vf=0; vf < VirtualFabrics->number_of_vfs; vf++) {
-                        if ((PKEY_VALUE(VirtualFabrics->v_fabric[vf].pkey) == PKEY_VALUE(mcGroup->pKey)) &&
-                            (smVFValidateMcDefaultGroup(vf, vfmGid) == VSTATUS_OK)) {
-                            uint32 vfIdx=VirtualFabrics->v_fabric[vf].index;
-                            bitset_set(&mcGroup->vfMembers, vfIdx);
+                    for (vf=0; vf < VirtualFabrics->number_of_vfs_all; vf++) {
+						if (VirtualFabrics->v_fabric_all[vf].standby) continue;
+                        if ((PKEY_VALUE(VirtualFabrics->v_fabric_all[vf].pkey) == PKEY_VALUE(mcGroup->pKey)) &&
+                            (smVFValidateVfMGid(VirtualFabrics, vf, vfmGid) == VSTATUS_OK)) {
+                            bitset_set(&mcGroup->vfMembers, vf);
                         }
                     }
                 }
-                (void)vs_rwunlock(&old_topology_lock);
 
                 IB_LOG_INFO_FMT(__func__,
                        "ADD/UPDATE group " FMT_GID " with %d members", ((IB_GID *)mcgs.mGid)->Type.Global.SubnetPrefix, ((IB_GID *)mcgs.mGid)->Type.Global.InterfaceID, mcgs.membercount);
@@ -1443,11 +1446,14 @@ static Status_t processGroupSync(Mai_t *maip, uint8_t *msgbuf, uint32_t reclen) 
                        "sm_multicast_sync_lid failed, Can't ADD/UPDATE group " FMT_GID " with %d members", ((IB_GID *)mcgs.mGid)->Type.Global.SubnetPrefix, ((IB_GID*)mcgs.mGid)->Type.Global.InterfaceID, mcgs.membercount);
                 /* can't create the group on this side, drop the sync packet */
                 (void)vs_unlock(&sm_McGroups_lock);
+                (void)vs_rwunlock(&old_topology_lock);
                 (void) dbSyncMngrReply (dbsyncfd_if3, maip, msgbuf, 0, VSTATUS_DROP);
                 IB_EXIT(__func__, status);
                 return status;
             }
+
             (void)vs_unlock(&sm_McGroups_lock);
+            (void)vs_rwunlock(&old_topology_lock);
         }
         /* return appropriate status to caller */
         (void) dbSyncMngrReply (dbsyncfd_if3, maip, msgbuf, 0, ((status == VSTATUS_OK) ? VSTATUS_OK : VSTATUS_DROP));
@@ -1500,7 +1506,7 @@ static Status_t dbsync_setSMDBService(SMSyncReq_t *syncReqp) {
 
     IB_ENTER(__func__, syncReqp, 0, 0, 0);
 
-    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= UNICAST_LID_MAX)) {
+    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= STL_GET_UNICAST_LID_MAX())) {
         /*
          *	create output buffer from hashtable records
          */
@@ -1588,7 +1594,7 @@ static Status_t dbsync_updateSMDBService(SMSyncReq_t *syncReqp) {
 
     IB_ENTER(__func__, syncReqp, 0, 0, 0);
 
-    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= UNICAST_LID_MAX)) {
+    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= STL_GET_UNICAST_LID_MAX())) {
         numRecs++;
         osrp = (OpaServiceRecord_t *)(syncReqp->data);
         BSWAPCOPY_SM_DBSYNC_RECORD_CNT(&numRecs, (uint32_t*)buff);
@@ -1840,7 +1846,7 @@ static Status_t dbsync_setSMDBMCRoot(SMSyncReq_t *syncReqp) {
 
     IB_ENTER(__func__, syncReqp, 0, 0, 0);
 
-    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= UNICAST_LID_MAX)) {
+    if (syncReqp->portguid && (syncReqp->standbyLid >= UNICAST_LID_MIN && syncReqp->standbyLid <= STL_GET_UNICAST_LID_MAX())) {
 		if (vs_lock(&sm_mcSpanningTreeRootGuidLock) != VSTATUS_OK) return VSTATUS_BAD;
 		outlen = sizeof (sm_mcSpanningTreeRootGuid);
 
@@ -2059,17 +2065,17 @@ static void dbsync_procReqQ(void) {
 
             	/* get the sync Config Consistency Check info of the standby SM if configured to do so */
 
-				if (dbsync_getSMDBCCCSync(syncReqp)) {
-                   	IB_LOG_INFINI_INFO_FMT(__func__,
+					if (dbsync_getSMDBCCCSync(syncReqp)) {
+                    	IB_LOG_INFINI_INFO_FMT(__func__,
                         	"failed to get sync Config Consistency Check info of SM at portGuid "FMT_U64", LID=[0x%x]", 
                         	syncReqp->portguid, syncReqp->standbyLid);
-				} else {
-					if (smDebugPerf) {
-						IB_LOG_INFINI_INFO_FMT(__func__,
-							"Successful getting sync Config Consistency Check info of SM at portGuid "FMT_U64", LID=[0x%x]",
-							syncReqp->portguid, syncReqp->standbyLid);
+					} else {
+						if (smDebugPerf) {
+							IB_LOG_INFINI_INFO_FMT(__func__,
+								"Successful getting sync Config Consistency Check info of SM at portGuid "FMT_U64", LID=[0x%x]",
+								syncReqp->portguid, syncReqp->standbyLid);
+						}
 					}
-				}
 			} else if (status != VSTATUS_AGAIN) {
 
 				/* Never received the DBSync Capability Response from Standby SM
@@ -2331,7 +2337,7 @@ static void dbsync_procReqQ(void) {
 /*
  * see if remote SM still around
 */
-//static dbsync_pingSm(Lid_t lid) {
+//static dbsync_pingSm(STL_LID lid) {
 //    (void)if3_set_dlid(dbsyncfd_if3, lid);
 //    /* ping the remote sm's dbsync thread */
 //    if(If3CntrlCmdSend(dbsyncfd_if3, FE_MNGR_PROBE_CMD) != VSTATUS_OK) {
@@ -2402,7 +2408,7 @@ void sm_dbsync(uint32_t argc, uint8_t ** argv) {
 	}
 
     if ((status = vs_pool_alloc(&sm_pool, buflen, (void *)&msgbuf)) != VSTATUS_OK) {
-        IB_FATAL_ERROR("sm_dbsync: Can't allocate space for SM to SM sync messages");
+        IB_FATAL_ERROR_NODUMP("sm_dbsync: Can't allocate space for SM to SM sync messages");
         IB_EXIT(__func__, VSTATUS_NOMEM);
         return;
     } else {

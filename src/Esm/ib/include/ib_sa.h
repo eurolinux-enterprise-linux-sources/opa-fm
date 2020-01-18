@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT2 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -27,37 +27,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  * ** END_ICS_COPYRIGHT2   ****************************************/
 
-//----------------------------------------------------------------------/
-//                                                                      /
-// FILE NAME                                                            /
-//    ib_sa.h                                                           /
-//                                                                      /
-// DESCRIPTION                                                          /
-//    SA specific structures                                            /
-//                                                                      /
-// DATA STRUCTURES                                                      /
-//    SAMad_t			Common SA Mad header			/
-//    NodeRecord_t		NodeInfo Record				/
-//    InformRecord_t		Inform Record				/
-//    ServiceRecord_t		Service Record				/
-//    PathRecord_t		Path Record				/
-//    McMemberRecord_t		McMember Record				/
-//    		                                                        	/
-// FUNCTIONS                                                            /
-//    None                                                              /
-//                                                                      /
-// DEPENDENCIES                                                         /
-//    ib_types.h                                                        /
-//    ib_mad.h                                                          /
-//                                                                      /
-//                                                                      /
-// HISTORY                                                              /
-//                                                                      /
-//    NAME      DATE  REMARKS                                           /
-//     jsy  12/28/00  Initial creation of file.                         /
-//                                                                      /
-//----------------------------------------------------------------------/
-
 // -------------------------------------------------------------------- //
 //                                                                      //
 //	WARNING:  These structures do NOT represent the IBTA defined	//
@@ -71,8 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ib_types.h"
 #include "ib_mad.h"
 #include "cs_hashtable.h"
-#include "iba/stl_sm.h"
-#include "iba/stl_sa.h"
+#include "iba/stl_sm_types.h"
+#include "iba/stl_sa_priv.h"
 
 #if defined(__KERNEL__) && ! defined(__VXWORKS__)
 #include "linux/iba/public/ipackon.h"
@@ -220,332 +189,11 @@ typedef	struct {
 #define SA_MULTIPATH_RECORD 0x003A  // Request for multi paths
 #define	SA_SARESPONSE		0x8001	// Container for query responses
 #define SA_VFABRIC_RECORD	0xFF02  // "Vendor unique" vfabric record
-#define SA_JOB_MANAGEMENT	0xFFB2  // job management extensions
-
-// IBTA:  Volume 1, Section 15.2.5.1
-
-//
-//	NodeRecord
-//
-typedef	struct {
-    Lid_t    lid;        // LID of CA port or LID of switch port 0
-    uint16_t    reserved;
-    STL_NODE_INFO	nodeInfo;	// NodeInfo
-    NodeDesc_t	nodeDesc;	// NodeDesc
-} NodeRecord_t;
-#define NR_COMPONENTMASK_LID            0x0000000000000001ull
-#define NR_COMPONENTMASK_NI_NODETYPE    0x0000000000000010ull
-#define NR_COMPONENTMASK_NODEGUID       0x0000000000000080ull
-#define NR_COMPONENTMASK_PORTGUID       0x0000000000000100ull
-#define NR_COMPONENTMASK_PORTNUMBER     0x0000000000001000ull
-
-// IBTA:  Volume 1, Section 15.2.5.10
-
-//
-//	PartitionRecord
-//
-typedef	struct {
-	Lid_t		portLid;	    // port LID
-    uint16_t    blockNum;       // Pkey table block number
-    uint8_t     portNum;        // switch port number
-    uint32_t    rsrvd1;       
-	STL_PARTITION_TABLE	pkeyTable;	// contents of PKey table
-} PartitionRecord_t;
-#define	PKEY_COMPONENTMASK_PORTLID	0x0000000000000001ull
-#define	PKEY_COMPONENTMASK_BLOCKNUM	0x0000000000000002ull
-#define	PKEY_COMPONENTMASK_PORTNUM	0x0000000000000004ull
-
-// IBTA:  Volume 1, Section 15.2.5.11
-
-//
-//	InformRecord
-//
-typedef	struct {
-	Gid_t		    subscriberGid;	// subscriber GID
-	uint16_t	    id;	            // unique id
-    uint8_t         reserved[6];    // 48 bits reserved
-	InformInfo_t	informInfo;	    // Inform Info
-} InformRecord_t;
-typedef InformRecord_t * InformRecordp;
-
-
-// IBTA:  Volume 1, Section 15.2.5.14
-
-//
-//	ServiceRecord
-//
-
-#define SERVICE_RECORD_NAME_COUNT	64
-//#define SERVICE_RECORD_GID_COUNT	16
-#define SERVICE_RECORD_KEY_COUNT	16
-
-typedef	struct {
-    uint64_t    serviceId;          // Id of service on port specified by serviceGid
-	Gid_t		serviceGid;	        // String of 16 hex digits
-    uint16_t    servicep_key;       // p_key used in contacting service
-	uint16_t	reserved;
-	uint32_t	serviceLease;		// seconds remaining in lease
-    uint8_t     serviceKey[SERVICE_RECORD_KEY_COUNT];  // key associated with service name
-	uint8_t		name[SERVICE_RECORD_NAME_COUNT];// Null terminated service name
-    uint8_t     data8[16];			// data8[2] and data8[3] used by config consistency check
-    uint16_t    data16[8];
-    uint32_t    data32[4];			// data32[0] and data32[1] used by config consistency check
-    uint64_t    data64[2];
-} ServiceRecord_t;
-typedef ServiceRecord_t * ServiceRecordp;
-
-
-#define SR_COMPONENTMASK_ID 	0x01ull
-#define SR_COMPONENTMASK_GID 	0x02ull
-#define SR_COMPONENTMASK_PKEY 	0x04ull
-#define SR_COMPONENTMASK_LEASE 	0x10ull
-#define SR_COMPONENTMASK_KEY 	0x20ull
-#define SR_COMPONENTMASK_NAME 	0x40ull
-#define	SR_GFLAG_INDIRECTION	0x1	// set if service may redirect
-#define	SR_GFLAG_DHCP_CAPABLE	0x2	// set if DHCP server may register
-
-// IBTA:  Volume 1, Section 15.2.5.15
-
-
-//
-//	PathRecord
-//
-
-#define PATH_RECORD_RSVD4_COUNT	6
-
-typedef struct {
-	uint64_t    serviceId;  // service ID  - IBTA: Section A13.5.3.1
-	Gid_t		dstGid;		// destination GID
-	Gid_t		srcGid;		// source GID
-	Lid_t		dstLid;		// destination LID
-	Lid_t		srcLid;		// source LID
-	uint8_t		raw;		// raw flag
-	uint8_t		rsvd2;		// reserved
-	uint32_t	flowLabel;	// flow label
-	uint8_t		hopLimit;	// hop limit
-	uint8_t		tClass;		// tClass (GRH)
-	uint8_t		reversible;	// reversible path indicator/requirement
-	uint8_t		numPath;	// numbPath
-	PKey_t		pKey;		// partition key for this path
-    uint16_t	qosClass;	// QoS class - 12 bits, defined in A13.5.3.1
-	uint8_t	    sl;		    // service level - 4 bits
-	uint8_t		mtuSelector;	// mtu selector
-	uint8_t		mtuValue;	// mtu value
-	uint8_t		rateSelector;	// rate selector
-	uint8_t		rateValue;	// rate value
-	uint8_t		lifeSelector;	// life time selector
-	uint8_t		lifeValue;	// life time value
-    uint8_t     preference; // order of preference amongst multi paths
-	uint8_t		rsvd4[PATH_RECORD_RSVD4_COUNT];	// reserved
-} PathRecord_t;
-
-/* IB 1.1 */
-#define	PR_COMPONENTMASK_NO_DST	0x0000000000000014ull
-#define	PR_COMPONENTMASK_OK_SRC	0x0000000000001008ull
-
-#define	PR_COMPONENTMASK_SRV_ID	0x0000000000000001ull
-#define	PR_COMPONENTMASK_DGID	0x0000000000000004ull
-#define	PR_COMPONENTMASK_SGID	0x0000000000000008ull
-#define	PR_COMPONENTMASK_DLID	0x0000000000000010ull
-#define	PR_COMPONENTMASK_SLID	0x0000000000000020ull
-#define	PR_COMPONENTMASK_RAW	0x0000000000000040ull
-#define	PR_COMPONENTMASK_FLOW	0x0000000000000100ull
-#define	PR_COMPONENTMASK_HOP	0x0000000000000200ull
-#define	PR_COMPONENTMASK_TCLASS	0x0000000000000400ull
-#define	PR_COMPONENTMASK_REVERSIBLE	0x0000000000000800ull
-#define	PR_COMPONENTMASK_PATHS	0x0000000000001000ull
-#define	PR_COMPONENTMASK_PKEY	0x0000000000002000ull
-#define	PR_COMPONENTMASK_QOS	0x0000000000004000ull
-#define	PR_COMPONENTMASK_SL	    0x0000000000008000ull
-#define	PR_COMPONENTMASK_MTU_SEL  0x0000000000010000ull
-#define	PR_COMPONENTMASK_MTU	0x0000000000020000ull
-#define	PR_COMPONENTMASK_RATE_SEL 0x0000000000040000ull
-#define	PR_COMPONENTMASK_RATE	0x0000000000080000ull
-#define	PR_COMPONENTMASK_LIFE_SEL 0x0000000000100000ull
-#define	PR_COMPONENTMASK_LIFE	0x0000000000200000ull
-
-#define	PR_GT			0	// value is greater than
-#define	PR_LT			1	// value is less than
-#define	PR_EQ			2	// value is equal
-#define	PR_MAX			3	// maximum possible
-
-#define PR_LIFE_MAX			0x3F
-
-// IBTA:  Volume 1, Section 15.2.5.17
-
-//
-//	MCMemberRecord
-//
-typedef	struct {
-	Gid_t		mGid;
-	Gid_t		portGid;
-	uint32_t	qKey;
-	Lid_t	mLid;
-	uint8_t		mtuSelector;
-	uint8_t		mtuValue;
-	uint8_t		tClass;
-	uint16_t	pKey;
-	uint8_t		rateSelector;
-	uint8_t		rateValue;
-	uint8_t		lifeSelector;
-	uint8_t		lifeValue;
-	uint8_t		sl;
-	uint32_t	flowLabel;
-	uint8_t		hopLimit;
-	uint8_t		scope;
-	uint8_t		joinState;
-	uint8_t		proxyJoin;
-	uint32_t	rsvd;
-} McMemberRecord_t;
-//
-//	Multicast dbsync structures.
-//
-typedef	struct {
-	Gid_t			mGid;
-	uint32_t		members_full;
-	uint32_t		qKey;
-	uint16_t		pKey;
-	Lid_t			mLid;
-	uint8_t			mtu;
-	uint8_t			rate;
-	uint8_t			life;
-	uint8_t			sl;
-	uint32_t		flowLabel;
-	uint8_t			hopLimit;
-	uint8_t			tClass;
-	uint8_t			scope;
-    uint8_t         filler;
-    uint16_t        membercount;
-	uint32_t		index_pool; /* Next index to use for new Mc Member records */
-} McGroupSync_t;
-
-#define MC_COMPONENTMASK_MGID			0x0000000000000001ull
-#define MC_COMPONENTMASK_PGID			0x0000000000000002ull
-#define MC_COMPONENTMASK_QKEY			0x0000000000000004ull
-#define MC_COMPONENTMASK_MLID			0x0000000000000008ull
-#define MC_COMPONENTMASK_MTU_SEL		0x0000000000000010ull
-#define MC_COMPONENTMASK_MTU			0x0000000000000020ull
-#define MC_COMPONENTMASK_TCLASS			0x0000000000000040ull
-#define MC_COMPONENTMASK_PKEY			0x0000000000000080ull
-#define MC_COMPONENTMASK_RATE_SEL		0x0000000000000100ull
-#define MC_COMPONENTMASK_RATE			0x0000000000000200ull
-#define MC_COMPONENTMASK_LIFE_SEL		0x0000000000000400ull
-#define MC_COMPONENTMASK_LIFE			0x0000000000000800ull
-#define MC_COMPONENTMASK_SL				0x0000000000001000ull
-#define MC_COMPONENTMASK_FLOW			0x0000000000002000ull
-#define MC_COMPONENTMASK_HOP			0x0000000000004000ull
-#define MC_COMPONENTMASK_SCOPE			0x0000000000008000ull
-#define MC_COMPONENTMASK_STATE			0x0000000000010000ull
-#define MC_COMPONENTMASK_PROXY			0x0000000000020000ull
-
-/* P_Key,  Q_Key, SL, FlowLabel, TClass, JoinState, PortGID */
-#define MC_COMPONENTMASK_OK_CREATE		(MC_COMPONENTMASK_PKEY   | \
-										 MC_COMPONENTMASK_QKEY   | \
-										 MC_COMPONENTMASK_SL     | \
-										 MC_COMPONENTMASK_FLOW   | \
-										 MC_COMPONENTMASK_TCLASS | \
-										 MC_COMPONENTMASK_STATE  | \
-										 MC_COMPONENTMASK_PGID)
-
-/* MGID, JoinState, PortGID */
-#define MC_COMPONENTMASK_OK_JOIN		(MC_COMPONENTMASK_MGID   | \
-										 MC_COMPONENTMASK_STATE  | \
-										 MC_COMPONENTMASK_PGID)
-
-/* All of MTU */
-#define MC_COMPONENTMASK_OK_MTU			(MC_COMPONENTMASK_MTU_SEL | \
-										 MC_COMPONENTMASK_MTU)
-										 
-/* All of Rate */
-#define MC_COMPONENTMASK_OK_RATE		(MC_COMPONENTMASK_RATE_SEL | \
-										 MC_COMPONENTMASK_RATE)
-										 
-/* All of Life */
-#define MC_COMPONENTMASK_OK_LIFE		(MC_COMPONENTMASK_LIFE_SEL | \
-										 MC_COMPONENTMASK_LIFE)
-
-
-#define	MCMEMBER_JOIN_FULL_MEMBER		0x01
-#define	MCMEMBER_JOIN_NON_MEMBER		0x02
-#define	MCMEMBER_JOIN_SENDONLY_MEMBER		0x04
 
 #define IB_LINK_LOCAL_SCOPE             0x2
 #define IB_SITE_LOCAL_SCOPE             0x5
 #define IB_ORG_LOCAL_SCOPE              0x8
 #define IB_GLOBAL_SCOPE                 0xE
-
-//
-// IBTA:  Volume 1r1.1, Section 15.2.5.20
-
-//
-//	MultiPathRecord
-//
-
-typedef	struct {
-	uint32_t    raw;	    // raw flag
-	uint32_t	rsvd;		// reserved
-	uint32_t	flowLabel;	// flow label
-	uint8_t		hopLimit;	// hop limit
-	uint8_t		tClass;		// tClass (GRH)
-	uint8_t		reversible;	// reversible path indicator/requirement
-	uint8_t		numPath;	// numbPath
-	PKey_t		pKey;		// partition key for this path
-	uint16_t	qosClass;	// qos - 12 bits - as per IBTA: A13.5.3.2
-	uint8_t		sl;			// service level - 4 bits
-	uint8_t		mtuSelector;	// mtu selector
-	uint8_t		mtuValue;	// mtu value
-	uint8_t		rateSelector;	// rate selector
-	uint8_t		rateValue;	// rate value
-	uint8_t		lifeSelector;	// life time selector
-	uint8_t		lifeValue;	// life time value
-	uint8_t		serviceID8msb;	// serviceId 8 MSB
-	uint8_t		indepSelector;	// independence selector
-	uint8_t		rsvd3;		// reserved
-	uint8_t		sGidCount;	// sgid count
-	uint8_t		dGidCount;	// dgid count
-	uint64_t	serviceID56lsb; // 7 LSB of ServiceID
-#define SGID1_OFFSET 24     // 192 bits - Table 179 of Vol1r1_1.pdf
-	Gid_t	    *sGidList;	// pointer to sgid table
-	Gid_t	    *dGidList;	// pointer to dgid table
-} MultiPathRecord_t;
-#define	MR_COMPONENTMASK_RAW	    0x0000000000000001ull
-#define	MR_COMPONENTMASK_FLOW	    0x0000000000000004ull
-#define	MR_COMPONENTMASK_HOP	    0x0000000000000008ull
-#define	MR_COMPONENTMASK_TCLASS	    0x0000000000000010ull
-#define	MR_COMPONENTMASK_REVERSIBLE	0x0000000000000020ull
-#define	MR_COMPONENTMASK_PATHS	    0x0000000000000040ull
-#define	MR_COMPONENTMASK_PKEY	    0x0000000000000080ull
-#define	MR_COMPONENTMASK_QOS	    0x0000000000000100ull
-#define	MR_COMPONENTMASK_SL	        0x0000000000000200ull
-#define	MR_COMPONENTMASK_MTU_SEL	0x0000000000000400ull
-#define	MR_COMPONENTMASK_MTU     	0x0000000000000800ull
-#define	MR_COMPONENTMASK_RATE_SEL	0x0000000000001000ull
-#define	MR_COMPONENTMASK_RATE	    0x0000000000002000ull
-#define	MR_COMPONENTMASK_LIFE_SEL	0x0000000000004000ull
-#define	MR_COMPONENTMASK_LIFE	    0x0000000000008000ull
-#define	MR_COMPONENTMASK_SRVID	    0x0000000000010000ull
-#define MR_COMPONENTMASK_INDEP_SEL  0x0000000000020000ull
-
-//
-//	OPA specific internal SA records.
-//
-//	***** WARNING ***** WARNING ***** WARNING ***** WARNING *****
-//
-//	These records can be changed at any time without notice.
-//
-//	***** WARNING ***** WARNING ***** WARNING ***** WARNING *****
-//
-
-//
-//	OpaServiceRecord_t - This is the same as the original with a
-//			      timestamp appended.
-//
-typedef	struct {
-	STL_SERVICE_RECORD	serviceRecord;	
-	uint64_t			expireTime;	
-	uint8_t				pkeyDefined;// was the record created using pkey mask?
-} OpaServiceRecord_t;
-typedef OpaServiceRecord_t * OpaServiceRecordp; /* pointer to record */
 
 /*
  * subscriber table (informInfo)
@@ -560,15 +208,15 @@ typedef struct {
  */
 typedef struct {
     Gid_t           subscriberGid;
-	uint16_t	    lid;		// destination lid
+	STL_LID			lid;		// destination lid
     uint16_t        trapnum;    // trap number
     uint32_t        qpn;        // queue pair number - 24 bits
     uint8_t         producer;   // producer of traps/notices - using 3 bits
 	uint8_t         rtv;        // time to respond to requests - 5 bits
 	uint16_t        pkey;		// original PKey
 	uint32_t	    qkey;	    // queue pair key (32)
-	uint16_t	    startLid;	// calculated start Lid
-	uint16_t	    endLid;		// calculated end Lid
+	STL_LID		    startLid;	// calculated start Lid
+	STL_LID		    endLid;		// calculated end Lid
 	uint8_t			ibMode;		// true if subscriber needs IB notices.
 } SubscriberKey_t;
 typedef SubscriberKey_t * SubscriberKeyp;

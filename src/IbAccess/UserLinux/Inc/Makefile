@@ -1,6 +1,6 @@
 # BEGIN_ICS_COPYRIGHT8 ****************************************
 # 
-# Copyright (c) 2015, Intel Corporation
+# Copyright (c) 2015-2017, Intel Corporation
 # 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -66,27 +66,35 @@ INCLUDE_TARGETS	= \
 				$(COMMON_SRCDIR)/ib_helper.h \
 				$(COMMON_SRCDIR)/ib_mad.h \
 				$(COMMON_SRCDIR)/ib_pkt.h \
-				$(COMMON_SRCDIR)/ib_pm.h \
-				$(COMMON_SRCDIR)/ib_bm.h \
-				$(COMMON_SRCDIR)/ib_pa.h \
 				$(COMMON_SRCDIR)/ib_rmpp.h \
 				$(COMMON_SRCDIR)/ib_sa_records.h \
+				$(COMMON_SRCDIR)/ib_sa_records_priv.h \
 				$(COMMON_SRCDIR)/ib_sd.h \
+				$(COMMON_SRCDIR)/ib_sd_priv.h \
 				$(COMMON_SRCDIR)/ib_cm.h \
-				$(COMMON_SRCDIR)/ib_sm.h \
+				$(COMMON_SRCDIR)/ib_sm_priv.h \
+				$(COMMON_SRCDIR)/ib_sm_types.h \
 				$(COMMON_SRCDIR)/ib_status.h \
 				$(COMMON_SRCDIR)/ib_types.h \
 				$(COMMON_SRCDIR)/ipublic.h \
 				$(COMMON_SRCDIR)/stl_helper.h \
-				$(COMMON_SRCDIR)/stl_mad.h \
-				$(COMMON_SRCDIR)/stl_pa.h \
+				$(COMMON_SRCDIR)/stl_mad_priv.h \
+				$(COMMON_SRCDIR)/stl_mad_types.h \
+				$(COMMON_SRCDIR)/stl_pa_priv.h \
+				$(COMMON_SRCDIR)/stl_pa_types.h \
 				$(COMMON_SRCDIR)/stl_pkt.h \
 				$(COMMON_SRCDIR)/stl_pm.h \
-				$(COMMON_SRCDIR)/stl_sm.h \
-				$(COMMON_SRCDIR)/stl_sa.h \
+				$(COMMON_SRCDIR)/stl_sm_priv.h \
+				$(COMMON_SRCDIR)/stl_sm_types.h \
+				$(COMMON_SRCDIR)/stl_sa_priv.h \
+				$(COMMON_SRCDIR)/stl_sa_types.h \
 				$(COMMON_SRCDIR)/stl_sd.h \
 				$(COMMON_SRCDIR)/stl_t.h \
 				$(COMMON_SRCDIR)/stl_types.h \
+				$(COMMON_SRCDIR)/stl_em_eostl.h \
+				$(COMMON_SRCDIR)/stl_ea_eostl.h \
+				$(COMMON_SRCDIR)/stl_eepha_eostl.h \
+				$(COMMON_SRCDIR)/stl_rmpp.h \
 				ib_debug_osd.h \
 				# Add more h hpp files here
 				# bldver_osd.h \

@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT7 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -9,7 +9,7 @@ modification, are permitted provided that the following conditions are met:
       this list of conditions and the following disclaimer.
     * Redistributions in binary form must reproduce the above copyright
       notice, this list of conditions and the following disclaimer in the
-     documentation and/or other materials provided with the distribution.
+      documentation and/or other materials provided with the distribution.
     * Neither the name of Intel Corporation nor the names of its contributors
       may be used to endorse or promote products derived from this software
       without specific prior written permission.
@@ -35,8 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdio.h>
 #include <iba/public/idebug_osd.h>
 #include <iba/ibt.h>
-#include <iba/ib_pm.h>
-#include <iba/stl_sm.h>
+#include <iba/stl_sm_priv.h>
+#include <iba/stl_pm.h>
 
 typedef enum {
 	PL_NONE = 0,	// no output
@@ -211,12 +211,6 @@ extern void PrintInformInfo(PrintDest_t *dest, int indent,
 				const IB_INFORM_INFO *pInformInfo);
 extern void PrintInformInfoRecord(PrintDest_t *dest, int indent,
 				const IB_INFORM_INFO_RECORD *pInformInfoRecord);
-extern void PrintVfInfo(PrintDest_t *dest, int indent,
-			   	const VEND_VFINFO_RECORD *pVfInfo);
-extern void PrintVfInfoCSV(PrintDest_t *dest, int indent,
-			   	const VEND_VFINFO_RECORD *pVfInfo);
-extern void PrintVfInfoCSV2(PrintDest_t *dest, int indent,
-			   	const VEND_VFINFO_RECORD *pVfInfo);
 
 ///////////////////////////////////////////////////////////////////////////////
 // IbAccess SubnetDriver interface
@@ -237,13 +231,6 @@ extern int PrintQueryResult(PrintDest_t *dest, int indent,
 				PrintDest_t *dbgDest,
 				QUERY_RESULT_TYPE OutputType, int csv, FSTATUS status,
 				QUERY_RESULT_VALUES *pResult);
-
-///////////////////////////////////////////////////////////////////////////////
-// PM
-extern void FormatPmClassPortInfoCapMask(char buf[80], uint16 cmask);
-extern void FormatPmClassPortInfoCapMask2(char buf[80], uint32 cmask);
-extern void PrintPortCounters(PrintDest_t *dest, int indent,
-				const PORT_COUNTERS *pPortCounters);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Print with additional information.

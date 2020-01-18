@@ -1,6 +1,6 @@
 # BEGIN_ICS_COPYRIGHT8 ****************************************
 # 
-# Copyright (c) 2015, Intel Corporation
+# Copyright (c) 2015-2017, Intel Corporation
 # 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -71,7 +71,7 @@ MOD_BIN_SUBDIR	=
 MOD_DRIVER_BIN_SUBDIR	=
 MOD_INCLUDE_SUBDIR = iba
 
-MOD_INCLUDE_DIRS	= . $(GLOBAL_INCLUDE_DIR)/$(MOD_INCLUDE_SUBDIR) $(GLOBAL_INCLUDE_DIR)/iba/public $(KERNELDIR)/include
+MOD_INCLUDE_DIRS	= . $(GLOBAL_INCLUDE_DIR)/$(MOD_INCLUDE_SUBDIR) $(GLOBAL_INCLUDE_DIR)/iba/public
 MOD_LIB_DIRS		= $(MOD_LIB_DIR)
 MODDEPLIBS		=
 MODLIBS		= 

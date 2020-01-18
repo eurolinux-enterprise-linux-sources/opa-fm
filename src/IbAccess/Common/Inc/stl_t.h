@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT5 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -9,7 +9,7 @@ modification, are permitted provided that the following conditions are met:
       this list of conditions and the following disclaimer.
     * Redistributions in binary form must reproduce the above copyright
       notice, this list of conditions and the following disclaimer in the
-     documentation and/or other materials provided with the distribution.
+      documentation and/or other materials provided with the distribution.
     * Neither the name of Intel Corporation nor the names of its contributors
       may be used to endorse or promote products derived from this software
       without specific prior written permission.
@@ -37,7 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "iba/ib_ibt.h"
 
-#include "iba/stl_sa.h"
+#include "iba/stl_sa_priv.h"
 #include "iba/stl_sd.h"
 
 #if defined(VXWORKS)
@@ -47,11 +47,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #else
 #include "iba/ib_cm.h"
 #endif
-#include "iba/ib_pa.h"
+#include "iba/stl_pa_priv.h"
 #include "iba/ib_types.h"
-
-//#include "iba/ib_avtracker.h"
-//#include "iba/umadt.h"
 
 #ifdef __cplusplus
 };

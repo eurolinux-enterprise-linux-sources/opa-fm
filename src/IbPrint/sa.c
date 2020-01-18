@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT7 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -9,7 +9,7 @@ modification, are permitted provided that the following conditions are met:
       this list of conditions and the following disclaimer.
     * Redistributions in binary form must reproduce the above copyright
       notice, this list of conditions and the following disclaimer in the
-     documentation and/or other materials provided with the distribution.
+      documentation and/or other materials provided with the distribution.
     * Neither the name of Intel Corporation nor the names of its contributors
       may be used to endorse or promote products derived from this software
       without specific prior written permission.
@@ -285,9 +285,9 @@ void PrintMcMemberRecord(PrintDest_t *dest, int indent, const IB_MCMEMBER_RECORD
 				pMcMemberRecord->JoinNonMember?"Non ":"",
 				pMcMemberRecord->JoinSendOnlyMember?"Sendonly ":"");
 	FormatTimeoutMult(buf, pMcMemberRecord->PktLifeTime);
-	PrintFunc(dest, "%*sMLID: 0x%04x PKey: 0x%04x Mtu: %5s Rate: %4s PktLifeTime: %s\n",
+	PrintFunc(dest, "%*sMLID: 0x%08x PKey: 0x%04x Mtu: %5s Rate: %4s PktLifeTime: %s\n",
 				indent, "",
-				pMcMemberRecord->MLID, pMcMemberRecord->P_Key,
+				MCAST16_TO_MCAST32(pMcMemberRecord->MLID), pMcMemberRecord->P_Key,
 				IbMTUToText(pMcMemberRecord->Mtu),
 				IbStaticRateToText(pMcMemberRecord->Rate),
 				buf);
@@ -345,100 +345,3 @@ void PrintInformInfoRecord(PrintDest_t *dest, int indent, const IB_INFORM_INFO_R
 				pInformInfoRecord->RID.Enum);
 	PrintInformInfo(dest, indent, &pInformInfoRecord->InformInfoData);
 }
-
-void PrintVfInfo(PrintDest_t *dest, int indent, const VEND_VFINFO_RECORD *pVfInfo)
-{
-	char buf[8];
-	char buf2[8];
-
-	PrintFunc(dest,"%*svFabric Index: %d   Name: %s \n",
-				indent, "",
-				pVfInfo->vfIndex,
-				pVfInfo->vfName);
-	PrintFunc(dest,"%*sServiceId: 0x%016"PRIx64"  MGID: 0x%016"PRIx64":0x%016"PRIx64"\n",
-				indent, "", pVfInfo->ServiceID,
-				pVfInfo->MGID.AsReg64s.H,
-				pVfInfo->MGID.AsReg64s.L);
-
-	// FormatTimeoutMult(buf, pVfInfo->s1.pktLifeTimeInc);
-	snprintf(buf, sizeof(buf), "%d", 1<<pVfInfo->s1.pktLifeTimeInc);
-	if ((pVfInfo->routingSLs > 1) && 
-		(pVfInfo->routingSLs+pVfInfo->s1.sl <=16)) {
-		sprintf(buf2, "%d-%d", pVfInfo->s1.sl, pVfInfo->s1.sl+pVfInfo->routingSLs-1);
-	} else {
-		sprintf(buf2, "%d", pVfInfo->s1.sl);
-	}
-	PrintFunc(dest,"%*sPKey: 0x%x   SL: %s  Select: 0x%x%s %s%s  PktLifeTimeMult: %s \n",
-				indent, "",
-				pVfInfo->pKey,
-				buf2,
-				pVfInfo->s1.selectFlags,
-				pVfInfo->s1.selectFlags? ":" : "",
-				(pVfInfo->s1.selectFlags&VEND_PKEY_SEL) ? "PKEY " : "",
-				(pVfInfo->s1.selectFlags&VEND_SL_SEL) ? "SL ": "",
-				pVfInfo->s1.pktLifeSpecified? buf: "unspecified");
-
-	if (pVfInfo->s1.mtuSpecified) {
-		PrintFunc(dest,"%*sMaxMtu: %5s  ",
-				indent, "",
-				IbMTUToText(pVfInfo->s1.mtu));
-	} else {
-		PrintFunc(dest,"%*sMaxMtu: unlimited  ",
-				indent, "");
-	}
-
-	PrintFunc(dest,"%*sMaxRate: %s   ",
-				indent, "",
-				pVfInfo->s1.rateSpecified ? IbStaticRateToText(pVfInfo->s1.rate) : "unlimited");
-
-	PrintFunc(dest,"%*sOptions: 0x%x%s %s%s\n",
-				indent, "", 
-				pVfInfo->optionFlags,
-				pVfInfo->optionFlags? ":" : "",
-				(pVfInfo->optionFlags&OPT_VF_SECURITY) ? "Security " : "",
-				(pVfInfo->optionFlags&OPT_VF_QOS) ? "QoS " : "");
-
-	if (pVfInfo->optionFlags&OPT_VF_QOS) {
-		if (pVfInfo->s2.priority) {
-			if (pVfInfo->bandwidthPercent) {
-				PrintFunc(dest,"%*sQOS: Bandwidth: %3d%%  Priority: %s\n",
-					indent, "", pVfInfo->bandwidthPercent, "high");
-			} else {
-				PrintFunc(dest,"%*sQOS: HighPriority\n", indent, "");
-			}
-		} else {
-			PrintFunc(dest,"%*sQOS: Bandwidth: %3d%%\n",
-				indent, "", pVfInfo->bandwidthPercent);
-		}
-	} else {
-		PrintFunc(dest,"%*sQOS: Disabled\n",
-				indent, "");
-	}
-}
-
-// output VFINFO in a delimited format for easy parsing in shell scripts
-void PrintVfInfoCSV(PrintDest_t *dest, int indent, const VEND_VFINFO_RECORD *pVfInfo)
-{
-	PrintFunc(dest,"%*s%s:%d:0x%x:%d:%s:%s\n",
-				indent, "",
-				pVfInfo->vfName,
-				pVfInfo->vfIndex,
-				pVfInfo->pKey,
-				pVfInfo->s1.sl,
-				(pVfInfo->s1.mtuSpecified)? IbMTUToText(pVfInfo->s1.mtu):"unlimited",
-				pVfInfo->s1.rateSpecified ? IbStaticRateToText(pVfInfo->s1.rate) : "unlimited");
-}
-
-// output VFINFO in a delimited format for easy parsing in shell scripts
-void PrintVfInfoCSV2(PrintDest_t *dest, int indent, const VEND_VFINFO_RECORD *pVfInfo)
-{
-	PrintFunc(dest,"%*s%s:%d:0x%x:%d:%d:%d\n",
-				indent, "",
-				pVfInfo->vfName,
-				pVfInfo->vfIndex,
-				pVfInfo->pKey,
-				pVfInfo->s1.sl,
-				(pVfInfo->s1.mtuSpecified)? pVfInfo->s1.mtu:0,
-				pVfInfo->s1.rateSpecified ? pVfInfo->s1.rate:0);
-}
-

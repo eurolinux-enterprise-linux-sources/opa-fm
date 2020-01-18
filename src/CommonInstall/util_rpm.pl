@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 # BEGIN_ICS_COPYRIGHT8 ****************************************
 # 
-# Copyright (c) 2015, Intel Corporation
+# Copyright (c) 2015-2017, Intel Corporation
 # 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -73,6 +73,12 @@ if ( "$RPM_DIST" eq "" ) {
 }
 sub rpm_query_release_pkg($);
 my $RPM_DIST_REL = rpm_query_release_pkg($RPM_DIST);
+
+# return array of cmds for verification during init
+sub rpm_get_cmds_for_verification()
+{
+	return ("/bin/rpm"); # Command paths
+}
 
 # version string for kernel used in RPM filenames uses _ instead of -
 sub rpm_tr_os_version($)
@@ -758,7 +764,7 @@ sub rpm_resolve($$$)
 	} else {
 		my $osver = rpm_tr_os_version("$mode");	# OS version
 		# we expect 1 match, ignore all other filenames returned
-		if ( "$CUR_VENDOR_VER" eq 'ES122' ) {
+		if ( "$CUR_VENDOR_VER" eq 'ES122' || "$CUR_VENDOR_VER" eq 'ES123') {
 			DebugPrint("Checking for Kernel Rpm: $rpmdir/${package}-${osver}_k*.${cpu}.rpm\n");
 			$rpmfile = file_glob("$rpmdir/${package}-${osver}_k*.${cpu}.rpm");
 		} else {
@@ -819,7 +825,7 @@ RPM_RES:
 		if ( "$mode" ne "user" && "$mode" ne "any" ) # kernel mode
 		{
 			NormalPrint "Rebuilding $package SRPM $mode\n";
-			if (0 == build_srpm($package, $RPM_DIR, $BUILD_ROOT, $prefix, "append")) {
+			if (0 == build_srpm($package, $RPM_DIR, $BUILD_ROOT, $prefix, "append", $mode)) {
 				delta_move_rpms("$RPM_DIR/$RPMS_SUBDIR", "$rpmdir");
 				goto RPM_RES;
 			}
@@ -870,7 +876,7 @@ RPM_RES:
 		if ( "$mode" ne "user" && "$mode" ne "any" ) # kernel mode
 		{
 			NormalPrint "Rebuilding $package SRPM $mode\n";
-			if (0 == build_srpm($package, $RPM_DIR, $BUILD_ROOT, $prefix, "append")) {
+			if (0 == build_srpm($package, $RPM_DIR, $BUILD_ROOT, $prefix, "append", $mode)) {
 				delta_move_rpms("$RPM_DIR/$RPMS_SUBDIR", "$rpmdir");
 				goto RPM_RES;
 			}

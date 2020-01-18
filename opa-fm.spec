@@ -1,6 +1,6 @@
 Name: opa-fm
 Epoch: 1
-Version: 10.5.1.0.1
+Version: 10.7.0.0.141
 Release: 1%{?dist}
 Summary: Intel Omni-Path Fabric Management Software
 
@@ -11,14 +11,14 @@ Url: https://github.com/01org/opa-fm
 # git clone https://github.com/01org/opa-fm.git
 # cd opa-fm
 # git archive --format=tar --prefix=opa-fm-%{version}/ \
-# b5eaf8d7a4170fcd25dcf939ac7fca7cfcab3e41 | xz > opa-fm-%{version}.tar.xz
+# ea3548c1fceea2be961387bffaf23e139aa44e0b | xz > opa-fm-%{version}.tar.xz
 Source0: %{name}-%{version}.tar.xz
 
 # bz1262327 needs Patch0002
 Patch0002: 0001-Fix-well-known-tempfile-issue-in-script.patch
 
 BuildRequires: openssl-devel, expat-devel
-BuildRequires: libibmad-devel, libibverbs-devel >= 1.2.0
+BuildRequires: libibverbs-devel >= 1.2.0
 BuildRequires: libibumad-devel
 Requires(post): systemd
 Requires(preun): systemd
@@ -44,12 +44,13 @@ export CXXFLAGS='%{optflags}'
 export release_COPT_Flags='%{optflags}'
 export release_CCOPT_Flags='%{optflags}'
 cd Esm
-./fmbuild -V %{version}.%{release}
+./fmbuild
 
 %install
 BUILDDIR=%{_builddir} DESTDIR=%{buildroot} LIBDIR=%{_libdir} RPM_INS=n ./Esm/fm_install.sh
 chmod 644 %{buildroot}/%{_unitdir}/opafm.service
 mkdir -p %{buildroot}/%{_localstatedir}/usr/lib/opa-fm/
+chmod a-x %{buildroot}/%{_prefix}/share/opa-fm/opafm_src.xml
 
 %post
 %systemd_post opafm.service
@@ -74,6 +75,10 @@ mkdir -p %{buildroot}/%{_localstatedir}/usr/lib/opa-fm/
 
 
 %changelog
+* Thu Apr 19 2018 Honggang Li <honli@redhat.com> - 10.7.0.0.141-1
+- Rebase to upstream release 10.7.0.0.141
+- Resolves: bz1483559
+
 * Thu Oct 19 2017 Honggang Li <honli@redhat.com> - 10.5.1.0.1-1
 - Rebase to upstream release 10.5.1.0.1
 - Resolves: bz1452787, bz1500903

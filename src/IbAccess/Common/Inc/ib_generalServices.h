@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT3 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -9,7 +9,7 @@ modification, are permitted provided that the following conditions are met:
       this list of conditions and the following disclaimer.
     * Redistributions in binary form must reproduce the above copyright
       notice, this list of conditions and the following disclaimer in the
-     documentation and/or other materials provided with the distribution.
+      documentation and/or other materials provided with the distribution.
     * Neither the name of Intel Corporation nor the names of its contributors
       may be used to endorse or promote products derived from this software
       without specific prior written permission.
@@ -32,8 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef __IBA_IB_GENERAL_SERVICES_H__
 #define __IBA_IB_GENERAL_SERVICES_H__ (1) /* suppress duplicate loading of this file */
 
-#include "iba/stl_mad.h"
-#include "iba/public/ibyteswap.h"
+#include "iba/stl_mad_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,10 +45,7 @@ extern "C" {
  * For each class, there is an additional header file which documents
  * specific attribute formats and Status codes specific to the class
  * For example:
- * 	ib_pm.h - performance management
- *	ib_dm.h - device management
  *	ib_sa_records.h - subnet administration
- *	ib_cc.h - congestion control
  */
 
 /* these are valid in 1.0a and 1.1
@@ -62,6 +58,7 @@ extern "C" {
 #define		STL_IBA_GS_DATASIZE		(STL_MAD_BLOCK_SIZE - IBA_GS_HDRSIZE)
 #define		STL_GS_DATASIZE			(STL_MAD_BLOCK_SIZE - STL_GS_HDRSIZE)
 										/* can include SAR header */
+
 /* IBA_RMPP_GS* is computed below, these are here as a reminder for users */
 /*#define	IBA_RMPP_GS_DATASIZE	220*//* what's left for class payload */
 /*#define	IBA_RMPP_GS_HDRSIZE		36 *//* common + RMPP header */
@@ -211,23 +208,6 @@ typedef struct _SA_MAD {
 } PACK_SUFFIX SA_MAD, *PSA_MAD;
 
 /* -------------------------------------------------------------------------- */
-/* Performance Management MAD format */
-typedef struct _PERF_MAD {
-	MAD_COMMON	common;				/* Generic MAD Header */
-
-	uint8		Resv[40];					/* class specific header */
-	
-	uint8		PerfData[IBA_GS_DATASIZE];	/* Performance Management Data */
-} PACK_SUFFIX PERF_MAD, *PPERF_MAD;
-
-typedef struct _STL_PERF_MAD {
-	MAD_COMMON	common;				/* Generic MAD Header */
-
-	uint8		PerfData[STL_GS_DATASIZE];	/* Performance Management Data */
-} PACK_SUFFIX STL_PERF_MAD, *PSTL_PERF_MAD;
-
-
-/* -------------------------------------------------------------------------- */
 /* BaseBoard Management MAD format */
 typedef struct _BM_HDR {
 	uint64		BKey;						/* B_Key */
@@ -364,6 +344,7 @@ BSWAPCOPY_IB_SA_MAD(IB_SA_MAD *src, IB_SA_MAD *dst, size_t len)
     BSWAP_RMPP_HEADER(&dst->RmppHdr);
 	memcpy(&dst->Data, &src->Data, len);
 }
+
 
 static __inline
 void

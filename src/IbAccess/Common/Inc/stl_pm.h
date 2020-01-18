@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT7 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -9,7 +9,7 @@ modification, are permitted provided that the following conditions are met:
       this list of conditions and the following disclaimer.
     * Redistributions in binary form must reproduce the above copyright
       notice, this list of conditions and the following disclaimer in the
-     documentation and/or other materials provided with the distribution.
+      documentation and/or other materials provided with the distribution.
     * Neither the name of Intel Corporation nor the names of its contributors
       may be used to endorse or promote products derived from this software
       without specific prior written permission.
@@ -32,8 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef __IBA_STL_PM_H__
 #define __IBA_STL_PM_H__
 
-#include "iba/ib_pm.h"
+#include "iba/ib_generalServices.h"
 #include "iba/stl_types.h"
+#include "iba/stl_pa_types.h"
 
 #if defined (__cplusplus)
 extern "C" {
@@ -53,6 +54,10 @@ extern "C" {
 #define STL_PM_ATTRIB_ID_DATA_PORT_COUNTERS		0x42
 #define STL_PM_ATTRIB_ID_ERROR_PORT_COUNTERS	0x43
 #define STL_PM_ATTRIB_ID_ERROR_INFO				0x44
+
+
+/* if AllPortSelect capability, use this as PortNum to operate on all ports */
+#define PM_ALL_PORT_SELECT 0xff
 
 enum PM_VLs {
 	PM_VL0 = 0,
@@ -77,55 +82,24 @@ static __inline uint32 idx_to_vl(uint32 idx) {
 	return idx;
 }
 
-#define	MAX_PM_PORTS							49		/* max in STL Gen1 (ports 0-48 on PRR switch) */
-
-
-#define MAX_BIG_ERROR_COUNTERS					9
-#define MAX_BIG_ERROR_COUNTERS_MIXED_MODE		5
-#define MAX_BIG_VL_ERROR_COUNTERS				1
-
-/* the default PM-PMA P_Key */
-#define DEFAULT_PM_P_KEY						0x7fff
-
 /* PortXmitData and PortRcvData are in units of flits (8 bytes) */
 #define FLITS_PER_MiB ((uint64)1024*(uint64)1024/(uint64)8)
 #define FLITS_PER_MB ((uint64)1000*(uint64)1000/(uint64)8)
+
 
 /* MAD status codes for PM */
 #define STL_PM_STATUS_REQUEST_TOO_LARGE			0x0100	/* response can't fit in a single MAD */
 #define STL_PM_STATUS_NUMBLOCKS_INCONSISTENT	0x0200	/* attribute modifier number of blocks inconsistent with number of ports/blocks in MAD */
 #define STL_PM_STATUS_OPERATION_FAILED			0x0300	/* an operation (such as clear counters) requested of the agent failed */
 
-static __inline const char*
-StlPmMadMethodToText(uint8 method)
-{
-	switch (method) {
-	case MMTHD_GET: return "Get";
-	case MMTHD_SET: return "Set";
-	case MMTHD_GET_RESP: return "GetResp";
-	default: return "Unknown";
-	}
-}
 
-static __inline const char*
-StlPmMadAttributeToText(uint16 aid)
-{
-	switch (aid) {
-	case STL_PM_ATTRIB_ID_CLASS_PORTINFO: return "ClassPortInfo";
-	case STL_PM_ATTRIB_ID_PORT_STATUS: return "PortStatus";
-	case STL_PM_ATTRIB_ID_CLEAR_PORT_STATUS: return "ClearPortStatus";
-	case STL_PM_ATTRIB_ID_DATA_PORT_COUNTERS: return "DataPortCounters";
-	case STL_PM_ATTRIB_ID_ERROR_PORT_COUNTERS: return "ErrorportCounters";
-	case STL_PM_ATTRIB_ID_ERROR_INFO: return "ErrorInfo";
-	default: return "Unknown";
-	}
-}
 static __inline void
 StlPmClassPortInfoCapMask(char buf[80], uint16 cmask)
 {
 	if (!cmask) {
 		snprintf(buf, 80, "-");
 	} else {
+
 		snprintf(buf, 80, "%s%s%s",
 			(cmask & STL_CLASS_PORT_CAPMASK_TRAP) ? "Trap " : "",
 			(cmask & STL_CLASS_PORT_CAPMASK_NOTICE) ? "Notice " : "",
@@ -141,11 +115,37 @@ StlPmClassPortInfoCapMask2(char buf[80], uint32 cmask)
 		buf[0] = '\0';
 	}
 }
+static __inline const char *
+StlPmMadMethodToText(uint8 method) {
+	switch (method) {
+	case MMTHD_GET: return "Get";
+	case MMTHD_SET: return "Set";
+	case MMTHD_GET_RESP: return "GetResp";
+	default: return "Unknown";
+	}
+}
+static __inline const char *
+StlPmMadAttributeToText(uint16 aid) {
+	switch (aid) {
+	case STL_PM_ATTRIB_ID_CLASS_PORTINFO: return "ClassPortInfo";
+	case STL_PM_ATTRIB_ID_PORT_STATUS: return "PortStatus";
+	case STL_PM_ATTRIB_ID_CLEAR_PORT_STATUS: return "ClearPortStatus";
+	case STL_PM_ATTRIB_ID_DATA_PORT_COUNTERS: return "DataPortCounters";
+	case STL_PM_ATTRIB_ID_ERROR_PORT_COUNTERS: return "ErrorportCounters";
+	case STL_PM_ATTRIB_ID_ERROR_INFO: return "ErrorInfo";
+	default: return "Unknown";
+	}
+}
 
 /* MAD structure definitions */
+typedef struct _STL_PERF_MAD {
+	MAD_COMMON	common;				/* Generic MAD Header */
+
+	uint8		PerfData[STL_GS_DATASIZE];	/* Performance Management Data */
+} PACK_SUFFIX STL_PERF_MAD, *PSTL_PERF_MAD;
+
 
 /* STL Port Counters - small request, large response */
-
 typedef struct _STL_Port_Status_Req {
 	uint8	PortNumber;
 	uint8	Reserved[3];;
@@ -209,53 +209,6 @@ typedef struct _STL_Port_Status_Rsp {
 		uint64	PortVLXmitDiscards;
 	} VLs[1]; /* n defined by number of bits in VLSelectmask */
 } PACK_SUFFIX STLPortStatusRsp, STL_PORT_STATUS_RSP;
-
-/* LinkQualityIndicator values */
-#define STL_LINKQUALITY_EXCELLENT	5	/* working as intended */
-#define STL_LINKQUALITY_VERY_GOOD	4	/* slightly below preferred, */
-										/* no action needed */
-#define STL_LINKQUALITY_GOOD		3	/* low end of acceptable, */
-										/* recommend corrective action on */
-										/* next maintenance window */
-#define STL_LINKQUALITY_POOR		2	/* below acceptable, */
-										/* recommend timely corrective action */
-#define STL_LINKQUALITY_BAD			1	/* far below acceptable, */
-										/* immediate corrective action */
-#define STL_LINKQUALITY_NONE		0	/* link down */
-
-typedef union {
-	uint32	AsReg32;
-	struct stl_counter_select_mask { IB_BITFIELD28(uint32,
-		PortXmitData : 1,
-		PortRcvData : 1,
-		PortXmitPkts : 1,
-		PortRcvPkts : 1,
-		PortMulticastXmitPkts : 1,
-		PortMulticastRcvPkts : 1,
-		PortXmitWait : 1,
-		SwPortCongestion : 1,
-		PortRcvFECN : 1,
-		PortRcvBECN : 1,
-		PortXmitTimeCong : 1,
-		PortXmitWastedBW : 1,
-		PortXmitWaitData : 1,
-		PortRcvBubble : 1,
-		PortMarkFECN : 1,
-		PortRcvConstraintErrors : 1,
-		PortRcvSwitchRelayErrors : 1,
-		PortXmitDiscards : 1,
-		PortXmitConstraintErrors : 1,
-		PortRcvRemotePhysicalErrors : 1,
-		LocalLinkIntegrityErrors : 1,
-		PortRcvErrors : 1,
-		ExcessiveBufferOverruns : 1,
-		FMConfigErrors : 1,
-		LinkErrorRecovery : 1,
-		LinkDowned : 1,
-		UncorrectableErrors : 1,
-		Reserved : 5)
-	} PACK_SUFFIX s;
-} CounterSelectMask_t;
 
 typedef struct _STL_Clear_Port_Status {
 	uint64	PortSelectMask[4];
@@ -427,36 +380,40 @@ struct _port_error_info {
 		} PACK_SUFFIX s;
 		uint8	Reserved;
 		uint16	P_Key;
-		uint32	SLID;
+		STL_LID	SLID;
 	} PACK_SUFFIX PortXmitConstraintErrorInfo;
 
 	/* PortRcvConstraintErrorInfo */
 	struct {
-		struct { IB_BITFIELD2(uint8,
+		struct { IB_BITFIELD3(uint8,
 			Status : 1,
-			Reserved : 7)
+			Reserved : 3,
+			ErrorCode: 4)
 		} PACK_SUFFIX s;
 		uint8	Reserved;
 		uint16	P_Key;
-		uint32	SLID;
+		STL_LID	SLID;
 	} PACK_SUFFIX PortRcvConstraintErrorInfo;
 
 	/* PortRcvSwitchRelayErrorInfo */
 	struct {
 		struct { IB_BITFIELD3(uint8,
 			Status : 1,
-			Reserved : 3,
+			RC : 3,
 			ErrorCode : 4)
 		} PACK_SUFFIX s;
-		uint8	Reserved[3];
+		uint8 SLID_23_16;
+		uint16 SLID_15_0;
 		union {
 			uint32	AsReg32;
-			struct {
-				uint32	DLID;
+			struct { IB_BITFIELD2(uint32,
+				SC: 8,
+				DLID: 24)
 			} EI0; 						/* error code 0 */
 			struct {
-				uint8	EgressPortNum;
-				uint8	Reserved[3];
+				uint8 EgressPortNum;
+				uint8 DLID_23_16;
+				uint16 DLID_15_0;
 			} EI2; 						/* error code 2 */
 			struct {
 				uint8	EgressPortNum;
@@ -487,7 +444,7 @@ struct _port_error_info {
 			uint8	AsReg8;
 			struct {
 				uint8	Distance;
-			} EI0to2; 					/* error code 0-2 */
+			} EI0to2_8;					/* error code 0-2,8 */
 			struct {
 				uint8	VL;
 			} EI3to5; 					/* error code 3-5 */
@@ -538,6 +495,7 @@ typedef struct _STL_Error_Info_Rsp {
 	uint32	Reserved;
 	struct _port_error_info Port[1]; /* x defined by number of ports in attribute modifier */
 } PACK_SUFFIX STLErrorInfoRsp, STL_ERROR_INFO_RSP;
+
 
 /* Swap routines */
 
@@ -610,8 +568,7 @@ BSWAP_STL_PORT_STATUS_RSP(STL_PORT_STATUS_RSP *Dest)
 #endif
 }
 
-static __inline
-void
+static __inline void
 BSWAP_STL_CLEAR_PORT_STATUS_REQ(STL_CLEAR_PORT_STATUS *Dest)
 {
 #if CPU_LE
@@ -622,8 +579,7 @@ BSWAP_STL_CLEAR_PORT_STATUS_REQ(STL_CLEAR_PORT_STATUS *Dest)
 #endif
 }
 
-static __inline
-void
+static __inline void
 BSWAP_STL_DATA_PORT_COUNTERS_REQ(STL_DATA_PORT_COUNTERS_REQ *Dest)
 {
 #if CPU_LE
@@ -635,8 +591,7 @@ BSWAP_STL_DATA_PORT_COUNTERS_REQ(STL_DATA_PORT_COUNTERS_REQ *Dest)
 #endif
 }
 
-static __inline
-void
+static __inline void
 BSWAP_STL_DATA_PORT_COUNTERS_RSP(STL_DATA_PORT_COUNTERS_RSP *Dest)
 {
 #if CPU_LE
@@ -698,8 +653,7 @@ BSWAP_STL_DATA_PORT_COUNTERS_RSP(STL_DATA_PORT_COUNTERS_RSP *Dest)
 #endif
 }
 
-static __inline
-void
+static __inline void
 BSWAP_STL_ERROR_PORT_COUNTERS_REQ(STL_ERROR_PORT_COUNTERS_REQ *Dest)
 {
 #if CPU_LE
@@ -710,8 +664,7 @@ BSWAP_STL_ERROR_PORT_COUNTERS_REQ(STL_ERROR_PORT_COUNTERS_REQ *Dest)
 #endif
 }
 
-static __inline
-void
+static __inline void
 BSWAP_STL_ERROR_PORT_COUNTERS_RSP(STL_ERROR_PORT_COUNTERS_RSP *Dest)
 {
 #if CPU_LE
@@ -755,8 +708,7 @@ BSWAP_STL_ERROR_PORT_COUNTERS_RSP(STL_ERROR_PORT_COUNTERS_RSP *Dest)
 #endif
 }
 
-static __inline
-void
+static __inline void
 BSWAP_STL_ERROR_INFO_REQ(STL_ERROR_INFO_REQ *Dest)
 {
 #if CPU_LE
@@ -769,8 +721,7 @@ BSWAP_STL_ERROR_INFO_REQ(STL_ERROR_INFO_REQ *Dest)
 #endif
 }
 
-static __inline
-void
+static __inline void
 BSWAP_STL_ERROR_INFO_RSP(STL_ERROR_INFO_RSP *Dest)
 {
 #if CPU_LE
@@ -789,12 +740,60 @@ BSWAP_STL_ERROR_INFO_RSP(STL_ERROR_INFO_RSP *Dest)
 		Dest->Port[i].PortXmitConstraintErrorInfo.SLID 	= ntoh32(Dest->Port[i].PortXmitConstraintErrorInfo.SLID);
 		Dest->Port[i].PortRcvConstraintErrorInfo.P_Key 	= ntoh16(Dest->Port[i].PortRcvConstraintErrorInfo.P_Key);
 		Dest->Port[i].PortRcvConstraintErrorInfo.SLID 	= ntoh32(Dest->Port[i].PortRcvConstraintErrorInfo.SLID);
-		if (Dest->Port[i].PortRcvSwitchRelayErrorInfo.s.ErrorCode == 0)
+
+		Dest->Port[i].PortRcvSwitchRelayErrorInfo.SLID_15_0 = ntoh16(Dest->Port[i].PortRcvSwitchRelayErrorInfo.SLID_15_0);
+		if (Dest->Port[i].PortRcvSwitchRelayErrorInfo.s.ErrorCode == 0) {
 			Dest->Port[i].PortRcvSwitchRelayErrorInfo.ErrorInfo.AsReg32 = ntoh32(Dest->Port[i].PortRcvSwitchRelayErrorInfo.ErrorInfo.AsReg32);
+		} else if (Dest->Port[i].PortRcvSwitchRelayErrorInfo.s.ErrorCode == 2) {
+			Dest->Port[i].PortRcvSwitchRelayErrorInfo.ErrorInfo.EI2.DLID_15_0 = ntoh16(Dest->Port[i].PortRcvSwitchRelayErrorInfo.ErrorInfo.EI2.DLID_15_0);
+		}
 	}
 	Dest->ErrorInfoSelectMask.AsReg32 = ntoh32(Dest->ErrorInfoSelectMask.AsReg32);
 #endif
 }
+
+
+/**
+ * Copy data in a STL_PORT_COUNTERS_DATA variable into a STL_PortStatusData_t variable
+ *
+ * @param portCounters   - pointer to STL_PORT_COUNTERS_DATA variable from which to copy
+ * @param portStatusData - pointer to STL_PortStatusData_t variable to copy to
+ *
+ */
+static __inline void StlPortCountersToPortStatus(STL_PORT_COUNTERS_DATA *portCounters, STL_PORT_STATUS_RSP *portStatusData)
+{
+	portStatusData->LinkErrorRecovery  = portCounters->linkErrorRecovery;
+	portStatusData->LinkDowned  = portCounters->linkDowned;
+	portStatusData->PortRcvErrors = portCounters->portRcvErrors;
+	portStatusData->PortRcvRemotePhysicalErrors = portCounters->portRcvRemotePhysicalErrors;
+	portStatusData->PortRcvSwitchRelayErrors = portCounters->portRcvSwitchRelayErrors;
+	portStatusData->PortXmitDiscards = portCounters->portXmitDiscards;
+	portStatusData->PortXmitConstraintErrors = portCounters->portXmitConstraintErrors;
+	portStatusData->PortRcvConstraintErrors = portCounters->portRcvConstraintErrors;
+	portStatusData->LocalLinkIntegrityErrors = portCounters->localLinkIntegrityErrors;
+	portStatusData->ExcessiveBufferOverruns = portCounters->excessiveBufferOverruns;
+	portStatusData->PortXmitData = portCounters->portXmitData;
+	portStatusData->PortRcvData = portCounters->portRcvData;
+	portStatusData->PortXmitPkts = portCounters->portXmitPkts;
+	portStatusData->PortRcvPkts = portCounters->portRcvPkts;
+	portStatusData->PortMulticastXmitPkts = portCounters->portMulticastXmitPkts;
+	portStatusData->PortMulticastRcvPkts = portCounters->portMulticastRcvPkts;
+	portStatusData->PortXmitWait = portCounters->portXmitWait;
+	portStatusData->SwPortCongestion = portCounters->swPortCongestion;
+	portStatusData->PortRcvFECN = portCounters->portRcvFECN;
+	portStatusData->PortRcvBECN = portCounters->portRcvBECN;
+	portStatusData->PortXmitTimeCong = portCounters->portXmitTimeCong;
+	portStatusData->PortXmitWastedBW = portCounters->portXmitWastedBW;
+	portStatusData->PortXmitWaitData = portCounters->portXmitWaitData;
+	portStatusData->PortRcvBubble = portCounters->portRcvBubble;
+	portStatusData->PortMarkFECN = portCounters->portMarkFECN;
+	portStatusData->FMConfigErrors = portCounters->fmConfigErrors;
+	portStatusData->UncorrectableErrors = portCounters->uncorrectableErrors;
+	portStatusData->lq.AsReg8 = portCounters->lq.AsReg8;
+
+}
+
+#include "iba/public/ipackoff.h"
 
 #if defined (__cplusplus)
 };

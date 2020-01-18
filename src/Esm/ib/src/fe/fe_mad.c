@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT5 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -54,7 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fm_xml.h>
 #include "if3.h"
 #include "ib_sa.h"
-#include "stl_pa.h"
+#include "stl_pa_priv.h"
 
 extern IBhandle_t  fdsa,fd_pm,fd_dm;
 extern uint32_t fe_get_payload_length(uint8_t *netbuf);
@@ -102,21 +102,23 @@ uint32_t fe_vieo_init(uint8_t *logName)
         if (fe_config.debug) IB_LOG_INFINI_INFORC("Failed to register with IF3, will try later. rc:", rc);
     } else {
         rc = fe_if3_subscribe_sa();    
-        if (rc != VSTATUS_OK) {
-            IB_LOG_ERRORRC("Failed to subscribe for traps in SA rc:", rc);
+        if (rc != FSUCCESS) {
+            IB_LOG_ERROR_FMT(__func__, "Failed to subscribe for traps in SA status: %u", rc);
         }
 
         // connect to Performance Manager
         if (pm_lid)
             rc = if3_lid_mngr_cnx(fe_config.hca,fe_config.port,MAD_CV_VFI_PM,pm_lid,&fd_pm);
         else
-            rc = if3_sid_mngr_cnx(fe_config.hca,fe_config.port,(void *)PM_SERVICE_NAME,PM_SERVICE_ID,
+            rc = if3_sid_mngr_cnx(fe_config.hca,fe_config.port,(void *)STL_PM_SERVICE_NAME,STL_PM_SERVICE_ID,
                                MAD_CV_VFI_PM,&fd_pm);
 
         if (rc != VSTATUS_OK) {
             IB_LOG_INFINI_INFORC("Failed to open Performance Manager, will try later. rc:", rc);
             fd_pm = INVALID_HANDLE;
         }
+
+
 
 #ifdef DEVICE_MANAGER   // not implemented yet
         // connect to Device Manager
@@ -327,6 +329,7 @@ uint32_t fe_sa_passthrough(uint8_t *netbuf, FE_ConnList *connList, IBhandle_t fd
 	case STL_SA_ATTR_MULTIPATH_LID_RECORD:
 	case STL_SA_ATTR_CABLE_INFO_RECORD:
 	case STL_SA_ATTR_VF_INFO_RECORD:
+	case STL_SA_ATTR_PORT_STATE_INFO_RECORD:
 	case STL_SA_ATTR_PORTGROUP_TABLE_RECORD:
 	case STL_SA_ATTR_BUFF_CTRL_TAB_RECORD:
 	case STL_SA_ATTR_FABRICINFO_RECORD:
@@ -336,6 +339,10 @@ uint32_t fe_sa_passthrough(uint8_t *netbuf, FE_ConnList *connList, IBhandle_t fd
 	case STL_SA_ATTR_SWITCH_PORT_CONG_RECORD:
 	case STL_SA_ATTR_HFI_CONG_RECORD:
 	case STL_SA_ATTR_HFI_CONG_CTRL_RECORD:
+	case STL_SA_ATTR_DG_NAME_RECORD:
+	case STL_SA_ATTR_DG_MEMBER_RECORD:
+	case STL_SA_ATTR_DT_MEMBER_RECORD:
+	case STL_SA_ATTR_SWITCH_COST_RECORD:
 		if(saMad->common.mr.s.Method != SUBN_ADM_GET && saMad->common.mr.s.Method != SUBN_ADM_GETTABLE){
 			badRequest = FE_UNSUPPORTED;
 		}
@@ -376,7 +383,7 @@ uint32_t fe_sa_passthrough(uint8_t *netbuf, FE_ConnList *connList, IBhandle_t fd
             (void)fe_passthrough_send_failure_response(netbuf, connList, fd_sa, (uint16)returnStatus);
             return FE_NO_COMPLETE;
 		}
-		
+
 		/* If the returnSize is greater than the size of our buffer, bail */
 		if(returnSize > STL_BUF_OOB_SEND_SIZE){
 			IB_LOG_ERROR_FMT(__func__, "Returned data is too large for network buffer. Size: %d bytes", returnSize);
@@ -450,15 +457,15 @@ uint32_t fe_pa_passthrough(uint8_t* netbuf, FE_ConnList* connList, IBhandle_t fd
 
 	/* Send our mad and receive the response */
 	if(fd_sa == INVALID_HANDLE ||
-		(rc = if3_mngr_send_passthru_mad(fd_sa, saMad, dataLength, &returnMait, returnBuffer, &returnSize, &returnStatus, NULL, NULL)) != VSTATUS_OK){
-		returnStatus = (rc == VSTATUS_TIMEOUT) ? STL_MAD_STATUS_STL_PA_UNAVAILABLE : MAD_STATUS_BUSY;
-		if (returnStatus == STL_MAD_STATUS_STL_PA_UNAVAILABLE)
-			IB_LOG_ERROR_FMT(__func__, "Sending request to performance manager failed. Mad error code: (%x) PA Unavailable", returnStatus);
-		else
-			IB_LOG_ERROR_FMT(__func__, "Sending request to performance manager failed. Mad error code: (%x) Busy", returnStatus);
-		/* Mad was not sent, so use generic Mad status error */
-		(void)fe_passthrough_send_failure_response(netbuf, connList, fd_sa, (uint16)returnStatus);
-		return FE_NO_COMPLETE;
+       (rc = if3_mngr_send_passthru_mad(fd_sa, saMad, dataLength, &returnMait, returnBuffer, &returnSize, &returnStatus, NULL, NULL)) != VSTATUS_OK){
+        returnStatus = (rc == VSTATUS_TIMEOUT) ? STL_MAD_STATUS_STL_PA_UNAVAILABLE : MAD_STATUS_BUSY;
+        if (returnStatus == STL_MAD_STATUS_STL_PA_UNAVAILABLE)
+        	IB_LOG_ERROR_FMT(__func__, "Sending request to performance manager failed. Mad error code: (%x) PA Unavailable", returnStatus);
+        else
+        	IB_LOG_ERROR_FMT(__func__, "Sending request to performance manager failed. Mad error code: (%x) Busy", returnStatus);
+        /* Mad was not sent, so use generic Mad status error */
+        (void)fe_passthrough_send_failure_response(netbuf, connList, fd_sa, (uint16)returnStatus);
+        return FE_NO_COMPLETE;
 	}
 
     /* If the returnSize is greater than the size of our buffer, bail */
@@ -723,3 +730,4 @@ uint32_t fe_unsolicited(FE_ConnList *clist, uint32_t *conn_state) {
     IB_EXIT(__func__, rc); 
     return (rc);
 }
+

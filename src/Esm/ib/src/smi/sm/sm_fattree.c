@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT7 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -31,6 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ib_types.h"
 #include "sm_l.h"
 
+int fattreeBadSweepCount = 0;
+int rebalanceGoodSweep = 0;
+
 Status_t sm_shortestpath_make_routing_module(RoutingModule_t * rm);
 
 static __inline__ void
@@ -46,8 +49,12 @@ _is_route_last(Node_t * nodep)
 		return;
 
 	dgIdx = smGetDgIdx(sm_config.ftreeRouting.routeLast.member);
-	if (dgIdx == -1) 
+	if (dgIdx == -1) {
+		IB_LOG_ERROR_FMT(__func__, "FatTreeTopology has undefined RoutingLast device group %s",
+							sm_config.ftreeRouting.routeLast.member);
+		IB_FATAL_ERROR_NODUMP("FM cannot continue.");
 		return;
+	}
 
 	for_all_physical_ports(nodep, portp) {
 		if (!sm_valid_port(portp) || portp->state <= IB_PORT_DOWN)
@@ -68,8 +75,9 @@ _is_core(Node_t* switchp) {
 	int dgIdx = smGetDgIdx(sm_config.ftreeRouting.coreSwitches.member);
 
 	if (dgIdx < 0) {
-		IB_LOG_WARN_FMT(__func__, "FatTreeTopology has undefined CoreSwitches device group%s",
+		IB_LOG_ERROR_FMT(__func__, "FatTreeTopology has undefined CoreSwitches device group %s",
 						sm_config.ftreeRouting.coreSwitches.member);
+		IB_FATAL_ERROR_NODUMP("FM cannot continue.");
 		return 0;
 	}
 
@@ -124,6 +132,7 @@ _set_trunk_count(Node_t* switchp, int trunkCnt, uint8_t *trunkGrpCnt, uint16_t *
 	}
 }
 
+
 static Status_t
 _post_process_discovery(Topology_t *topop, Status_t discoveryStatus, void *context)
 {
@@ -151,6 +160,9 @@ _post_process_discovery(Topology_t *topop, Status_t discoveryStatus, void *conte
 			_is_route_last(nodep);
 		}
 	}
+
+	// init topop.MinTier to max value so Enqueue functions below can update properly
+	topop->minTier = sm_config.ftreeRouting.tierCount;
 
 	// HFIs at lowest tier in fat tree, easier to process
 	if (sm_config.ftreeRouting.fis_on_same_tier) {
@@ -301,15 +313,28 @@ _post_process_discovery(Topology_t *topop, Status_t discoveryStatus, void *conte
 
 	if (processedSwitches.nset_m == 0) {
 		IB_LOG_WARN0("Disabling fattree due to topology error, setting to shortestpath");
-		// Zero out existing pointers.  No data to release, though
-		memset(topop->routingModule, 0, sizeof(RoutingModule_t));
 		sm_shortestpath_make_routing_module(topop->routingModule);
 	}
 
 	if (processedSwitches.nset_m != new_switchesInUse.nset_m) {
-		IB_LOG_ERROR_FMT(__func__, "Switch(es) unassigned to/out-of-bound (fattree) tier. Check TierCount in config file.");
-		return VSTATUS_BAD;
+		// Bad config or edge switch with no HFIs online.
+		if (sm_config.ftreeRouting.fis_on_same_tier) {
+			IB_LOG_WARN_FMT(__func__, "Switch(es) unassigned to/out-of-bound (fattree) tier. All HFIs offline on edge switch or check TierCount in config file.");
+
+			// When all HFIs come online, force rebalance of fabric.
+			fattreeBadSweepCount++;
+
+		} else {
+			IB_LOG_WARN_FMT(__func__, "Switch(es) unassigned to/out-of-bound (fattree) tier. Check fattree configuration.");
+		}
+
+	} else if (fattreeBadSweepCount) {
+		// Looks like HFIs have been enabled on edge switch, force a rebalance this sweep
+		// instead of calculating deltas.
+		fattreeBadSweepCount = 0;
+		rebalanceGoodSweep = 1;
 	}
+
 	bitset_free(&processedSwitches);
 
 	return VSTATUS_OK;
@@ -375,6 +400,9 @@ _calculate_balanced_lfts_systematic(Topology_t *topop)
 			IB_LOG_ERROR_FMT(__func__, "Failed to allocate space for LFT.");
 			return status;
 		}
+
+		// Initialize port group top prior to setting up groups.
+		switchp->switchInfo.PortGroupTop = 0;
 	}
 
 	// if route last is indicated, balance over those HFIs on a second pass
@@ -414,6 +442,7 @@ _calculate_balanced_lfts_systematic(Topology_t *topop)
 							isUp = (swPortp && swPortp->portData->uplink);
 						}
 
+						int pi=0;
 						for_all_physical_ports(toSwitchp, toSwitchPortp) {
 							if (!sm_valid_port(toSwitchPortp) || toSwitchPortp->state <= IB_PORT_DOWN) continue;
 
@@ -425,6 +454,10 @@ _calculate_balanced_lfts_systematic(Topology_t *topop)
 							if (nodep->nodeInfo.NodeType != NI_TYPE_CA) continue;
 							if ((r==0) && nodep->skipBalance) {
 								toSwitchp->skipBalance = 1;
+								continue;
+							}
+							if ((r==1) && !nodep->skipBalance) {
+								// Already programmed
 								continue;
 							}
 
@@ -441,7 +474,10 @@ _calculate_balanced_lfts_systematic(Topology_t *topop)
 										continue;
 									}
 
-									if (isUp) {
+									if (sm_config.ftreeRouting.passthru) {
+										// try passthru
+										switchp->lft[currentLid] = portGroup[(i+pi+(t*toSwitchp->tierIndex)) % numPorts];
+									} else if (isUp) {
 										switchp->lft[currentLid] = portGroup[(i+upDestCount + switchp->tierIndex*switchp->uplinkTrunkCnt) % numPorts];
 									} else {
 										switchp->lft[currentLid] = portGroup[(i+downDestCount + switchp->tierIndex) % numPorts];
@@ -470,6 +506,7 @@ _calculate_balanced_lfts_systematic(Topology_t *topop)
 										i++;
 									}
 								}
+								pi++;
 								if (isUp) {
 									upDestCount += 1;
 								} else {
@@ -503,6 +540,8 @@ _calculate_balanced_lfts_systematic(Topology_t *topop)
 		} else {
 			// Switch may not be added to tier switch group when no FIs in down path.
 			// If so, doesn't matter if it is balanced.
+			if (sm_config.sm_debug_routing)
+				IB_LOG_INFINI_INFO_FMT(__func__, "Switch %s is not queued", sm_nodeDescString(switchp));
 			topop->routingModule->funcs.calculate_routes(sm_topop, switchp);
 		}
 	}
@@ -695,11 +734,13 @@ _init_switch_lfts(Topology_t * topop, int * routing_needed, int * rebalance)
 	if (topop != sm_topop)
 		return VSTATUS_BAD;
 
-	if (topology_cost_path_changes || *rebalance) {
+	if (topology_cost_path_changes || *rebalance || rebalanceGoodSweep) {
 		// A topology change was indicated.  Re-calculate lfts with big hammer (rebalance).
 		s = _calculate_balanced_lfts_systematic(topop);
 		*rebalance = 1;
+		*routing_needed = 1;
 		routing_recalculated = 1;
+		rebalanceGoodSweep = 0;
 
 	} else if (	new_endnodesInUse.nset_m ||
 					old_topology.num_endports != topop->num_endports) {
@@ -794,6 +835,7 @@ _calculate_balanced_lft(Topology_t *topop, Node_t *switchp)
 					isUp = (swPortp && swPortp->portData->uplink);
 				}
 
+				int pi = 0;
 				for_all_physical_ports(toSwitchp, toSwitchPortp) {
 					if (!sm_valid_port(toSwitchPortp) || toSwitchPortp->state <= IB_PORT_DOWN) continue;
 
@@ -805,6 +847,10 @@ _calculate_balanced_lft(Topology_t *topop, Node_t *switchp)
 					if (nodep->nodeInfo.NodeType != NI_TYPE_CA) continue;
 					if ((r==0) && nodep->skipBalance) {
 						toSwitchp->skipBalance = 1;
+						continue;
+					}
+					if ((r==1) && !nodep->skipBalance) {
+						// Already programmed
 						continue;
 					}
 
@@ -821,10 +867,14 @@ _calculate_balanced_lft(Topology_t *topop, Node_t *switchp)
 								continue;
 							}
 
-							if (isUp) {
+							if (sm_config.ftreeRouting.passthru) {
+								// try passthru
+								int tierAdjust = switchp->tier ? switchp->tier-1 : 0;
+								switchp->lft[currentLid] = portGroup[(i+pi+(tierAdjust*toSwitchp->tierIndex)) % numPorts];
+							} else if (isUp) {
 								switchp->lft[currentLid] = portGroup[(i+upDestCount + switchp->tierIndex*switchp->uplinkTrunkCnt) % numPorts];
 							} else {
-									switchp->lft[currentLid] = portGroup[(i+downDestCount + switchp->tierIndex) % numPorts];
+								switchp->lft[currentLid] = portGroup[(i+downDestCount + switchp->tierIndex) % numPorts];
 							}
 
 							if (sm_config.ftreeRouting.debug)
@@ -850,6 +900,7 @@ _calculate_balanced_lft(Topology_t *topop, Node_t *switchp)
 								i++;
 							}
 						}
+						pi++;
 						if (isUp) {
 							upDestCount += 1;
 						} else {

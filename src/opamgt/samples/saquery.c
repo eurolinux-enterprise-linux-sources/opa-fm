@@ -12,7 +12,7 @@
 
 void Usage()
 {
-	fprintf(stdout, "Usage: saquery [-v] [-h hfi] [-p port] [-b oob_host] [-l lid] -o type \n");
+	fprintf(stdout, "Usage: saquery [-v] [-h hfi] [-p port] [-t ms] [-b oob_host] [-l lid] -o type \n");
 	fprintf(stdout, "              or\n");
 	fprintf(stdout, "       saquery --help\n");
 	fprintf(stdout, "    --help - produce full help text\n");
@@ -22,6 +22,7 @@ void Usage()
 	fprintf(stderr, "                         port num (default is 0)\n");
 	fprintf(stderr, "    -p/--port port     - port, numbered 1..n, 0=1st active (default is 1st\n");
 	fprintf(stderr, "                         active)\n");
+	fprintf(stderr, "    -t/--timeout       - timeout in ms\n");
 	fprintf(stderr, "    -l/--lid           - filter query results for specific lid\n");
 	fprintf(stderr, "    -g/--guid          - filter query results for specific guid\n");
 	fprintf(stderr, "    -b  oob_host       - perform out of band query. For this example, oob_host\n");
@@ -81,6 +82,7 @@ struct option options[] = {
 	{ "verbose", required_argument, NULL, 'v' },
 	{ "hfi", required_argument, NULL, 'h' },
 	{ "port", required_argument, NULL, 'p' },
+	{ "timeout", required_argument, NULL, 't' },
 
 	// input types (small subset)
 	{ "lid", required_argument, NULL, 'l' },
@@ -99,13 +101,15 @@ int main(int argc, char ** argv)
 	int exitcode = 0;
 	struct omgt_port * port = NULL;
 	int num_records = 0;
-	int i, c, index, debug = 0;
+	int c, index, debug = 0;
+	int sa_service_state = OMGT_SERVICE_STATE_UNKNOWN;
 	void *sa_records = NULL;
 	omgt_sa_selector_t selector;
 
 	char * type = "node";
 	int hfi_num = 1;
 	int port_num = 1;
+	int ms_timeout = OMGT_DEF_TIMEOUT_MS;
 	uint32_t lid = 0;
 	uint64_t guid = 0;
 	uint64_t local_prefix = 0;
@@ -117,28 +121,31 @@ int main(int argc, char ** argv)
 	//default to requesting all records
 	selector.InputType = InputTypeNoInput;
 
-	while (-1 != (c = getopt_long(argc, argv, "h:p:o:l:b:g:x:v$", options, &index))){
+	while (-1 != (c = getopt_long(argc, argv, "h:p:t:o:l:b:g:x:v$", options, &index))){
 		switch (c)
 		{
 			case '$':
 				Usage();
 				break;
 			case 'h':	// hfi to issue query from
-				hfi_num = strtoul(optarg, NULL, 0);
+				hfi_num = strtol(optarg, NULL, 0);
 				break;
 			case 'p':	// port to issue query from
-				port_num = strtoul(optarg, NULL, 0);
+				port_num = strtol(optarg, NULL, 0);
+				break;
+			case 't':
+				ms_timeout = strtol(optarg, NULL, 0);
 				break;
 			case 'o':	// select output record desired
 				type = optarg;
 				break;
 			case 'l':
 				selector.InputType = InputTypeLid;
-				lid = strtol(optarg, NULL, 0);
+				lid = strtoul(optarg, NULL, 0);
 				break;
 			case 'g':
 				selector.InputType = InputTypePortGuid;
-				guid = strtol(optarg, NULL, 0);
+				guid = strtoul(optarg, NULL, 0);
 				break;
 			case 'x':
 				gid = optarg;
@@ -179,13 +186,38 @@ int main(int argc, char ** argv)
 		status = omgt_open_port_by_num(&port, hfi_num, port_num, &session_params);
 		(void)omgt_port_get_port_guid(port, &local_guid);
 		(void)omgt_port_get_port_prefix(port, &local_prefix);
+
+		/* (Optional) Check if the SA Service is Operational
+		 * All SA queries will do an initial sa service state check if not already
+		 * operational, so this is more of a verbose sanity check.
+		 */
+		if (status == OMGT_STATUS_SUCCESS) {
+			status = omgt_port_get_sa_service_state(port, &sa_service_state, OMGT_REFRESH_SERVICE_ANY_STATE);
+			if (status == OMGT_STATUS_SUCCESS) {
+				if (sa_service_state != OMGT_SERVICE_STATE_OPERATIONAL) {
+					fprintf(stderr, "failed to connect, SA service state is Not Operational: %s (%d)\n",
+						omgt_service_state_totext(sa_service_state), sa_service_state);
+					exitcode = 1;
+					goto fail2;
+				}
+			} else {
+				fprintf(stderr, "failed to get and refresh SA service state: %s (%u)\n",
+					omgt_status_totext(status), status);
+				exitcode = 1;
+				goto fail2;
+			}
+		}
 	}
 
 	if (OMGT_STATUS_SUCCESS != status){
-		fprintf(stderr, "failed to open port\n");
+		fprintf(stderr, "failed to open port: %s (%u)\n",
+			omgt_status_totext(status), status);
 		exitcode=1;
 		goto fail1;
 	}
+
+	/* Set timeout for SA operation */
+	omgt_set_timeout(port, ms_timeout);
 
 	/* Perform the requested operation.
 	 * Some records are are not always supported,
@@ -246,12 +278,10 @@ int main(int argc, char ** argv)
 		 * 	NoInput, PortGuid, PortGid, PortGuidPair, GidPair, PathRecord,
 		 * 	Lid, PKey, SL, ServiceId
 		 *
-		 * 	SourceGid is not treated as an InputType but is ALWAYS required when querying path/trace records.
+		 * 	SourceGid is not treated as an InputType but is ALWAYS required when querying path/trace records
 		 */
 		if (selector.InputType == InputTypePortGuid) {
 			selector.InputValue.IbPathRecord.PortGuid.DestPortGuid = guid;
-			// set source gid. in OoB mode this must be supplied, otherwise
-			// can be built using the port accessor functions shown above
 			selector.InputValue.IbPathRecord.PortGuid.SourcePortGuid = local_guid;
 			selector.InputValue.IbPathRecord.PortGuid.SharedSubnetPrefix = local_prefix;
 		} else if (selector.InputType == InputTypeLid) {
@@ -294,7 +324,7 @@ int main(int argc, char ** argv)
 		status = omgt_sa_get_informinfo_records(port, &selector, &num_records, (STL_INFORM_INFO_RECORD **)&sa_records);
 	} else if (!strcmp(type, "trace")){
 		/* Valid Input Types: PathRecord, PortGuid, GidPair, PortGid */
-		/* 	SourceGid is not treated as an InputType but is ALWAYS required when querying path/trace records. */
+		/* 	SourceGid is not treated as an InputType but is ALWAYS required when querying path/trace records */
 		if (selector.InputType == InputTypePortGuid) {
 			selector.InputValue.TraceRecord.PortGuid.DestPortGuid = guid;
 			selector.InputValue.TraceRecord.PortGuid.SourcePortGuid = local_guid;
@@ -349,7 +379,6 @@ int main(int argc, char ** argv)
 		/* Valid Input Types:
 		 * 	NoInput, PKey, SL, ServiceID, McGid, Index, NodeDesc
 		 */
-		if (selector.InputType == InputTypeLid) selector.InputValue.VfInfoRecord.Lid = lid;
 		status = omgt_sa_get_vfinfo_records(port, &selector, &num_records, (STL_VFINFO_RECORD **)&sa_records);
 	} else if (!strcmp(type, "fabricinfo")){
 		/* Valid Input Types: NoInput */
@@ -396,8 +425,28 @@ int main(int argc, char ** argv)
 	}
 
 
-	if (OMGT_STATUS_SUCCESS != status){
+	if (OMGT_STATUS_SUCCESS != status) {
 		fprintf(stderr, "failed to execute query. MadStatus=0x%x\n", omgt_get_sa_mad_status(port));
+		exitcode = 2;
+
+		/* Not used in oob mode */
+		if (!oob_addr) {
+			/* Check if failure was related to SA service state */
+			status = omgt_port_get_sa_service_state(port, &sa_service_state, OMGT_REFRESH_SERVICE_NOP);
+			if (status == OMGT_STATUS_SUCCESS) {
+				if (sa_service_state != OMGT_SERVICE_STATE_OPERATIONAL) {
+					fprintf(stderr, "SA service state is Not Operational: %s (%d)\n",
+						omgt_service_state_totext(sa_service_state), sa_service_state);
+					exitcode = 1;
+					goto fail2;
+				}
+			} else {
+				fprintf(stderr, "failed to get SA service state: %s (%u)\n",
+					omgt_status_totext(status), status);
+				exitcode = 1;
+				goto fail2;
+			}
+		}
 	} else {
 		printf("Number of records returned: %d\n", num_records);
 	}

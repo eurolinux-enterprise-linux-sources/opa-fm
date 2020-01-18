@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT2 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -96,6 +96,8 @@ typedef enum _smCounters {
 	smCounterTrapBadPKey,		// Trap 257
 	smCounterTrapBadQKey,		// Trap 258
 	smCounterTrapBadPKeySwPort,	// Trap 259
+	smCounterTrapLinkWidthDowngrade, // Trap 2048
+	smCounterTrapCostMatrixChange, // Trap 2049
 
 	smCounterTrapsRepressed, 
 	smCounterGetNodeDescription, // No set
@@ -120,6 +122,7 @@ typedef enum _smCounters {
 	smCounterSetSC2VLrMappingTable,
 	smCounterGetSC2SCMappingTable,
 	smCounterSetSC2SCMappingTable,
+	smCounterSetSC2SCMultiSet,
 	smCounterGetVLArbitrationTable,
 	smCounterSetVLArbitrationTable,
 	smCounterGetLft,
@@ -131,7 +134,6 @@ typedef enum _smCounters {
 	smCounterGetLedInfo,
 	smCounterSetLedInfo,
 	smCounterGetCableInfo, // No Set
-
 	smCounterRxGetSmInfo, // SmInfo is an oddball
 	smCounterGetSmInfo,
 	smCounterRxSetSmInfo,
@@ -247,7 +249,18 @@ typedef enum _smCounters {
 	smCounterSaRxGetPortGroupFwdRecord,
 	smCounterSaRxGetTblPortGroupFwdRecord,
 
+	smCounterSaRxGetSwitchCostRecord,
+	smCounterSaRxGetTblSwitchCostRecord,
+
 	smCounterSaRxReportResponse,
+
+	smCounterSaRxGetDgMemberRecord,
+	smCounterSaRxGetTblDgMemberRecord,
+	smCounterSaRxGetDgNameRecord,
+	smCounterSaRxGetTblDgNameRecord,
+
+	smCounterSaRxGetDtMemberRecord,
+	smCounterSaRxGetTblDtMemberRecord,
 
 	// Weird conditions
 	smCounterSaDuplicateRequests,

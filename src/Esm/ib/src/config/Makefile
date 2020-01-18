@@ -1,6 +1,6 @@
 # BEGIN_ICS_COPYRIGHT8 ****************************************
 # 
-# Copyright (c) 2015, Intel Corporation
+# Copyright (c) 2015-2017, Intel Corporation
 # 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -44,6 +44,7 @@ DIRS			=
 # C files (.c)
 CFILES			= \
 				  fm_xml.c \
+				  fm_md5.c \
 				# Add more c files here
 # C++ files (.cpp)
 CCFILES			= \
@@ -61,6 +62,7 @@ IDLFILE			=
 DEFFILE			=
 # targets to build during INCLUDES phase (add public includes here)
 INCLUDE_TARGETS	= \
+				  fm_md5.h \
 				# Add more h hpp files here
 # Non-compiled files
 MISC_FILES		= 

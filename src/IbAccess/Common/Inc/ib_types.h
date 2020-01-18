@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT3 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -9,7 +9,7 @@ modification, are permitted provided that the following conditions are met:
       this list of conditions and the following disclaimer.
     * Redistributions in binary form must reproduce the above copyright
       notice, this list of conditions and the following disclaimer in the
-     documentation and/or other materials provided with the distribution.
+      documentation and/or other materials provided with the distribution.
     * Neither the name of Intel Corporation nor the names of its contributors
       may be used to endorse or promote products derived from this software
       without specific prior written permission.
@@ -28,14 +28,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ** END_ICS_COPYRIGHT3   ****************************************/
 
 /* [ICS VERSION STRING: unknown] */
-
-#if defined(CHECK_HEADERS)
-
-#ifndef _IBA_STL_TYPES_H_
-#warning FIX ME!!! Your includes should use the stl_types.h header and not the ib_types.h header for STL builds
-#endif
-
-#endif
 
 #ifndef _IBA_IB_TYPES_H_
 #define _IBA_IB_TYPES_H_

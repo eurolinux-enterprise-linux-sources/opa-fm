@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT2 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -50,8 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mai_g.h"
 #include "mal_g.h"
 #include "ib_sa.h"
-#include "iba/ib_pa.h"
-#include "iba/stl_pa.h"
+#include "iba/stl_pa_priv.h"
 #include "ib_sm.h"
 #include "iba/ib_rmpp.h"
 #include <if3.h>
@@ -85,7 +84,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define DRAIN_MAI_STALE(fd) drain_stale(fd)
 
 extern uint8_t if3_is_master(void);
-extern void if3_set_rmpp_minfo(ManagerInfo_t *mi);
+extern Status_t if3_set_rmpp_minfo(ManagerInfo_t *mi);
 
 static ManagerInfo_t maninfo[MAX_MANAGER];
 
@@ -241,12 +240,12 @@ static Status_t if3_pre_process_response(Mai_t *maip, rmpp_cntxt_t *rmpp_cntxt)
 
 #define LOCK_MINFO()do{                         \
     if(((vs_lock(&lock    ))!= VSTATUS_OK)){    \
-       IB_FATAL_ERROR("LOCK acquire fail ");    \
+       IB_FATAL_ERROR_NODUMP("LOCK acquire fail ");    \
      }}while(0)
 
 #define UNLOCK_MINFO()do{                    \
     if((vs_unlock(&lock))!= VSTATUS_OK){     \
-       IB_FATAL_ERROR("LOCK free failed ");  \
+       IB_FATAL_ERROR_NODUMP("LOCK free failed ");  \
      }}while(0)
 
 #define  IF3_INIT() if(initialized == 0) (void) if3_init()
@@ -470,7 +469,7 @@ Status_t
 if3_addr_swizzle (Mai_t * mad)
 {
 
-	Lid_t lid;
+	STL_LID lid;
 	/*
 	 * swap the source and destination address
 	 */
@@ -529,7 +528,7 @@ if3_mngr_get_pd (ManagerInfo_t * pt)
 
 	pi = &po;
 
-	if (pi->MasterSMLID == RESERVED_LID || pi->MasterSMLID == PERMISSIVE_LID) {
+	if (pi->MasterSMLID == STL_LID_RESERVED || pi->MasterSMLID == STL_LID_PERMISSIVE) {
 		IB_LOG_VERBOSEX ("Port not yet configured  smLid:", pi->MasterSMLID);
 
 		rc = VSTATUS_NXIO;
@@ -596,11 +595,8 @@ if3_mngr_mad_init (Mai_t * madp, ManagerInfo_t * fp)
 	madp->active = MAI_ACT_BASE | MAI_ACT_DATA |
 		MAI_ACT_TYPE | MAI_ACT_ADDRINFO;
 
-	if (fp->dlid == RESERVED_LID || fp->dlid == PERMISSIVE_LID ||
-	    fp->slid == RESERVED_LID || fp->slid == PERMISSIVE_LID
-	    /*
-	     * || fp->slid == fp->dlid
-	     */ ) {
+	if (fp->dlid == STL_LID_RESERVED || fp->dlid == STL_LID_PERMISSIVE ||
+	    fp->slid == STL_LID_RESERVED || fp->slid == STL_LID_PERMISSIVE) {
 
 		IB_LOG_VERBOSEX (" dlid ", fp->dlid);
 		IB_LOG_VERBOSEX (" slid ", fp->slid);
@@ -649,11 +645,8 @@ if3_mngr_stl_mad_init (Mai_t * madp, ManagerInfo_t * fp)
 	madp->active = MAI_ACT_BASE | MAI_ACT_DATA |
 		MAI_ACT_TYPE | MAI_ACT_ADDRINFO;
 
-	if (fp->dlid == RESERVED_LID || fp->dlid == PERMISSIVE_LID ||
-	    fp->slid == RESERVED_LID || fp->slid == PERMISSIVE_LID
-	    /*
-	     * || fp->slid == fp->dlid
-	     */ ) {
+	if (fp->dlid == STL_LID_RESERVED || fp->dlid == STL_LID_PERMISSIVE ||
+	    fp->slid == STL_LID_RESERVED || fp->slid == STL_LID_PERMISSIVE) {
 
 		IB_LOG_VERBOSEX (" dlid ", fp->dlid);
 		IB_LOG_VERBOSEX (" slid ", fp->slid);
@@ -695,8 +688,8 @@ if3_mngr_sa_mad_init (Mai_t * madp, ManagerInfo_t * fp, uint8_t mclass, uint8_t 
 	madp->active = MAI_ACT_BASE | MAI_ACT_DATA |
 		MAI_ACT_TYPE | MAI_ACT_ADDRINFO;
 
-	if (fp->dlid == RESERVED_LID || fp->dlid == PERMISSIVE_LID ||
-	    fp->slid == RESERVED_LID || fp->slid == PERMISSIVE_LID ) {
+	if (fp->dlid == STL_LID_RESERVED || fp->dlid == STL_LID_PERMISSIVE ||
+	    fp->slid == STL_LID_RESERVED || fp->slid == STL_LID_PERMISSIVE ) {
 		IB_LOG_VERBOSEX (" dlid ", fp->dlid);
 		IB_LOG_VERBOSEX (" slid ", fp->slid);
 
@@ -716,7 +709,7 @@ if3_mngr_sa_mad_init (Mai_t * madp, ManagerInfo_t * fp, uint8_t mclass, uint8_t 
 void
 STL_BasicMadInit (Mai_t * madp,
 			  uint8_t mclass, uint8_t method, uint16_t aid, uint32_t amod,
-			  uint16_t slid, uint16_t dlid, uint8_t sl)
+			  STL_LID slid, STL_LID dlid, uint8_t sl)
 {
 	ManagerInfo_t mi = { 0 };
 
@@ -737,7 +730,7 @@ STL_BasicMadInit (Mai_t * madp,
 
 Status_t
 if3_mad_init (IBhandle_t fd, Mai_t * pmad,
-	    uint8_t mclass, uint8_t method, uint16_t aid, uint32_t amod, uint16_t dlid)
+	    uint8_t mclass, uint8_t method, uint16_t aid, uint32_t amod, STL_LID dlid)
 {
 	ManagerInfo_t *mi;
 	uint32_t rc;
@@ -1027,7 +1020,7 @@ if3_dbsync_close (IBhandle_t mhdl)
 
 }
 
-Status_t if3_set_dlid (IBhandle_t fd, Lid_t dlid)
+Status_t if3_set_dlid (IBhandle_t fd, STL_LID dlid)
 {
 	Status_t rc=VSTATUS_OK;
 	ManagerInfo_t *mi;
@@ -1059,7 +1052,7 @@ if3_check_sa (IBhandle_t fd, int refresh, uint16_t *hasMoved)
 		goto bail;
 #ifdef __SIMULATOR__
 	/* once we have an SA lid we're good; s20 sim can't handle all this traffic */
-	} else if (mi->saLid > 0 && mi->saLid < 0xffff) {
+	} else if (mi->saLid > 0 && mi->saLid < STL_LID_PERMISSIVE) {
 		goto bail;
 #endif
 	} else if ((rc = mai_get_stl_portinfo (mi->fdr, &pi, mi->port)) != VSTATUS_OK) {
@@ -1069,7 +1062,7 @@ if3_check_sa (IBhandle_t fd, int refresh, uint16_t *hasMoved)
 		IB_LOG_WARN ("Port not yet active state:", pi.PortStates.s.PortState);
 		rc = VSTATUS_NXIO;
 		goto bail;
-	} else if (pi.MasterSMLID == RESERVED_LID || pi.MasterSMLID == PERMISSIVE_LID) {
+	} else if (pi.MasterSMLID == STL_LID_RESERVED || pi.MasterSMLID == STL_LID_PERMISSIVE) {
 		IB_LOG_WARNX ("Port not yet configured smLid:", pi.MasterSMLID);
 		rc = VSTATUS_NXIO;
 		goto bail;
@@ -1229,7 +1222,7 @@ if3_cntrl_cmd_send (IBhandle_t fd, uint8_t cmd)
 static Status_t
 open_mngr_cnx(uint32_t dev, uint32_t port, 
               uint8_t *servName, uint64_t servID, 
-              uint8_t mclass, uint16_t lid, uint32_t mode, IBhandle_t *mhdl)
+              uint8_t mclass, STL_LID lid, uint32_t mode, IBhandle_t *mhdl)
 {
     
     uint32_t rc = VSTATUS_OK; 
@@ -1296,7 +1289,7 @@ open_mngr_cnx(uint32_t dev, uint32_t port,
             goto bail3;
         }
         
-        if (mi->dlid == PERMISSIVE_LID || mi->dlid == RESERVED_LID) {
+        if (mi->dlid == STL_LID_PERMISSIVE) {
             IB_LOG_VERBOSEX(" Got  service lid", mi->dlid); 
             rc = VSTATUS_BAD; 
             goto bail3;
@@ -1307,7 +1300,7 @@ open_mngr_cnx(uint32_t dev, uint32_t port,
     } else if (mode == 0) {
         
         // we have the lid of the manager location
-        mi->dlid = (Lid_t)lid;
+        mi->dlid = lid;
     } else {
         // manager is local
         mi->dlid = mi->slid;
@@ -1324,7 +1317,7 @@ open_mngr_cnx(uint32_t dev, uint32_t port,
     }
     
     *mhdl = mi->fdr; 
-    
+   
     goto bail; 
     
     //
@@ -1345,7 +1338,7 @@ bail:
 }
 
 Status_t
-if3_lid_mngr_cnx(uint32_t dev, uint32_t port, uint8_t mclass, uint16_t lid, IBhandle_t * mhdl)
+if3_lid_mngr_cnx(uint32_t dev, uint32_t port, uint8_t mclass, STL_LID lid, IBhandle_t * mhdl)
 {
 
 	uint32_t rc;
@@ -1600,7 +1593,7 @@ if3_mngr_open_cnx_fe (uint32_t dev, uint32_t port, uint16_t mclass, IBhandle_t *
 	 * We don't know the location of the FE so just set this to permissive
 	 */
 
-	mi->dlid = PERMISSIVE_LID;
+	mi->dlid = STL_LID_PERMISSIVE;
 
 	IB_LOG_INFO0 ("manager ready for FE");
 
@@ -1760,7 +1753,7 @@ if3_mngr_do_recv_fe_data (IBhandle_t fhdl, Mai_t * fimad, uint8_t * inbuff, uint
 				/*
 				 * set to this to ensusre all outstanding sync messages fail.
 				 */
-				mi->dlid = PERMISSIVE_LID;
+				mi->dlid = STL_LID_PERMISSIVE;
             } 
         }
 		break;
@@ -1834,7 +1827,11 @@ if3_dbsync_reply_to_mngr(IBhandle_t fhdl, Mai_t * fmad,
 	}
     
     // setup RMPP related fields 
-    (void)if3_set_rmpp_minfo(mi); 
+    rc = if3_set_rmpp_minfo(mi); 
+    if (rc) {
+        IB_EXIT(__func__, rc);
+        return rc;
+    }
 
     // set return status
     fmad->base.status = (uint16_t)resp_status;
@@ -1867,7 +1864,11 @@ if3_dbsync_reply_to_mngr(IBhandle_t fhdl, Mai_t * fmad,
         rmpp_cntxt->attribLen = attribOffset; 
         
         // allocate RMPP request context structure
-        rmpp_cntxt_data(fd_rmpp_usrid, rmpp_cntxt, outbuff, attribOffset); 
+        if (rmpp_cntxt_data(fd_rmpp_usrid, rmpp_cntxt, outbuff, attribOffset)) {
+            rc = VSTATUS_NOMEM; 
+            IB_LOG_ERROR_FMT(__func__, "Unable to allocate context data buffer"); 
+            goto bail;
+		}
         
         // send DB Synch reply to the remote STL SM that issued the request
         if (VSTATUS_OK != (rc = rmpp_send_reply(fmad, rmpp_cntxt))) {
@@ -1924,22 +1925,26 @@ if3_mngr_send_mad(IBhandle_t fd, SA_MAD *psa, uint32_t dataLength, uint8_t *buff
     }
     
     // setup RMPP related fields 
-    (void)if3_set_rmpp_minfo(mi); 
+    rc = if3_set_rmpp_minfo(mi); 
+    if (rc) {
+        IB_EXIT(__func__, rc);
+        return rc;
+    }
     
     // 
     // calculating Response Timeout Period
 #ifdef __SIMULATOR__
     timeout = mi->timeout; 
 #else
-    if (mi->cpi.respTimeValue == 0) {
+    if (mi->cpi.u1.s.RespTimeValue == 0) {
         timeout = RC_MAD_TIMEOUT; 
         if (if3DebugRmpp) 
             IB_LOG_INFINI_INFO("Using default RC_MAD_TIMEOUT = ", timeout);
     } else {
-        timeout = ((1 << mi->cpi.respTimeValue) * 4ull) + mi->SubnetTO; 
+        timeout = ((1 << mi->cpi.u1.s.RespTimeValue) * 4ull) + mi->SubnetTO; 
         if (if3DebugRmpp) {
             IB_LOG_INFINI_INFO_FMT(__func__, "used RespTimeValue=%d, SubnetTO=%d to calculate timeout=%"CS64u, 
-                                   (int)mi->cpi.respTimeValue, (int)mi->SubnetTO, timeout);
+                                   (int)mi->cpi.u1.s.RespTimeValue, (int)mi->SubnetTO, timeout);
         }
     }
     mi->timeout = timeout; 
@@ -2063,7 +2068,11 @@ if3_mngr_send_mad(IBhandle_t fd, SA_MAD *psa, uint32_t dataLength, uint8_t *buff
         fe_cntxt->attribLen = attribOffset; 
         
         // allocate RMPP request context structure
-        rmpp_cntxt_data(fd_rmpp_usrid, fe_cntxt, psa->Data/*outdata*/, attribOffset); 
+        if (rmpp_cntxt_data(fd_rmpp_usrid, fe_cntxt, psa->Data/*outdata*/, attribOffset)) {
+            rc = VSTATUS_NOMEM; 
+            IB_LOG_ERROR_FMT(__func__, "Unable to allocate context data buffer"); 
+            goto bail;
+		}
         
         // forward FEC or STL manager single MAD request to STL manager
         if (VSTATUS_OK != (rc = rmpp_send_request(&mad, fe_cntxt))) {
@@ -2087,8 +2096,8 @@ if3_mngr_send_mad(IBhandle_t fd, SA_MAD *psa, uint32_t dataLength, uint8_t *buff
             if (rc == VSTATUS_OK) {
                 *madRc = imad.base.status; 
             }
-            
-            // set response status to no_records since rmpp returns zero length record with status OK 
+
+            // set response status to no_records since rmpp returns zero length record with status OK
             // in those cases
             if (!*madRc && !*bufferLength) {
                 *madRc = MAD_STATUS_SA_NO_RECORDS;
@@ -2147,22 +2156,26 @@ if3_mngr_send_passthru_mad (IBhandle_t fd, SA_MAD *psa, uint32_t dataLength,
     }
     
     // setup RMPP related fields 
-    (void)if3_set_rmpp_minfo(mi); 
+    rc = if3_set_rmpp_minfo(mi); 
+    if (rc) {
+        IB_EXIT(__func__, rc);
+        return rc;
+    }
     
     // 
     // calculating Response Timeout Period
 #ifdef __SIMULATOR__
     timeout = mi->timeout; 
 #else
-    if (mi->cpi.respTimeValue == 0) {
+    if (mi->cpi.u1.s.RespTimeValue == 0) {
         timeout = RC_MAD_TIMEOUT; 
         if (if3DebugRmpp) 
             IB_LOG_INFINI_INFO("Using default RC_MAD_TIMEOUT = ", timeout);
     } else {
-        timeout = ((1 << mi->cpi.respTimeValue) * 4ull) + mi->SubnetTO; 
+        timeout = ((1 << mi->cpi.u1.s.RespTimeValue) * 4ull) + mi->SubnetTO; 
         if (if3DebugRmpp) {
             IB_LOG_INFINI_INFO_FMT(__func__, "used RespTimeValue=%d, SubnetTO=%d to calculate timeout=%"CS64u, 
-                                   (int)mi->cpi.respTimeValue, (int)mi->SubnetTO, timeout);
+                                   (int)mi->cpi.u1.s.RespTimeValue, (int)mi->SubnetTO, timeout);
         }
     }
     mi->timeout = timeout; 
@@ -2283,7 +2296,11 @@ if3_mngr_send_passthru_mad (IBhandle_t fd, SA_MAD *psa, uint32_t dataLength,
         fe_cntxt->attribLen = attribOffset; 
         
         // allocate RMPP request context structure
-        rmpp_cntxt_data(fd_rmpp_usrid, fe_cntxt, psa->Data, attribOffset); 
+        if (rmpp_cntxt_data(fd_rmpp_usrid, fe_cntxt, psa->Data, attribOffset)) {
+            rc = VSTATUS_NOMEM; 
+            IB_LOG_ERROR_FMT(__func__, "Unable to allocate context data buffer"); 
+            goto bail;
+		}
         
         // forward FEC or STL manager single MAD request to STL manager
         if (VSTATUS_OK != (rc = rmpp_send_request(&mad, fe_cntxt))) {
@@ -2291,6 +2308,7 @@ if3_mngr_send_passthru_mad (IBhandle_t fd, SA_MAD *psa, uint32_t dataLength,
         } else {
             // release context for single MAD request
             rmpp_cntxt_full_release(fe_cntxt);
+            fe_cntxt = NULL;
 
             // wait for response from manager
             rc = rmpp_receive_response(fd_rmpp_usrid, mi, &imad, buffer, bufferLength, cb, context); 
@@ -2306,13 +2324,7 @@ if3_mngr_send_passthru_mad (IBhandle_t fd, SA_MAD *psa, uint32_t dataLength,
             memcpy(maip, &imad, sizeof(Mai_t));
                         
             // get MAD status from the header
-            *madRc = imad.base.status; 
-            
-            // set response status to no_records since rmpp returns zero length record with status OK 
-            // in those cases
-            if (!*madRc && !*bufferLength) {
-                *madRc = MAD_STATUS_SA_NO_RECORDS;
-            }
+            *madRc = imad.base.status;
         }
     }
     
@@ -2368,22 +2380,26 @@ if3_dbsync_send_mad(IBhandle_t fd, SA_MAD *psa, uint32_t dataLength, uint8_t *bu
     }
     
     // setup RMPP related fields 
-    (void)if3_set_rmpp_minfo(mi); 
+    rc = if3_set_rmpp_minfo(mi); 
+    if (rc) {
+        IB_EXIT(__func__, rc);
+        return rc;
+    }
     
     // 
     // calculating Response Timeout Period
 #ifdef __SIMULATOR__
     timeout = mi->timeout; 
 #else
-    if (mi->cpi.respTimeValue == 0) {
+    if (mi->cpi.u1.s.RespTimeValue == 0) {
         timeout = RC_MAD_TIMEOUT; 
         if (if3DebugRmpp) 
             IB_LOG_INFINI_INFO_FMT(__func__, "Using default RC_MAD_TIMEOUT = %"CS64u, timeout);
     } else {
-        timeout = ((1 << mi->cpi.respTimeValue) * 4ull) + mi->SubnetTO; 
+        timeout = ((1 << mi->cpi.u1.s.RespTimeValue) * 4ull) + mi->SubnetTO; 
         if (if3DebugRmpp) {
             IB_LOG_INFINI_INFO_FMT(__func__, "used RespTimeValue=%d, SubnetTO=%d to calculate timeout=%"CS64u, 
-                                   (int)mi->cpi.respTimeValue, (int)mi->SubnetTO, timeout);
+                                   (int)mi->cpi.u1.s.RespTimeValue, (int)mi->SubnetTO, timeout);
         }
     }
     mi->timeout = timeout; 
@@ -2503,43 +2519,50 @@ if3_dbsync_send_mad(IBhandle_t fd, SA_MAD *psa, uint32_t dataLength, uint8_t *bu
         dbsync_cntxt->attribLen = attribOffset; 
         
         // allocate RMPP request context structure
-        rmpp_cntxt_data(fd_rmpp_usrid, dbsync_cntxt, psa->Data, attribOffset); 
+        if (rmpp_cntxt_data(fd_rmpp_usrid, dbsync_cntxt, psa->Data, attribOffset)) {
+            rc = VSTATUS_NOMEM; 
+            IB_LOG_ERROR_FMT(__func__, "Unable to allocate context data buffer"); 
+            goto bail;
+		}
         
         // send DB Sync single MAD request to the remote STL SM
         if (VSTATUS_OK != (rc = rmpp_send_request(&mad, dbsync_cntxt))) {
             IB_LOG_ERROR_FMT(__func__, "Failed to send RMPP DB Sync request to remote SM: rc %d", rc); 
-        } else while(1) {
-			uint32_t tmpLength = *bufferLength;
-
+        } else {
             // release context for DB Sync single MAD request
             rmpp_cntxt_full_release(dbsync_cntxt);
-
-            // wait for response from the remote STL SM
-            rc = rmpp_receive_response(fd_rmpp_usrid, mi, &imad, buffer, &tmpLength, cb, context); 
-            if (if3DebugRmpp) {
-                if (rc == VSTATUS_OK) {
-                    IB_LOG_INFINI_INFO_FMT(__func__, "Data received OK, len %d", tmpLength);
-                } else {
-                    IB_LOG_INFINI_INFO_FMT(__func__, "Data received FAILED, rc %d", rc);
+            dbsync_cntxt = NULL;
+             
+            while (1) {
+                uint32_t tmpLength = *bufferLength; 
+                
+                // wait for response from the remote STL SM
+                rc = rmpp_receive_response(fd_rmpp_usrid, mi, &imad, buffer, &tmpLength, cb, context); 
+                if (if3DebugRmpp) {
+                    if (rc == VSTATUS_OK) {
+                        IB_LOG_INFINI_INFO_FMT(__func__, "Data received OK, len %d", tmpLength);
+                    } else {
+                        IB_LOG_INFINI_INFO_FMT(__func__, "Data received FAILED, rc %d", rc);
+                    }
                 }
+                
+                // no writer thread was implemented for DB Synch, like it was for the SA,
+                // PM, PA, and FE.  The writer thread would normally handle the filtering
+                // and processing of ACK responses.  DB synch main is the reader/writer thread,
+                // so process the ACKs for the Slave here. 
+                (void)BSWAPCOPY_STL_SA_MAD((STL_SA_MAD *)imad.data, &samad, STL_SA_DATA_LEN); 
+                if (!rc && samad.header.rmppType == RMPP_TYPE_ACK) {
+                    if (if3DebugRmpp) 
+                        IB_LOG_INFINI_INFO_FMT(__func__, "Got ACK packet"); 
+                    continue;
+                }
+                
+                *bufferLength = tmpLength; 
+                // get MAD status from the header
+                *madRc = imad.base.status; 
+                break;
             }
-
-            // no writer thread was implemented for DB Synch, like it was for the SA,
-            // PM, PA, and FE.  The writer thread would normally handle the filtering
-            // and processing of ACK responses.  DB synch main is the reader/writer thread,
-            // so process the ACKs for the Slave here. 
-            (void)BSWAPCOPY_STL_SA_MAD((STL_SA_MAD*)imad.data, &samad, STL_SA_DATA_LEN);
-            if (!rc && samad.header.rmppType == RMPP_TYPE_ACK) {
-                if (if3DebugRmpp)
-                    IB_LOG_INFINI_INFO_FMT(__func__, "Got ACK packet");
-                continue;
-            }
-            
-			*bufferLength = tmpLength;
-            // get MAD status from the header
-            *madRc = imad.base.status; 
-			break;
-        } 
+        }
     }
     
 bail:
@@ -2573,7 +2596,7 @@ if3_dbsync_send_multi_mad (IBhandle_t fd, SA_MAD *psa,
     Mai_t mad; 
     uint64_t timeout; 
     rmpp_cntxt_t *dbsync_cntxt = NULL; 
-    uint32_t attribOffset; 
+    uint16_t attribOffset; 
     uint8_t processMad = 0, omethod; 
     int fd_rmpp_usrid = -1; 
     SA_MAD_HDR saHdr; 
@@ -2596,22 +2619,26 @@ if3_dbsync_send_multi_mad (IBhandle_t fd, SA_MAD *psa,
     }
     
     // setup RMPP related fields 
-    (void)if3_set_rmpp_minfo(mi); 
+    rc = if3_set_rmpp_minfo(mi); 
+    if (rc) {
+        IB_EXIT(__func__, rc);
+        return rc;
+    }
     
     // 
     // calculating Response Timeout Period
 #ifdef __SIMULATOR__
     timeout = mi->timeout; 
 #else
-    if (mi->cpi.respTimeValue == 0) {
+    if (mi->cpi.u1.s.RespTimeValue == 0) {
         timeout = RC_MAD_TIMEOUT; 
         if (if3DebugRmpp) 
             IB_LOG_INFINI_INFO("Using default RC_MAD_TIMEOUT = ", timeout);
     } else {
-        timeout = ((1 << mi->cpi.respTimeValue) * 4ull) + mi->SubnetTO; 
+        timeout = ((1 << mi->cpi.u1.s.RespTimeValue) * 4ull) + mi->SubnetTO; 
         if (if3DebugRmpp) {
             IB_LOG_INFINI_INFO_FMT(__func__, "used RespTimeValue=%d, SubnetTO=%d to calculate timeout=%"CS64u, 
-                                   (int)mi->cpi.respTimeValue, (int)mi->SubnetTO, timeout);
+                                   (int)mi->cpi.u1.s.RespTimeValue, (int)mi->SubnetTO, timeout);
         }
     }
     mi->timeout = timeout; 
@@ -2726,12 +2753,21 @@ if3_dbsync_send_multi_mad (IBhandle_t fd, SA_MAD *psa,
     // before sending the MAD request, perform any required pre-processing of
     // the RMPP context and MAD request    
     if (!(rc = rmpp_pre_process_request(fd_rmpp_usrid, &mad, dbsync_cntxt))) {
-        attribOffset = dataLength + Calculate_Padding(dataLength); 
+        uint32_t paddedDataLength;
+
+        // since data to be sent exceeds maximum MAD payload size, set
+        // attribute offset base on MAD payload size  
+        attribOffset = sizeof(mad.data) + Calculate_Padding(sizeof(mad.data)); 
         // setup attribute offset for RMPP transfer
         dbsync_cntxt->attribLen = attribOffset; 
-        
+        paddedDataLength = dataLength + Calculate_Padding(dataLength); 
         // allocate RMPP request context structure
-        rmpp_cntxt_data(fd_rmpp_usrid, dbsync_cntxt, dataBuffer, attribOffset); 
+        if (rmpp_cntxt_data(fd_rmpp_usrid, dbsync_cntxt, dataBuffer, paddedDataLength)) {
+            rc = VSTATUS_NOMEM; 
+            IB_LOG_ERROR_FMT(__func__, "Unable to allocate context data buffer"); 
+            goto bail;
+        }
+
         uint32_t tmpLength;   
 send:
         // send DB Sync request to the remote STL SM
@@ -2821,7 +2857,11 @@ if3_dbsync_cmd_from_mngr (IBhandle_t fd, Mai_t *maip, uint8_t *buffer, uint32_t 
     }
     
     // setup RMPP related fields 
-    (void)if3_set_rmpp_minfo(mi); 
+    rc = if3_set_rmpp_minfo(mi); 
+    if (rc) {
+        IB_EXIT(__func__, rc);
+        return rc;
+    }
     
     // drain stale data from response handle
     DRAIN_MAI_STALE(mi->fds); 
@@ -2896,7 +2936,7 @@ recv:
 
     // get MAD status from the header
 	if (rc == VSTATUS_OK ) {
-		*madRc = imad.base.status; 
+    *madRc = imad.base.status; 
 	}
 
     // set response status to no_records since rmpp returns zero length record with status OK 
@@ -3195,3 +3235,4 @@ void if3_vxworks_init(int start)
     }
 }
 #endif
+

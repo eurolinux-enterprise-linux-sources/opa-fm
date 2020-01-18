@@ -1,6 +1,6 @@
 /* BEGIN_ICS_COPYRIGHT2 ****************************************
 
-Copyright (c) 2015, Intel Corporation
+Copyright (c) 2015-2017, Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -101,13 +101,14 @@ typedef void (*cntxt_callback_t)(struct _cntxt_entry *, Status_t, void *, Mai_t 
 typedef struct _cntxt_entry {
 	uint64_t	    tstamp;
 	uint64_t        tid;		// Tid for hash table search
-	uint16_t        lid;		// Lid for hash table search
+	STL_LID	        lid;		// Lid for hash table search
     uint16_t        index;      // entry index into list
     uint8_t         hashed;
     uint8_t         alloced;
 	uint16_t        retries;    // retry count
     uint64_t        RespTimeout; // current response timeout value (13.6.3.1)
 	uint64_t		cumulative_timeout; //sum of timeouts across retries
+	uint64_t		totalTimeout; // total initial timeout value
     uint8_t         senderWantsResponse;    // 1 = sender wants the response on the resp_queue
     uint8_t			sendFailed;	// most recent attempt to send failed
     uint16_t        releasing;	// have begun to release
