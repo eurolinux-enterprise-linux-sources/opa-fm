@@ -175,7 +175,7 @@ sub dot_version($)
 my $LIB_DIR = "/lib";
 my $UVP_LIB_DIR = "/lib";
 my $USRLOCALLIB_DIR = "/usr/local/lib";
-my $OPTIBALIB_DIR = "/opt/opa/lib";
+my $OPTIBALIB_DIR = "/usr/lib/opa/lib";
 my $USRLIB_DIR = "/usr/lib";
 # if different from $LIB_DIR, where to remove libraries from past release
 my $OLD_LIB_DIR = "/lib";
@@ -191,7 +191,7 @@ sub set_libdir()
 		$UVP_CONF_FILE_SOURCE = "uvp.conf.64";
 		$DAT_CONF_FILE_SOURCE = "dat.conf.64";
 		$USRLOCALLIB_DIR = "/usr/local/lib64";
-		$OPTIBALIB_DIR = "/opt/opa/lib64";
+		$OPTIBALIB_DIR = "/usr/lib/opa/lib64";
 		$USRLIB_DIR = "/usr/lib64";
 	}
 }
@@ -240,7 +240,7 @@ sub os_vendor_version($)
 			# to the left of the decimal point.
 			$rval = `cat /etc/redhat-release`;
 			$rval =~ m/(\d+).(\d+)/;
-			$rval="ES".$1;
+			$rval="ES".$1.$2;
 		} elsif (!system("grep -qi Scientific /etc/redhat-release")) {
 			# Find a number of the form "#.#" and output the portion
 			# to the left of the decimal point.
@@ -253,7 +253,8 @@ sub os_vendor_version($)
 			$rval=`cat /etc/redhat-release | cut -d' ' -f7 | cut -d'.' -f1`;
 			$mn=`cat /etc/redhat-release | cut -d' ' -f7 | cut -d'.' -f2`;
 			chop($rval);
-			if (($rval >= 7) && ($mn > 0)){
+			if ( (($rval >= 7) && ($mn > 0)) ||
+				(($rval == 6) && ($mn >= 7)) ) {
 				chomp($mn);
 				$rval=join "","ES","$rval","$mn";
 			} else {

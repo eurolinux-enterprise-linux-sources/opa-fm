@@ -44,6 +44,7 @@ use strict;
 my $suffix_64bit = "";	# suffix for rpm name for 64 bit rpms
 
 my $rpm_check_dependencies = 1;	# can be set to 0 to disable rpm_check_os_prereqs
+my $skip_kernel = 0; # can be set to 1 by --user-space argument
 
 sub rpm_query_param($);
 # TBD or
@@ -194,6 +195,10 @@ sub rpm_is_installed($$)
 	my $rc;
 	my $cpu;
 
+	if ($skip_kernel && "$mode" ne "user" && "$mode" ne "any") {
+               return 1;
+	}
+
 	( $mode, $cpu ) = rpm_adjust_mode_cpu($package, $mode);
 	if ("$mode" eq "any" ) {
 		# any variation is ok
@@ -315,7 +320,7 @@ sub rpm_check_os_prereqs_internal($$@)
 				# TBD - openSUSE has libstdc++42
 				# TBD - openSUSE11.2 has libstdc++44
 			} elsif ("$package" eq "libstdc++" && "$CUR_DISTRO_VENDOR" eq 'SuSE'
-					&& ("$CUR_VENDOR_VER" eq 'ES12' || "$CUR_VENDOR_VER" eq 'ES121')) {
+					&& ("$CUR_VENDOR_VER" eq 'ES12' || "$CUR_VENDOR_VER" eq 'ES121' || "$CUR_VENDOR_VER" eq 'ES122')) {
 				$package="libstdc++6";
 		 	} elsif ("$package" eq "libstdc++-devel" && "$CUR_DISTRO_VENDOR" eq 'SuSE'
 					&& "$CUR_VENDOR_VER" eq 'ES11') {
@@ -552,6 +557,12 @@ sub rpm_run_install($$$)
 	my $chrootcmd="";
 	my $Uoption= 0;
 
+	if ($skip_kernel && "$mode" ne "user" && "$mode" ne "any") {
+		return;
+	} elsif ($skip_kernel && $rpmfile =~ /\/hfi1-firmware/) {
+		return;
+	}
+
 	# We require whitespace around -U so its not mistaken for filenames or other
 	# multi-letter options
 	if ($options =~ / -U /) {
@@ -709,8 +720,13 @@ sub rpm_resolve($$$)
 	} else {
 		my $osver = rpm_tr_os_version("$mode");	# OS version
 		# we expect 1 match, ignore all other filenames returned
-		DebugPrint("Checking for Kernel Rpm: $rpmdir/${package}-[0-9]*.[0-9][0-9].${osver}-[0-9]*.${cpu}.rpm\n");
-		$rpmfile = file_glob("$rpmdir/${package}-[0-9]*.[0-9][0-9].${osver}-[0-9]*.${cpu}.rpm");
+		if ( "$CUR_VENDOR_VER" eq 'ES122' ) {
+			DebugPrint("Checking for Kernel Rpm: $rpmdir/${package}-${osver}_k*.${cpu}.rpm\n");
+			$rpmfile = file_glob("$rpmdir/${package}-${osver}_k*.${cpu}.rpm");
+		} else {
+			DebugPrint("Checking for Kernel Rpm: $rpmdir/${package}-[0-9]*.[0-9][0-9].${osver}-[0-9]*.${cpu}.rpm\n");
+			$rpmfile = file_glob("$rpmdir/${package}-[0-9]*.[0-9][0-9].${osver}-[0-9]*.${cpu}.rpm");
+		}
 		if ( "$rpmfile" eq "" || ! -e "$rpmfile" ) {
 			DebugPrint("Checking for Kernel Rpm: $rpmdir/${package}-${osver}-[0-9]*.${cpu}.rpm\n");
 			$rpmfile = file_glob("$rpmdir/${package}-${osver}-[0-9]*.${cpu}.rpm");
@@ -750,6 +766,12 @@ sub rpm_install($$$)
 	my $RPM_DIR="$build_temp/DELTARPMS";
 	my $RPMS_SUBDIR = "RPMS";
 	my $prefix=$OFED_prefix;
+
+	if ($skip_kernel && "$mode" ne "user" && "$mode" ne "any") {
+		return;
+	} elsif ($skip_kernel && $rpmfile =~ /\/hfi1-firmware/) {
+		return;
+	}
 
 RPM_RES:
 
@@ -795,6 +817,12 @@ sub rpm_install_with_options($$$$)
 	my $RPM_DIR="$build_temp/DELTARPMS";
 	my $RPMS_SUBDIR = "RPMS";
 	my $prefix=$OFED_prefix;
+
+	if ($skip_kernel && "$mode" ne "user" && "$mode" ne "any") {
+		return;
+	} elsif ($skip_kernel && $rpmfile =~ /\/hfi1-firmware/) {
+		return;
+	}
 
 RPM_RES:
 

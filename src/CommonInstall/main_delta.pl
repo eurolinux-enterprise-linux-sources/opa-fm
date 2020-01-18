@@ -69,6 +69,14 @@ my @Components_rhel72 = ( "opa_stack", "ibacm", "intel_hfi", "mpi_selector",
 		"delta_mpisrc", 
 		"hfi1_uefi",
 		"delta_debug", );
+my @Components_sles12_sp2 = ( "opa_stack", "intel_hfi", "mpi_selector",
+		"delta_ipoib",
+		"opa_stack_dev",
+ 		"gasnet", "openshmem",
+		"mvapich2", "openmpi",
+		"delta_mpisrc", 
+		"hfi1_uefi",
+		"delta_debug", );
 @Components = ( );
 # delta_debug must be last
 
@@ -379,7 +387,7 @@ my %ComponentInfo_rhel72 = (
 					  StartPreReq => "",
 					  StartComponents => [ ],
 					},
-	"hfi1_uefi" => { Name => "UEFI Binaries",
+	"hfi1_uefi" => { Name => "Pre-Boot Components",
 					  DefaultInstall => $State_DoNotInstall,
 					  SrcDir => ".", DriverSubdir => "",
 					  PreReq => " opa_stack ", CoReq => "",
@@ -389,6 +397,130 @@ my %ComponentInfo_rhel72 = (
 					  StartComponents => [ ],
 					},
 	);
+
+my %ComponentInfo_sles12_sp2 = (
+		# our special WrapperComponent, limited use
+	"opa_config_delta" =>	{ Name => "opa_config_delta",
+					  DefaultInstall => $State_Install,
+					  SrcDir => ".", DriverSubdir => "",
+					  PreReq => "", CoReq => "",
+					  Hidden => 0, Disabled => 0,
+					  HasStart => 0, HasFirmware => 0, DefaultStart => 0,
+					  StartPreReq => "",
+					  StartComponents => [ ],
+					},
+	"opa_stack" =>	{ Name => "OFA OPA Stack",
+					  DefaultInstall => $State_Install,
+					  SrcDir => ".", DriverSubdir => "updates",
+					  PreReq => "", CoReq => "",
+ 						# TBD - HasFirmware - FW update
+					  Hidden => 0, Disabled => 0,
+					  HasStart => 1, HasFirmware => 0, DefaultStart => 1,
+					  StartPreReq => "",
+					  StartComponents => [ "opa_stack" ],
+					},
+	"intel_hfi" =>	{ Name => "Intel HFI Components",
+					  DefaultInstall => $State_Install,
+					  SrcDir => ".", DriverSubdir => "updates",
+					  PreReq => " opa_stack ", CoReq => "",
+ 						# TBD - HasFirmware - FW update
+					  Hidden => 0, Disabled => 0,
+					  HasStart => 1, HasFirmware => 0, DefaultStart => 1,
+					  StartPreReq => " opa_stack ",
+					  StartComponents => [ "intel_hfi" ],
+					},
+	"mpi_selector" =>	{ Name => "MPI selector",
+					  DefaultInstall => $State_Install,
+					  SrcDir => ".", DriverSubdir => "",
+					  PreReq => " opa_stack ", CoReq => "",
+					  Hidden => 1, Disabled => 0,
+					  HasStart => 0, HasFirmware => 0, DefaultStart => 0,
+					  StartPreReq => "",
+					  StartComponents => [ ],
+					},
+	"delta_ipoib" =>	{ Name => "OFA IP over IB",
+					  DefaultInstall => $State_Install,
+					  SrcDir => ".", DriverSubdir => "updates",
+					  PreReq => " opa_stack ", CoReq => "",
+					  Hidden => 0, Disabled => 0,
+					  HasStart => 1, HasFirmware => 0, DefaultStart => 1,
+					  StartPreReq => " opa_stack ",
+					  StartComponents => [ "delta_ipoib" ],
+					},
+	"mvapich2" =>	{ Name => "MVAPICH2 (verbs,gcc)",
+					  DefaultInstall => $State_DoNotInstall,
+					  SrcDir => ".", DriverSubdir => "",
+					  PreReq => " intel_hfi opa_stack mpi_selector ", CoReq => "",
+					  Hidden => 0, Disabled => 0,
+					  HasStart => 0, HasFirmware => 0, DefaultStart => 0,
+					  StartPreReq => "",
+					  StartComponents => [ ],
+					},
+	"openmpi" =>	{ Name => "OpenMPI (verbs,gcc)",
+					  DefaultInstall => $State_DoNotInstall,
+					  SrcDir => ".", DriverSubdir => "",
+					  PreReq => " intel_hfi opa_stack mpi_selector ", CoReq => "",
+					  Hidden => 0, Disabled => 0,
+					  HasStart => 0, HasFirmware => 0, DefaultStart => 0,
+					  StartPreReq => "",
+					  StartComponents => [ ],
+					},
+	"gasnet" =>	{ Name => "Gasnet HFI (gcc)",
+					  DefaultInstall => $State_Install,
+					  SrcDir => ".", DriverSubdir => "",
+					  PreReq => " intel_hfi opa_stack ", CoReq => "",
+					  Hidden => 0, Disabled => 0,
+					  HasStart => 0, HasFirmware => 0, DefaultStart => 0,
+					  StartPreReq => "",
+					  StartComponents => [ ],
+					},
+	"openshmem" =>	{ Name => "OpenSHMEM HFI (gcc)",
+					  DefaultInstall => $State_Install,
+					  SrcDir => ".", DriverSubdir => "",
+					  PreReq => " intel_hfi opa_stack gasnet", CoReq => "",
+					  Hidden => 0, Disabled => 0,
+					  HasStart => 0, HasFirmware => 0, DefaultStart => 0,
+					  StartPreReq => "",
+					  StartComponents => [ ],
+					},
+	"opa_stack_dev" => { Name => "OFA OPA Development",
+					  DefaultInstall => $State_Install,
+					  SrcDir => ".", DriverSubdir => "",
+					  PreReq => " opa_stack ", CoReq => "",
+					  Hidden => 0, Disabled => 0,
+					  HasStart => 0, HasFirmware => 0, DefaultStart => 0,
+					  StartPreReq => "",
+					  StartComponents => [ ],
+					},
+	"delta_mpisrc" =>{ Name => "MPI Source",
+					  DefaultInstall => $State_Install,
+					  SrcDir => ".", DriverSubdir => "",
+					  PreReq => " opa_stack opa_stack_dev mpi_selector ", CoReq => "",
+					  Hidden => 0, Disabled => 0,
+					  HasStart => 0, HasFirmware => 0, DefaultStart => 0,
+					  StartPreReq => "",
+					  StartComponents => [ ],
+					},
+	"delta_debug" =>{ Name => "OFA Debug Info",
+					  DefaultInstall => $State_DoNotInstall,
+					  SrcDir => ".", DriverSubdir => "",
+					  PreReq => " opa_stack ", CoReq => "",
+					  Hidden => 0, Disabled => 0,
+					  HasStart => 0, HasFirmware => 0, DefaultStart => 0,
+					  StartPreReq => "",
+					  StartComponents => [ ],
+					},
+	"hfi1_uefi" => { Name => "Pre-Boot Components",
+					  DefaultInstall => $State_DoNotInstall,
+					  SrcDir => ".", DriverSubdir => "",
+					  PreReq => " opa_stack ", CoReq => "",
+					  Hidden => 0, Disabled => 0,
+					  HasStart => 0, HasFirmware => 0, DefaultStart => 0,
+					  StartPreReq => "",
+					  StartComponents => [ ],
+					},
+	);
+
 
 %ComponentInfo = ( );
 
@@ -419,6 +551,9 @@ sub init_components
 	if ( "$CUR_VENDOR_VER" eq "ES72" ) {
 		@Components = ( @Components_rhel72 );
 		%ComponentInfo = ( %ComponentInfo_rhel72 );
+	} elsif ( "$CUR_VENDOR_VER" eq "ES122" ) {
+		@Components = ( @Components_sles12_sp2 );
+		%ComponentInfo = ( %ComponentInfo_sles12_sp2 );
 	} else {
 		@Components = ( @Components_other );
 		%ComponentInfo = ( %ComponentInfo_other );
@@ -516,7 +651,7 @@ sub Usage
 		#printf STDERR "               or\n";
 		#printf STDERR "Usage: $0 [-r root] [-v|-vv] [-a|-n|-U|-u|-s|-i comp|-e comp] [-E comp] [-D comp] [-l] [--user_configure_options 'options'] [--kernel_configure_options 'options'] [--prefix dir] [--without-depcheck] [--rebuild] [--force] [--answer keyword=value] [--debug]\n";
 		#printf STDERR "Usage: $0 [-r root] [-v|-vv] [-a|-n|-U|-u|-s|-i comp|-e comp|-E comp|-D comp] [--user_configure_options 'options'] [--kernel_configure_options 'options'] [--prefix dir] [--without-depcheck] [--rebuild] [--force] [--answer=value]\n";
-		printf STDERR "Usage: $0 [-r root] [-v|-vv] [-a|-n|-U|-u|-s|-O|-N|-i comp|-e comp|-E comp|-D comp] [--user_configure_options 'options'] [--kernel_configure_options 'options'] [--prefix dir] [--without-depcheck] [--rebuild] [--force] [--answer=value]\n";
+		printf STDERR "Usage: $0 [-r root] [-v|-vv] -R osver -B osver [-a|-n|-U|-u|-s|-O|-N|-i comp|-e comp|-E comp|-D comp] [--user_configure_options 'options'] [--kernel_configure_options 'options'] [--prefix dir] [--without-depcheck] [--rebuild] [--force] [--answer=value]\n";
 	} else {
 		printf STDERR "Usage: $0 [-r root] [-v|-vv] [-u|-s|-e comp] [-E comp] [-D comp] [--answer=value]\n";
 		printf STDERR "          [--user_queries|--no_user_queries]\n";
@@ -533,7 +668,7 @@ sub Usage
 		printf STDERR "            default options and no change to autostart options\n";
 		printf STDERR "       -i comp - install the given component with default options\n";
 		printf STDERR "            can appear more than once on command line\n";
-		#printf STDERR "       -l - skip creating/removing symlinks to /usr/local from /opt/opa\n";
+		#printf STDERR "       -l - skip creating/removing symlinks to /usr/local from /usr/lib/opa\n";
 		printf STDERR "       --user_configure_options 'options' - specify additional OFA build\n";
 		printf STDERR "             options for user space srpms.  Causes rebuild of all user srpms\n";
 		printf STDERR "       --kernel_configure_options 'options' - specify additional OFA build\n";
@@ -548,10 +683,10 @@ sub Usage
 		printf STDERR "       -N - Use new default rpm config file\n";
 		# --debug, -B, -t and -d options are purposely not documented
 		#printf STDERR "       --debug - build a debug version of modules\n";
-		#printf STDERR "       -B osver - run build for all components targetting kernel osver\n";
+		printf STDERR "       -B osver - run build for all components targetting kernel osver\n";
 		#printf STDERR "       -t - temp area for use by builds, only valid with -B\n";
 		#printf STDERR "       -d - enable build debugging assists, only valid with -B\n";
-		#printf STDERR "       -R osver - force install for kernel osver rather than running kernel.\n";
+		printf STDERR "       -R osver - force install for kernel osver rather than running kernel.\n";
 	}
 	printf STDERR "       -u - uninstall all ULPs and drivers with default options\n";
 	printf STDERR "       -s - enable autostart for all installed drivers\n";

@@ -1,21 +1,22 @@
-%global Intel_Release 145
+%global Intel_Release 6
 
 Name: opa-fm
-Version: 10.1.0.0
-Release: %{Intel_Release}%{?dist}
+Epoch: 1
+Version: 10.3.1.0
+Release: 8%{?dist}
 Summary: Intel Omni-Path Fabric Management Software
 
 Group: System Environment/Daemons
-License: BSD
+License: GPLv2 or BSD
 Url: https://github.com/01org/opa-fm
 # tarball created by:
 # git clone https://github.com/01org/opa-fm.git
 # cd opa-fm
+# git checkout v10_3_1
 # git archive --format=tar --prefix=opa-fm-%{version}-%{Intel_Release}/ \
-# 78e4916cc1928689d74f5da9c3047c6cafe24218 | xz > opa-fm-%{version}-%{Intel_Release}.tar.xz
+# 4a98a653d528f1db788e59d7a25711630561a19c | xz > opa-fm-%{version}-%{Intel_Release}.tar.xz
 Source0: %{name}-%{version}-%{Intel_Release}.tar.xz
 
-Patch0001: 0001-opafmd-larger-array-to-hold-program-path.patch
 # bz1262327 needs Patch0002
 Patch0002: 0001-Fix-well-known-tempfile-issue-in-script.patch
 
@@ -23,6 +24,7 @@ BuildRequires: autoconf
 BuildRequires: systemd
 BuildRequires: zlib-devel, openssl-devel, expat-devel
 BuildRequires: libibmad-devel, libibverbs-devel >= 1.2.0
+BuildRequires: libibumad-devel
 Requires(post): systemd
 Requires(preun): systemd
 Requires(postun): systemd
@@ -36,19 +38,10 @@ Fabric Executive, and some fabric management tools.
 
 %prep
 %setup -q -n %{name}-%{version}-%{Intel_Release}
-%patch0001 -p1
 %patch0002 -p1
 
 # Make it possible to override hardcoded compiler flags
 sed -i -r -e 's/(release_C(C)?OPT_Flags\s*)=/\1?=/' Makerules/Target.LINUX.GNU.*
-
-# A crude hack from necessity. Upstream hardcodes "/opt/opafm" in many places.
-# Packaging guidelines disallow installation into /opt.
-# Instead we'll use /usr/lib/opa-fm/ (NOT _libdir !) as this package's private
-# directory.
-sed -i -e 's#/opt/opafm#/usr/lib/opa-fm#g' $(grep -r -l '/opt/opafm' .)
-# The same holds for opa-ff, which this package references:
-sed -i -e 's#/opt/opa#/usr/lib/opa-ff#g'   $(grep -r -l '/opt/opa' .)
 
 %build
 export CFLAGS='%{optflags}'
@@ -59,44 +52,9 @@ cd Esm
 ./fmbuild -V %{version}.%{release}
 
 %install
-%global fm_mans opafmcmd.8 opafmcmdall.8
-
-install -D -m 644 stage.rpm/opafm.service %{buildroot}/%{_unitdir}/opafm.service
-install -D -m 755 stage.rpm/opafmctrl %{buildroot}/usr/lib/opa-fm/bin/opafmctrl
-install -D -m 755 stage.rpm/opafmd %{buildroot}/usr/lib/opa-fm/bin/opafmd
-
-install -D -m 644 stage.rpm/opafm.xml %{buildroot}%{_sysconfdir}/sysconfig/opafm.xml
-install -D -m 755 stage.rpm/opafm.info %{buildroot}%{_sysconfdir}/sysconfig/opa/opafm.info
-
-install -D stage.rpm/fm_capture %{buildroot}/usr/lib/opa-fm/bin/fm_capture
-install -D stage.rpm/fm_cmd %{buildroot}/usr/lib/opa-fm/bin/fm_cmd
-install -D stage.rpm/fm_cmdall %{buildroot}/usr/lib/opa-fm/bin/fm_cmdall
-install -D stage.rpm/smpoolsize %{buildroot}/usr/lib/opa-fm/bin/smpoolsize
-
-install -D stage.rpm/sm %{buildroot}/usr/lib/opa-fm/runtime/sm
-install -D stage.rpm/fe %{buildroot}/usr/lib/opa-fm/runtime/fe
-
-install -D stage.rpm/config_check %{buildroot}/usr/lib/opa-fm/etc/config_check
-install -D stage.rpm/config_convert %{buildroot}/usr/lib/opa-fm/etc/config_convert
-install -D stage.rpm/config_diff %{buildroot}/usr/lib/opa-fm/etc/config_diff
-install -D stage.rpm/config_generate %{buildroot}/usr/lib/opa-fm/etc/config_generate
-install -D stage.rpm/opafm %{buildroot}/usr/lib/opa-fm/etc/opafm
-install -D stage.rpm/opafm.arch %{buildroot}/usr/lib/opa-fm/etc/opafm.arch
-install -D stage.rpm/opafm.info %{buildroot}/usr/lib/opa-fm/etc/opafm.info
-install -D Esm/ib/src/linux/startup/opafm_src.xml %{buildroot}/usr/lib/opa-fm/etc/opafm_src.xml
-
-install -D stage.rpm/opafm.xml %{buildroot}/usr/lib/opa-fm/etc/opafm.xml
-install -D stage.rpm/opaxmlextract %{buildroot}/usr/lib/opa-fm/etc/opaxmlextract
-install -D stage.rpm/opaxmlfilter %{buildroot}/usr/lib/opa-fm/etc/opaxmlfilter
-
-mkdir -p %{buildroot}%{_sbindir}
-mkdir -p %{buildroot}%{_mandir}/man8
-ln -s /usr/lib/opa-fm/bin/fm_cmd %{buildroot}%{_sbindir}/opafmcmd
-ln -s /usr/lib/opa-fm/bin/fm_cmdall %{buildroot}%{_sbindir}/opafmcmdall
+BUILDDIR=%{_builddir} DESTDIR=%{buildroot} LIBDIR=%{_libdir} RPM_INS=n ./Esm/fm_install.sh
+chmod 644 %{buildroot}/%{_unitdir}/opafm.service
 mkdir -p %{buildroot}/%{_localstatedir}/usr/lib/opa-fm/
-
-cd stage.rpm
-cp -t %{buildroot}%{_mandir}/man8 %fm_mans
 
 %post
 %systemd_post opafm.service
@@ -115,6 +73,7 @@ cp -t %{buildroot}%{_mandir}/man8 %fm_mans
 %{_prefix}/lib/opa-fm/bin/*
 %{_prefix}/lib/opa-fm/etc/*
 %{_prefix}/lib/opa-fm/runtime/*
+%{_prefix}/lib/opa-fm/samples/*
 %{_sbindir}/opafmcmd
 %{_sbindir}/opafmcmdall
 %{_localstatedir}/usr/lib/opa-fm/
@@ -122,6 +81,12 @@ cp -t %{buildroot}%{_mandir}/man8 %fm_mans
 
 
 %changelog
+* Fri Mar 17 2017 Honggang Li <honli@redhat.com> - 10.3.1.0-8
+- Rebase to upstream branch v10_3_1 as required.
+- Clean up change log.
+- Apply Epoch tag.
+- Resolves: bz1257452, bz1382792
+
 * Sun Jul 10 2016 Honggang Li <honli@redhat.com> - 10.1.0.0-145
 - Rebase to latest upstream release.
 - Related: bz1273151

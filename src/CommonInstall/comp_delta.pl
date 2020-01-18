@@ -90,22 +90,9 @@ my @delta_components_other = (
 				"delta_debug",		# must be last real component
 );
 
-my @delta_components_rhel72 = (
-				"opa_stack", 		# Kernel drivers.
-				"ibacm", 		# OFA IB communication manager assistant.
-				"intel_hfi", 		# HFI drivers
-				"delta_ipoib", 		# ipoib module.
-				"mpi_selector",
-				"mvapich2",
-				"openmpi",
-				"gasnet",
-				"openshmem",
-				"opa_stack_dev", 	# dev libraries.
-				"delta_mpisrc", 	# Source bundle for MPIs.
-				"mpiRest",			# PGI, Intel mpi variants.
-				"hfi1_uefi",
-				"delta_debug",		# must be last real component
-);
+my @delta_components_rhel72 = ( @delta_components_other );
+
+my @delta_components_rhel67 = ( @delta_components_other );
 
 my @delta_components_rhel70 = (
 				"opa_stack", 		# Kernel drivers.
@@ -120,6 +107,56 @@ my @delta_components_rhel70 = (
 				"opa_stack_dev", 	# dev libraries.
 				"delta_mpisrc", 	# Source bundle for MPIs.
 				"mpiRest",			# PGI, Intel mpi variants.
+				"delta_debug",		# must be last real component
+);
+
+my @delta_components_sles = ( @delta_components_other );
+
+my @delta_components_rhel70 = (
+				"opa_stack", 		# Kernel drivers.
+				"ibacm", 		# OFA IB communication manager assistant.
+				"intel_hfi", 		# HFI drivers
+				"delta_ipoib", 		# ipoib module.
+				"mpi_selector",
+				"mvapich2",
+				"openmpi",
+				"gasnet",
+				"openshmem",
+				"opa_stack_dev", 	# dev libraries.
+				"delta_mpisrc", 	# Source bundle for MPIs.
+				"mpiRest",			# PGI, Intel mpi variants.
+				"delta_debug",		# must be last real component
+);
+
+my @delta_components_sles12_sp2 = (
+				"opa_stack", 		# Kernel drivers.
+				"intel_hfi", 		# HFI drivers
+				"delta_ipoib", 		# ipoib module.
+				"mpi_selector",
+				"mvapich2",
+				"openmpi",
+				"gasnet",
+				"openshmem",
+				"opa_stack_dev", 	# dev libraries.
+				"delta_mpisrc", 	# Source bundle for MPIs.
+				"mpiRest",			# PGI, Intel mpi variants.
+				"hfi1_uefi",
+				"delta_debug",		# must be last real component
+);
+
+my @delta_components_rhel73 = (
+				"opa_stack", 		# Kernel drivers.
+				"intel_hfi", 		# HFI drivers
+				"delta_ipoib", 		# ipoib module.
+				"mpi_selector",
+				"mvapich2",
+				"openmpi",
+				"gasnet",
+				"openshmem",
+				"opa_stack_dev", 	# dev libraries.
+				"delta_mpisrc", 	# Source bundle for MPIs.
+				"mpiRest",			# PGI, Intel mpi variants.
+				"hfi1_uefi",
 				"delta_debug",		# must be last real component
 );
 
@@ -149,7 +186,278 @@ my @delta_components = ( );
 #					startup of this component (set to yes/no values)
 #
 # Note KernelRpms are always installed before UserRpms
-my %delta_comp_info_other = (
+my %ibacm_comp_info = (
+	'ibacm' => {
+					KernelRpms => [ ],
+					UserRpms =>	  [ "ibacm", ],
+					DebugRpms =>  [ "ibacm-debuginfo" ],
+					Drivers => "", # none
+					StartupScript => "ibacm",
+					StartupParams => [ ]
+					},
+);
+
+my %intel_hfi_comp_info = (
+	'intel_hfi' => {
+					KernelRpms => [ ],
+					UserRpms =>	  [ "libhfi1", "libhfi1-static",
+							    "libpsm2", 
+							    "libpsm2-devel", "libpsm2-compat",
+							    "hfi1-diagtools-sw", "hfidiags", 
+							    "hfi1-firmware", "hfi1-firmware_debug" 
+					    ],
+					DebugRpms =>  [ "hfi1_debuginfo",
+							"hfi1-diagtools-sw-debuginfo",
+							"libpsm2-debuginfo", "libhfi1-debuginfo" 
+					    ],
+					Drivers => "",
+					StartupScript => "",
+					StartupParams => [  ],
+					},
+);
+
+my %intel_hfi_sles12_sp2_comp_info = (
+	'intel_hfi' => {
+					KernelRpms => [ ],
+					UserRpms =>	  [ "libpsm2", 
+							    "libpsm2-devel", "libpsm2-compat",
+							    "hfi1-diagtools-sw", "hfidiags", 
+							    "hfi1-firmware", "hfi1-firmware_debug" 
+					    ],
+					DebugRpms =>  [ "hfi1-diagtools-sw-debuginfo",
+							"libpsm2-debuginfo" 
+					    ],
+					Drivers => "",
+					StartupScript => "",
+					StartupParams => [  ],
+					},
+);
+
+my %intel_hfi_rhel73_comp_info = (
+	'intel_hfi' => {
+					KernelRpms => [ ],
+					UserRpms =>	  [ "libpsm2", 
+							    "libpsm2-devel", "libpsm2-compat",
+							    "hfi1-diagtools-sw", "hfidiags", 
+							    "hfi1-firmware", "hfi1-firmware_debug" 
+					    ],
+					DebugRpms =>  [ "hfi1-diagtools-sw-debuginfo",
+							"libpsm2-debuginfo" 
+					    ],
+					Drivers => "",
+					StartupScript => "",
+					StartupParams => [  ],
+					},
+);
+
+my %ib_wfr_lite_comp_info = (
+	'ib_wfr_lite' => {
+					KernelRpms => [ ],
+					UserRpms =>	  [ "ib_wfr_lite", ],
+					DebugRpms =>  [ "ib_wfr_lite-debuginfo", ],
+					Drivers => "",
+					StartupScript => "",
+					StartupParams => [  ],
+					},
+);
+
+my %delta_ipoib_comp_info = (
+	'delta_ipoib' => {
+					KernelRpms => [ ],
+					UserRpms =>	  [ ],
+					DebugRpms =>  [ ],
+					Drivers => "",
+					StartupScript => "",
+					StartupParams => [ "IPOIB_LOAD" ],
+					},
+);
+
+my %mpi_selector_comp_info = (
+	'mpi_selector' => {
+					KernelRpms => [ ],
+					UserRpms =>	  [ "mpi-selector" ],
+					DebugRpms =>  [ ],
+					Drivers => "", # none
+					StartupScript => "",
+					StartupParams => [ ],
+					},
+);
+
+my %mvapich2_comp_info = (
+	'mvapich2' => {
+					KernelRpms => [ ],
+					UserRpms =>	  [ "mvapich2_gcc", "mpitests_mvapich2_gcc", ],
+					DebugRpms =>  [ ],
+					Drivers => "", # none
+					StartupScript => "",
+					StartupParams => [ ],
+					},
+);
+
+my %openmpi_comp_info = (
+	'openmpi' => {
+					KernelRpms => [ ],
+					UserRpms =>	  [ "openmpi_gcc", "mpitests_openmpi_gcc" ],
+					DebugRpms =>  [ ],
+					Drivers => "", # none
+					StartupScript => "",
+					StartupParams => [ ],
+					},
+);
+
+my %gasnet_comp_info = (
+	'gasnet' => {
+					KernelRpms => [ ],
+					UserRpms =>	  [ "gasnet_gcc_hfi", "gasnet_gcc_hfi-devel" , "gasnet_gcc_hfi-tests" ],
+					DebugRpms =>  [ "gasnet_gcc_hfi-debuginfo" ],
+					Drivers => "", # none
+					StartupScript => "",
+					StartupParams => [ ],
+					},
+);
+
+my %openshmem_comp_info = (
+	'openshmem' => {
+					KernelRpms => [ ],
+					UserRpms =>	  [ "openshmem_gcc_hfi", "openshmem-test-suite_gcc_hfi", "shmem-benchmarks_gcc_hfi"  ],
+					DebugRpms =>  [ "openshmem_gcc_hfi-debuginfo", "openshmem-test-suite_gcc_hfi-debuginfo",
+							"shmem-benchmarks_gcc_hfi-debuginfo" ],
+					Drivers => "", # none
+					StartupScript => "",
+					StartupParams => [ ],
+					},
+);
+
+my %opa_stack_dev_comp_info = (
+	'opa_stack_dev' => {
+					KernelRpms => [ "" ],
+					UserRpms =>	  [ "compat-rdma-devel", "ibacm-devel",
+							    "libibumad-devel", "libibumad-static",
+							    "libibmad-devel", "libibmad-static"
+								  ],
+					DebugRpms =>  [  ],
+					Drivers => "", 	# none
+					StartupScript => "",
+					StartupParams => [ ],
+					},
+);
+
+my %opa_stack_dev_rhel70_comp_info = (
+        'opa_stack_dev' => {
+                                        KernelRpms => [ "" ],
+                                        UserRpms =>       [ "compat-rdma-devel", "ibacm-devel",
+                                                            "libibumad-devel", "libibumad-static",
+                                                                  ],
+                                        DebugRpms =>  [  ],
+                                        Drivers => "",  # none
+                                        StartupScript => "",
+                                        StartupParams => [ ],
+                                        },
+);
+
+my %opa_stack_dev_rhel67_comp_info = (
+	'opa_stack_dev' => {
+					KernelRpms => [ "ifs-kernel-updates-devel" ],
+					UserRpms =>	  [ "ibacm-devel",
+						            "libibumad-devel", "libibumad-static"
+								  ],
+					DebugRpms =>  [  ],
+					Drivers => "", 	# none
+					StartupScript => "",
+					StartupParams => [ ],
+					},
+);
+
+my %opa_stack_dev_rhel72_comp_info = (
+	'opa_stack_dev' => {
+					KernelRpms => [ ],
+					UserRpms =>  [ "ifs-kernel-updates-devel", "ibacm-devel" ],
+					DebugRpms =>  [  ],
+					Drivers => "", 	# none
+					StartupScript => "",
+					StartupParams => [ ],
+					},
+);
+
+my %opa_stack_dev_sles12_sp2_comp_info = (
+	'opa_stack_dev' => {
+					KernelRpms => [ ],
+					UserRpms =>  [ "ifs-kernel-updates-devel" ],
+					DebugRpms =>  [  ],
+					Drivers => "", 	# none
+					StartupScript => "",
+					StartupParams => [ ],
+					},
+);
+
+my %opa_stack_dev_rhel73_comp_info = (
+	'opa_stack_dev' => {
+					KernelRpms => [ ],
+					UserRpms =>  [  ],
+					DebugRpms =>  [  ],
+					Drivers => "", 	# none
+					StartupScript => "",
+					StartupParams => [ ],
+					},
+);
+
+my %delta_mpisrc_comp_info = (
+	'delta_mpisrc' => {	# nothing to build, just copies srpms
+					KernelRpms => [ ],
+					UserRpms =>	  [ ],
+					DebugRpms =>  [ ],
+					Drivers => "", # none
+					StartupScript => "",
+					StartupParams => [ ],
+					},
+);
+
+my %mpiRest_comp_info = (
+	'mpiRest' => {	# rest of MPI stuff which customer can build via do_build
+					# this is included here so we can uninstall
+					KernelRpms => [ ],
+					UserRpms =>	  [
+									"mvapich2_pgi",
+									"mvapich2_intel", "mvapich2_pathscale",
+									"openmpi_pgi",
+									"openmpi_intel", "openmpi_pathscale",
+									"mpitests_mvapich2_pgi",
+									"mpitests_mvapich2_intel",
+									"mpitests_mvapich2_pathscale",
+									"mpitests_openmpi_pgi",
+									"mpitests_openmpi_intel",
+									"mpitests_openmpi_pathscale",
+								  ],
+					DebugRpms =>  [ ],
+					Drivers => "", # none
+					StartupScript => "",
+					StartupParams => [ ],
+					},
+);
+
+my %hfi1_uefi_comp_info = (
+	'hfi1_uefi' =>  {
+					KernelRpms => [ ],
+					UserRpms =>   [ "hfi1-uefi" ],
+					DebugRpms =>  [ ],
+					Drivers => "", # none
+					StartupScript => "",
+					StartupParams => [ ],
+					},
+);
+
+my %delta_debug_comp_info = (
+	'delta_debug' => {
+					KernelRpms => [ ],
+					UserRpms =>	  [ ],
+					DebugRpms =>  [ ],	# listed by comp above
+					Drivers => "", # none
+					StartupScript => "",
+					StartupParams => [ ],
+					},
+);
+
+my %opa_stack_other_comp_info = (
 	'opa_stack' => {
 					KernelRpms => [ "compat-rdma" ], # special case
 					UserRpms =>	  [ "opa-scripts",
@@ -165,293 +473,11 @@ my %delta_comp_info_other = (
 					StartupScript => "opa",
 					StartupParams => [ "ARPTABLE_TUNING" ],
 					},
-	'ibacm' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "ibacm", ],
-					DebugRpms =>  [ "ibacm-debuginfo" ],
-					Drivers => "", # none
-					StartupScript => "ibacm",
-					StartupParams => [ ],
-					},
-	'intel_hfi' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "libhfi1verbs", "libhfi1verbs-devel",
-							    "hfi1-psm", 
-							    "hfi1-psm-devel", "hfi1-psm-compat",
-							    "hfi1-diagtools-sw", "hfidiags", 
-							    "hfi1-firmware", "hfi1-firmware_debug" 
-					    ],
-					DebugRpms =>  [ "hfi1_debuginfo",
-							"hfi1-diagtools-sw-debuginfo",
-							"hfi1-psm-debuginfo", "libhfi1verbs-debuginfo" 
-					    ],
-					Drivers => "",
-					StartupScript => "",
-					StartupParams => [  ],
-					},
-	'ib_wfr_lite' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "ib_wfr_lite", ],
-					DebugRpms =>  [ "ib_wfr_lite-debuginfo", ],
-					Drivers => "",
-					StartupScript => "",
-					StartupParams => [  ],
-			      },
-	'delta_ipoib' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ ],
-					DebugRpms =>  [ ],
-					Drivers => "",
-					StartupScript => "",
-					StartupParams => [ "IPOIB_LOAD" ],
-					},
-	'mpi_selector' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "mpi-selector" ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'mvapich2' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "mvapich2_gcc", "mpitests_mvapich2_gcc", ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'openmpi' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "openmpi_gcc", "mpitests_openmpi_gcc" ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'gasnet' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "gasnet_gcc_hfi", "gasnet_gcc_hfi-devel" , "gasnet_gcc_hfi-tests" ],
-					DebugRpms =>  [ "gasnet_gcc_hfi-debuginfo" ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'openshmem' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "openshmem_gcc_hfi", "openshmem-test-suite_gcc_hfi", "shmem-benchmarks_gcc_hfi"  ],
-					DebugRpms =>  [ "openshmem_gcc_hfi-debuginfo", "openshmem-test-suite_gcc_hfi-debuginfo",
-							"shmem-benchmarks_gcc_hfi-debuginfo" ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'opa_stack_dev' => {
-					KernelRpms => [ "" ],
-					UserRpms =>	  [ "compat-rdma-devel", "ibacm-devel",
-						            "libibumad-devel", "libibumad-static"
-								  ],
-					DebugRpms =>  [  ],
-					Drivers => "", 	# none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'delta_mpisrc' => {	# nothing to build, just copies srpms
-					KernelRpms => [ ],
-					UserRpms =>	  [ ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'mpiRest' => {	# rest of MPI stuff which customer can build via do_build
-					# this is included here so we can uninstall
-					KernelRpms => [ ],
-					UserRpms =>	  [
-									"mvapich2_pgi",
-									"mvapich2_intel", "mvapich2_pathscale",
-									"openmpi_pgi",
-									"openmpi_intel", "openmpi_pathscale",
-									"mpitests_mvapich2_pgi",
-									"mpitests_mvapich2_intel",
-									"mpitests_mvapich2_pathscale",
-									"mpitests_openmpi_pgi",
-									"mpitests_openmpi_intel",
-									"mpitests_openmpi_pathscale",
-								  ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'hfi1_uefi' =>  {
-					KernelRpms => [ ],
-					UserRpms =>   [ "hfi1-uefi" ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'delta_debug' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ ],
-					DebugRpms =>  [ ],	# listed by comp above
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
 );
 
-my %delta_comp_info_rhel72 = (
+my %opa_stack_rhel67_comp_info = (
 	'opa_stack' => {
-					KernelRpms => [ "ifs-kernel-updates", "hfi1" ], # special case
-					UserRpms =>	  [ "opa-scripts",
-								"srptools",
-								  ],
-					DebugRpms =>  [ "srptools-debuginfo",
-								  ],
-					Drivers => "",
-					StartupScript => "opa",
-					StartupParams => [ "ARPTABLE_TUNING" ],
-					},
-	'ibacm' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "ibacm", ],
-					DebugRpms =>  [ "ibacm-debuginfo" ],
-					Drivers => "", # none
-					StartupScript => "ibacm",
-					StartupParams => [ ],
-					},
-	'intel_hfi' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "libhfi1verbs", "libhfi1verbs-devel",
-							    "hfi1-psm",
-							    "hfi1-psm-devel", "hfi1-psm-compat",
-							    "hfi1-diagtools-sw", "hfidiags", 
-							    "hfi1-firmware", "hfi1-firmware_debug"
-					    ],
-					DebugRpms =>  [ "hfi1_debuginfo",
-							"hfi1-diagtools-sw-debuginfo",
-							"hfi1-psm-debuginfo", "libhfi1verbs-debuginfo"
-					    ],
-					Drivers => "",
-					StartupScript => "",
-					StartupParams => [  ],
-					},
-	'ib_wfr_lite' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "ib_wfr_lite", ],
-					DebugRpms =>  [ "ib_wfr_lite-debuginfo", ],
-					Drivers => "",
-					StartupScript => "",
-					StartupParams => [  ],
-			      },
-	'delta_ipoib' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ ],
-					DebugRpms =>  [ ],
-					Drivers => "",
-					StartupScript => "",
-					StartupParams => [ "IPOIB_LOAD" ],
-					},
-	'mpi_selector' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "mpi-selector" ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'mvapich2' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "mvapich2_gcc", "mpitests_mvapich2_gcc", ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'openmpi' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "openmpi_gcc", "mpitests_openmpi_gcc" ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'gasnet' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "gasnet_gcc_hfi", "gasnet_gcc_hfi-devel" , "gasnet_gcc_hfi-tests" ],
-					DebugRpms =>  [ "gasnet_gcc_hfi-debuginfo" ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'openshmem' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "openshmem_gcc_hfi", "openshmem-test-suite_gcc_hfi", "shmem-benchmarks_gcc_hfi"  ],
-					DebugRpms =>  [ "openshmem_gcc_hfi-debuginfo", "openshmem-test-suite_gcc_hfi-debuginfo",
-							"shmem-benchmarks_gcc_hfi-debuginfo" ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'opa_stack_dev' => {
-					KernelRpms => [ "hfi1-devel" ],
-					UserRpms =>  [ "ibacm-devel" ],
-					DebugRpms =>  [  ],
-					Drivers => "", 	# none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'delta_mpisrc' => {	# nothing to build, just copies srpms
-					KernelRpms => [ ],
-					UserRpms =>	  [ ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'mpiRest' => {	# rest of MPI stuff which customer can build via do_build
-					# this is included here so we can uninstall
-					KernelRpms => [ ],
-					UserRpms =>	  [
-									"mvapich2_pgi",
-									"mvapich2_intel", "mvapich2_pathscale",
-									"openmpi_pgi",
-									"openmpi_intel", "openmpi_pathscale",
-									"mpitests_mvapich2_pgi",
-									"mpitests_mvapich2_intel",
-									"mpitests_mvapich2_pathscale",
-									"mpitests_openmpi_pgi",
-									"mpitests_openmpi_intel",
-									"mpitests_openmpi_pathscale",
-								  ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'hfi1_uefi' =>  {
-					KernelRpms => [ ],
-					UserRpms =>   [ "hfi1-uefi" ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'delta_debug' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ ],
-					DebugRpms =>  [ ],	# listed by comp above
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-);
-
-my %delta_comp_info_rhel70 = (
-	'opa_stack' => {
-					KernelRpms => [ "compat-rdma", "ifs-kernel-updates", "hfi1" ], # special case
+					KernelRpms => [ "ifs-kernel-updates" ], # special case
 					UserRpms =>	  [ "opa-scripts",
 								"libibumad",
 								"srptools",
@@ -465,135 +491,199 @@ my %delta_comp_info_rhel70 = (
 					StartupScript => "opa",
 					StartupParams => [ "ARPTABLE_TUNING" ],
 					},
-	'ibacm' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "ibacm", ],
-					DebugRpms =>  [ "ibacm-debuginfo" ],
-					Drivers => "", # none
-					StartupScript => "ibacm",
-					StartupParams => [ ],
-					},
-	'intel_hfi' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "libhfi1verbs", "libhfi1verbs-devel",
-							    "hfi1-psm", 
-							    "hfi1-psm-devel", "hfi1-psm-compat",
-							    "hfi1-diagtools-sw", "hfidiags", 
-							    "hfi1-firmware", "hfi1-firmware_debug" 
-					    ],
-					DebugRpms =>  [ "hfi1_debuginfo",
-							"hfi1-diagtools-sw-debuginfo",
-							"hfi1-psm-debuginfo", "libhfi1verbs-debuginfo" 
-					    ],
-					Drivers => "",
-					StartupScript => "",
-					StartupParams => [  ],
-					},
-	'ib_wfr_lite' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "ib_wfr_lite", ],
-					DebugRpms =>  [ "ib_wfr_lite-debuginfo", ],
-					Drivers => "",
-					StartupScript => "",
-					StartupParams => [  ],
-			      },
-	'delta_ipoib' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ ],
-					DebugRpms =>  [ ],
-					Drivers => "",
-					StartupScript => "",
-					StartupParams => [ "IPOIB_LOAD" ],
-					},
-	'mpi_selector' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "mpi-selector" ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'mvapich2' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "mvapich2_gcc", "mpitests_mvapich2_gcc", ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'openmpi' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "openmpi_gcc", "mpitests_openmpi_gcc" ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'gasnet' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "gasnet_gcc_hfi", "gasnet_gcc_hfi-devel" , "gasnet_gcc_hfi-tests" ],
-					DebugRpms =>  [ "gasnet_gcc_hfi-debuginfo" ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'openshmem' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ "openshmem_gcc_hfi", "openshmem-test-suite_gcc_hfi", "shmem-benchmarks_gcc_hfi"  ],
-					DebugRpms =>  [ "openshmem_gcc_hfi-debuginfo", "openshmem-test-suite_gcc_hfi-debuginfo",
-							"shmem-benchmarks_gcc_hfi-debuginfo" ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'opa_stack_dev' => {
-					KernelRpms => [ "" ],
-					UserRpms =>	  [ "compat-rdma-devel", "ibacm-devel",
-						            "libibumad-devel", "libibumad-static"
+);
+
+my %opa_stack_rhel72_comp_info = (
+	'opa_stack' => {
+					KernelRpms => [ "kmod-ifs-kernel-updates" ], # special case
+					UserRpms =>	  [ "opa-scripts",
+								"srptools",
 								  ],
-					DebugRpms =>  [  ],
-					Drivers => "", 	# none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'delta_mpisrc' => {	# nothing to build, just copies srpms
-					KernelRpms => [ ],
-					UserRpms =>	  [ ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'mpiRest' => {	# rest of MPI stuff which customer can build via do_build
-					# this is included here so we can uninstall
-					KernelRpms => [ ],
-					UserRpms =>	  [
-									"mvapich2_pgi",
-									"mvapich2_intel", "mvapich2_pathscale",
-									"openmpi_pgi",
-									"openmpi_intel", "openmpi_pathscale",
-									"mpitests_mvapich2_pgi",
-									"mpitests_mvapich2_intel",
-									"mpitests_mvapich2_pathscale",
-									"mpitests_openmpi_pgi",
-									"mpitests_openmpi_intel",
-									"mpitests_openmpi_pathscale",
+					DebugRpms =>  [ "srptools-debuginfo",
 								  ],
-					DebugRpms =>  [ ],
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
-					},
-	'delta_debug' => {
-					KernelRpms => [ ],
-					UserRpms =>	  [ ],
-					DebugRpms =>  [ ],	# listed by comp above
-					Drivers => "", # none
-					StartupScript => "",
-					StartupParams => [ ],
+					Drivers => "",
+					StartupScript => "opa",
+					StartupParams => [ "ARPTABLE_TUNING" ],
 					},
 );
 
+my %opa_stack_rhel70_comp_info = (
+	'opa_stack' => {
+					KernelRpms => [ "compat-rdma" ], # special case
+					UserRpms =>	  [ "opa-scripts",
+								"libibumad",
+								"srptools",
+								"libibmad",
+								"infiniband-diags",
+								  ],
+					DebugRpms =>  [ "libibumad-debuginfo",
+									"srptools-debuginfo",
+								  ],
+					Drivers => "", 
+					StartupScript => "opa",
+					StartupParams => [ "ARPTABLE_TUNING" ],
+					},
+);
+
+my %opa_stack_sles_comp_info = (
+	'opa_stack' => {
+					KernelRpms => [ "compat-rdma" ], # special case
+					UserRpms =>	  [ "opa-scripts",
+								"libibumad3",
+								"srptools",
+								"libibmad5",
+								"infiniband-diags",
+								  ],
+					DebugRpms =>  [ ],
+					Drivers => "", 
+					StartupScript => "opa",
+					StartupParams => [ "ARPTABLE_TUNING" ],
+					},
+);
+
+my %opa_stack_sles12_sp2_comp_info = (
+	'opa_stack' => {
+					KernelRpms => [ "ifs-kernel-updates-kmp-default" ], # special case
+					UserRpms =>   [ "opa-scripts" ],
+					DebugRpms =>  [  ],
+					Drivers => "",
+					StartupScript => "opa",
+					StartupParams => [ "ARPTABLE_TUNING" ],
+					},
+);
+
+my %opa_stack_rhel73_comp_info = (
+	'opa_stack' => {
+					KernelRpms => [ "kmod-ifs-kernel-updates" ], # special case
+					UserRpms =>   [ "opa-scripts" ],
+					DebugRpms =>  [  ],
+					Drivers => "",
+					StartupScript => "opa",
+					StartupParams => [ "ARPTABLE_TUNING" ],
+					},
+);
+
+my %delta_comp_info_other = (
+	%opa_stack_other_comp_info,
+	%ibacm_comp_info,
+	%intel_hfi_comp_info,
+	%ib_wfr_lite_comp_info,
+	%delta_ipoib_comp_info,
+	%mpi_selector_comp_info,
+	%mvapich2_comp_info,
+	%openmpi_comp_info,
+	%gasnet_comp_info,
+	%openshmem_comp_info,
+	%opa_stack_dev_comp_info,
+	%delta_mpisrc_comp_info,
+	%mpiRest_comp_info,
+	%hfi1_uefi_comp_info,
+	%delta_debug_comp_info,
+);
+
+my %delta_comp_info_rhel67 = (
+	%opa_stack_rhel67_comp_info,
+	%ibacm_comp_info,
+	%intel_hfi_comp_info,
+	%ib_wfr_lite_comp_info,
+	%delta_ipoib_comp_info,
+	%mpi_selector_comp_info,
+	%mvapich2_comp_info,
+	%openmpi_comp_info,
+	%gasnet_comp_info,
+	%openshmem_comp_info,
+	%opa_stack_dev_rhel67_comp_info,
+	%delta_mpisrc_comp_info,
+	%mpiRest_comp_info,
+	%hfi1_uefi_comp_info,
+	%delta_debug_comp_info,
+);
+
+my %delta_comp_info_rhel72 = (
+	%opa_stack_rhel72_comp_info,
+	%ibacm_comp_info,
+	%intel_hfi_comp_info,
+	%ib_wfr_lite_comp_info,
+	%delta_ipoib_comp_info,
+	%mpi_selector_comp_info,
+	%mvapich2_comp_info,
+	%openmpi_comp_info,
+	%gasnet_comp_info,
+	%openshmem_comp_info,
+	%opa_stack_dev_rhel72_comp_info,
+	%delta_mpisrc_comp_info,
+	%mpiRest_comp_info,
+	%hfi1_uefi_comp_info,
+	%delta_debug_comp_info,
+);
+
+my %delta_comp_info_rhel70 = (
+	%opa_stack_rhel70_comp_info,
+	%ibacm_comp_info,
+	%intel_hfi_comp_info,
+	%ib_wfr_lite_comp_info,
+	%delta_ipoib_comp_info,
+	%mpi_selector_comp_info,
+	%mvapich2_comp_info,
+	%openmpi_comp_info,
+	%gasnet_comp_info,
+	%openshmem_comp_info,
+	%opa_stack_dev_rhel70_comp_info,
+	%delta_mpisrc_comp_info,
+	%mpiRest_comp_info,
+	%delta_debug_comp_info,
+);
+
+my %delta_comp_info_sles = (
+	%opa_stack_sles_comp_info,
+	%ibacm_comp_info,
+	%intel_hfi_comp_info,
+	%ib_wfr_lite_comp_info,
+	%delta_ipoib_comp_info,
+	%mpi_selector_comp_info,
+	%mvapich2_comp_info,
+	%openmpi_comp_info,
+	%gasnet_comp_info,
+	%openshmem_comp_info,
+	%opa_stack_dev_comp_info,
+	%delta_mpisrc_comp_info,
+	%mpiRest_comp_info,
+	%hfi1_uefi_comp_info,
+	%delta_debug_comp_info,
+);
+
+my %delta_comp_info_sles12_sp2 = (
+	%opa_stack_sles12_sp2_comp_info,
+	%intel_hfi_sles12_sp2_comp_info,
+	%ib_wfr_lite_comp_info,
+	%delta_ipoib_comp_info,
+	%mpi_selector_comp_info,
+	%mvapich2_comp_info,
+	%openmpi_comp_info,
+	%gasnet_comp_info,
+	%openshmem_comp_info,
+	%opa_stack_dev_sles12_sp2_comp_info,
+	%delta_mpisrc_comp_info,
+	%mpiRest_comp_info,
+	%hfi1_uefi_comp_info,
+	%delta_debug_comp_info,
+);
+
+my %delta_comp_info_rhel73 = (
+	%opa_stack_rhel73_comp_info,
+	%intel_hfi_rhel73_comp_info,
+	%ib_wfr_lite_comp_info,
+	%delta_ipoib_comp_info,
+	%mpi_selector_comp_info,
+	%mvapich2_comp_info,
+	%openmpi_comp_info,
+	%gasnet_comp_info,
+	%openshmem_comp_info,
+	%delta_mpisrc_comp_info,
+	%mpiRest_comp_info,
+	%hfi1_uefi_comp_info,
+	%delta_debug_comp_info,
+);
 
 my %delta_comp_info = ( );
 
@@ -609,32 +699,59 @@ my %delta_kernel_ib_options = (
 # all kernel srpms
 # these are in the order we must build/process them to meet basic dependencies
 my @delta_kernel_srpms_other = ( 'compat-rdma' );
-my @delta_kernel_srpms_rhel72 = ( 'ifs-kernel-updates', 'hfi1' );
-my @delta_kernel_srpms_rhel70 = ( 'ifs-kernel-updates', 'compat-rdma', 'hfi1' );
+my @delta_kernel_srpms_rhel72 = ( 'kmod-ifs-kernel-updates' );
+my @delta_kernel_srpms_rhel70 = ( 'compat-rdma' );
+my @delta_kernel_srpms_rhel67 = ( 'ifs-kernel-updates' );
+my @delta_kernel_srpms_sles = ( 'compat-rdma' );
+my @delta_kernel_srpms_sles12_sp2 = ( 'ifs-kernel-updates-kmp-default' );
+my @delta_kernel_srpms_rhel73 = ( 'kmod-ifs-kernel-updates' );
 my @delta_kernel_srpms = ( );
 
 # all user space srpms
 # these are in the order we must build/process them to meet basic dependencies
 my @delta_user_srpms_other = (
 		"opa-scripts", "libibumad", "ibacm", "mpi-selector",
-		"libhfi1verbs", "hfi1-psm", "hfi1-diagtools-sw", "hfidiags", "hfi1-firmware", "hfi1-firmware_debug",
+		"libhfi1", "libpsm2", "hfi1-diagtools-sw", "hfidiags", "hfi1-firmware", "hfi1-firmware_debug",
+ 		"mvapich2", "openmpi", "gasnet", "openshmem", "openshmem-test-suite",
+		"shmem-benchmarks", "srptools", "libibmad", "infiniband-diags", "hfi1_uefi"
+);
+my @delta_user_srpms_rhel67 = (
+		"opa-scripts", "libibumad", "ibacm", "mpi-selector",
+		"libhfi1", "libpsm2", "hfi1-diagtools-sw", "hfidiags", "hfi1-firmware", "hfi1-firmware_debug",
  		"mvapich2", "openmpi", "gasnet", "openshmem", "openshmem-test-suite",
 		"shmem-benchmarks", "srptools", "libibmad", "infiniband-diags", "hfi1_uefi"
 );
 my @delta_user_srpms_rhel72 = (
 		"opa-scripts", "mpi-selector", "ibacm",
-		"libhfi1verbs", "hfi1-psm", "hfi1-diagtools-sw", "hfidiags", "hfi1-firmware", "hfi1-firmware_debug",
+		"libhfi1", "libpsm2", "hfi1-diagtools-sw", "hfidiags", "hfi1-firmware", "hfi1-firmware_debug",
  		"mvapich2", "openmpi", "gasnet", "openshmem", "openshmem-test-suite",
 		"shmem-benchmarks", "srptools", "hfi1_uefi"
 );
 my @delta_user_srpms_rhel70 = (
 		"opa-scripts", "libibumad", "ibacm", "mpi-selector",
-		"libhfi1verbs", "hfi1-psm", "hfi1-diagtools-sw", "hfidiags", "hfi1-firmware", "hfi1-firmware_debug",
+		"libhfi1", "libpsm2", "hfi1-diagtools-sw", "hfidiags", "hfi1-firmware", "hfi1-firmware_debug",
  		"mvapich2", "openmpi", "gasnet", "openshmem", "openshmem-test-suite",
 		"shmem-benchmarks", "srptools", "libibmad", "infiniband-diags"
 );
+my @delta_user_srpms_sles = (
+		"opa-scripts", "libibumad3", "ibacm", "mpi-selector",
+		"libhfi1", "libpsm2", "hfi1-diagtools-sw", "hfidiags", "hfi1-firmware", "hfi1-firmware_debug",
+ 		"mvapich2", "openmpi", "gasnet", "openshmem", "openshmem-test-suite",
+		"shmem-benchmarks", "srptools", "libibmad5", "infiniband-diags", "hfi1_uefi"
+);
+my @delta_user_srpms_sles12_sp2 = (
+		"opa-scripts", "mpi-selector",
+		"libpsm2", "hfi1-diagtools-sw", "hfidiags", "hfi1-firmware", "hfi1-firmware_debug",
+ 		"mvapich2", "openmpi", "gasnet", "openshmem", "openshmem-test-suite",
+		"shmem-benchmarks", "hfi1_uefi"
+);
+my @delta_user_srpms_rhel73 = (
+		"opa-scripts", "mpi-selector",
+		"libpsm2", "hfi1-diagtools-sw", "hfidiags", "hfi1-firmware", "hfi1-firmware_debug",
+ 		"mvapich2", "openmpi", "gasnet", "openshmem", "openshmem-test-suite",
+		"shmem-benchmarks", "hfi1_uefi"
+);
 my @delta_user_srpms = ( );
-
 
 # rpms not presently automatically built
 my @delta_other_srpms = ( );
@@ -658,79 +775,124 @@ my @delta_srpms = ( );
 #				mode is optional, default is "any"
 #				Typically mode should be "user" for libraries
 #				See rpm_is_installed for more information about mode
-my %delta_srpm_info_other = (
+my %compat_rdma_srpm_info = (
 	"compat-rdma" =>        { Available => "",
 					Builds => "compat-rdma compat-rdma-devel",
 					PostReq => "compat-rdma compat-rdma-devel",
 					PartOf => "", # filled in at runtime
 					BuildPrereq => [],
 					},
-	"hfi1-psm" =>	{ Available => "",
-					  Builds => "hfi1-psm hfi1-psm-devel hfi1-psm-compat",
-					  PostReq => "hfi1-psm hfi1-psm-devel hfi1-psm-compat",
+);
+
+my %hfi1_psm_srpm_info = (
+	"libpsm2" =>	{ Available => "",
+					  Builds => "libpsm2 libpsm2-devel libpsm2-compat",
+					  PostReq => "libpsm2 libpsm2-devel libpsm2-compat",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [],
 					},
-	"libhfi1verbs" =>	{ Available => "",
-					  Builds => "libhfi1verbs libhfi1verbs-devel",
+);
+
+my %libhfi1_srpm_info = (
+	"libhfi1" =>	{ Available => "",
+					  Builds => "libhfi1 libhfi1-static",
 					  PostReq => "",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [],
 					},
+);
+
+my %hfi1_diagtools_sw_srpm_info = (
 	"hfi1-diagtools-sw" =>	{ Available => "",
 					  Builds => "hfi1-diagtools-sw hfi1-diagtools-sw-debuginfo",
 					  PostReq => "",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [ 'readline-devel', 'ncurses-devel', ],
 					},
+);
+
+my %hfidiags_srpm_info = (
 	"hfidiags" =>	{ Available => "",
 					  Builds => "hfidiags",
 					  PostReq => "",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [],
 					},
+);
+
+my %hfi1_firmware_srpm_info = (
 	"hfi1-firmware" =>	{ Available => "",
 					  Builds => "hfi1-firmware",
 					  PostReq => "",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [],
 					},
+);
+
+my %hfi1_firmware_debug_srpm_info = (
 	"hfi1-firmware_debug" =>	{ Available => "",
 					  Builds => "hfi1-firmware_debug",
 					  PostReq => "",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [],
 					},
+);
+
+my %ib_wfr_lite_srpm_info = (
 	"ib_wfr_lite" =>	{ Available => "",
 					  Builds => "ib_wfr_lite",
 					  PostReq => "",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [],
 					},
+);
+
+my %opa_scripts_srpm_info = (
 	"opa-scripts" => { Available => "",
 					  Builds => "opa-scripts",
 					  PostReq => "",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [],
 					},
+);
+
+my %libibumad_srpm_info = (
 	"libibumad" =>	{ Available => "",
 					  Builds => "libibumad libibumad-devel libibumad-static libibumad-debuginfo",
 					  PostReq => "libibumad libibumad-devel",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [ 'libtool any user' ],
 					},
+);
+
+my %libibumad3_srpm_info = (
+	"libibumad3" =>	{ Available => "",
+					  Builds => "libibumad3 libibumad-devel libibumad-static",
+					  PostReq => "libibumad3 libibumad-devel",
+					  PartOf => "", # filled in at runtime
+					  BuildPrereq => [ 'libtool any user' ],
+					},
+);
+
+my %ibacm_srpm_info = (
 	"ibacm" =>		{ Available => "",
 					  Builds => "ibacm ibacm-devel",
 					  PostReq => "",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [],
 					},
+);
+
+my %mpi_selector_srpm_info = (
 	"mpi-selector" => { Available => "",
 					  Builds => "mpi-selector",
 					  PostReq => "mpi-selector",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [ 'tcsh' ],
 					},
+);
+
+my %mvapich2_srpm_info = (
 	"mvapich2" =>	{ Available => "",
 						# mpitests are built by do_mvapich2_build
 		 			  Builds => " mvapich2_gcc mpitests_mvapich2_gcc",
@@ -742,9 +904,12 @@ my %delta_srpm_info_other = (
 					  				   'g77', 'libgfortran any user'
 								   	],
 					},
+);
+
+my %openmpi_srpm_info = (
 	"openmpi" =>	{ Available => "",
 						# mpitests are built by do_openmpi_build
-		 			  Builds => "openmpi_gcc_hfi mpitests_openmpi_gcc_hfi openmpi_gcc mpitests_openmpi_gcc",
+		 			  Builds => "openmpi_gcc mpitests_openmpi_gcc",
 		 			  PostReq => "",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [ 'libstdc++ any user',
@@ -753,43 +918,73 @@ my %delta_srpm_info_other = (
 									   'binutils'
 								   	],
 					},
+);
+
+my %gasnet_srpm_info = (
 	"gasnet" =>		{ Available => "",
 		 			  Builds => "gasnet_gcc_hfi gasnet_gcc_hfi-devel gasnet_gcc_hfi-tests",
 		 			  PostReq => "gasnet_gcc_hfi gasnet_gcc_hfi-devel",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [ ],
 					},
+);
+
+my %openshmem_srpm_info = (
 	"openshmem" =>	{ Available => "",
 		 			  Builds => "openshmem_gcc_hfi",
 		 			  PostReq => "openshmem_gcc_hfi",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [ ],
 					},
+);
+
+my %openshmem_test_suite_srpm_info = (
 	"openshmem-test-suite" =>	{ Available => "",
 					  Builds => "openshmem-test-suite_gcc_hfi",
 					  PostReq => "",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [],
 					},
+);
+
+my %shmem_benchmarks_srpm_info = (
 	"shmem-benchmarks" =>	{ Available => "",
 					  Builds => "shmem-benchmarks_gcc_hfi",
 					  PostReq => "",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [],
 					},
+);
+
+my %srptools_srpm_info = (
 	"srptools" =>	{ Available => "",
 					  Builds => "srptools srptools-debuginfo",
 					  PostReq => "",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [ 'libtool any user' ],
 					},
+);
+
+my %libibmad_srpm_info = (
 	"libibmad" =>  { Available => "",
 					  Builds => "libibmad libibmad-devel libibmad-static",
 					  PostReq => "libibmad libibmad-devel",
 					  PartOf => "", # filled in at runtime
 					  BuildPrereq => [ 'libtool any user' ],
 					},
-        "infiniband-diags" =>  { Available => "",
+);
+
+my %libibmad5_srpm_info = (
+	"libibmad5" =>  { Available => "",
+					  Builds => "libibmad5 libibmad-devel libibmad-static",
+					  PostReq => "libibmad5 libibmad-devel",
+					  PartOf => "", # filled in at runtime
+					  BuildPrereq => [ 'libtool any user' ],
+					},
+);
+
+my %infiniband_diags_srpm_info = (
+	"infiniband-diags" =>  { Available => "",
 					  Builds => "infiniband-diags infiniband-diags-compat",
 					  PostReq => "infiniband-diags",
 					  PartOf => "", # filled in at runtime
@@ -797,321 +992,205 @@ my %delta_srpm_info_other = (
 							   'glib2-devel any user',
 						  	 ],
 					},
+);
+
+my %hfi1_uefi_srpm_info = (
 	"hfi1_uefi" => { Available => "",
 					Builds => "hfi1-uefi",
 					PostReq => "",
 					PartOf => "",
 					BuildPrereq => [],
 					},
+);
+
+my %kmp_ifs_kernel_updates_srpm_info = (
+	"ifs-kernel-updates-kmp-default" =>        { Available => "",
+					Builds => "ifs-kernel-updates-kmp-default ifs-kernel-updates-devel",
+					PostReq => "ifs-kernel-updates-devel",
+					PartOf => "", # filled in at runtime
+					BuildPrereq => [],
+					},
+);
+
+my %kmod_ifs_kernel_updates_srpm_info = (
+	"kmod-ifs-kernel-updates" =>    { Available => "",
+					Builds => "kmod-ifs-kernel-updates ifs-kernel-updates-devel",
+					PostReq => "ifs-kernel-updates-devel",
+					PartOf => "", # filled in at runtime
+					BuildPrereq => [],
+					},
+);
+
+my %ifs_kernel_updates_rhel67_srpm_info = (
+        "ifs-kernel-updates" =>        { Available => "",
+                                        Builds => "ifs-kernel-updates ifs-kernel-updates-devel",
+                                        PostReq => "ifs-kernel-updates-devel",
+                                        PartOf => "", # filled in at runtime
+                                        BuildPrereq => [],
+                                        },
+);
+
+my %delta_srpm_info_other = (
+	%compat_rdma_srpm_info,
+	%hfi1_psm_srpm_info,
+	%libhfi1_srpm_info,
+	%hfi1_diagtools_sw_srpm_info,
+	%hfidiags_srpm_info,
+	%hfi1_firmware_srpm_info,
+	%hfi1_firmware_debug_srpm_info,
+	%ib_wfr_lite_srpm_info,
+	%opa_scripts_srpm_info,
+	%libibumad_srpm_info,
+	%ibacm_srpm_info,
+	%mpi_selector_srpm_info,
+	%mvapich2_srpm_info,
+	%openmpi_srpm_info,
+	%gasnet_srpm_info,
+	%openshmem_srpm_info,
+	%openshmem_test_suite_srpm_info,
+	%shmem_benchmarks_srpm_info,
+	%srptools_srpm_info,
+	%libibmad_srpm_info,
+	%infiniband_diags_srpm_info,
+	%hfi1_uefi_srpm_info,
+);
+
+my %delta_srpm_info_rhel67 = (
+	%ifs_kernel_updates_rhel67_srpm_info,
+	%hfi1_psm_srpm_info,
+	%libhfi1_srpm_info,
+	%hfi1_diagtools_sw_srpm_info,
+	%hfidiags_srpm_info,
+	%hfi1_firmware_srpm_info,
+	%hfi1_firmware_debug_srpm_info,
+	%ib_wfr_lite_srpm_info,
+	%opa_scripts_srpm_info,
+	%libibumad_srpm_info,
+	%ibacm_srpm_info,
+	%mpi_selector_srpm_info,
+	%mvapich2_srpm_info,
+	%openmpi_srpm_info,
+	%gasnet_srpm_info,
+	%openshmem_srpm_info,
+	%openshmem_test_suite_srpm_info,
+	%shmem_benchmarks_srpm_info,
+	%srptools_srpm_info,
+	%libibmad_srpm_info,
+	%infiniband_diags_srpm_info,
+	%hfi1_uefi_srpm_info,
 );
 
 my %delta_srpm_info_rhel72 = (
-	"hfi1" =>	{ Available => "",
-					  Builds => "hfi1 hfi1-devel",
-					  PostReq => "hfi1 hfi1-devel",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"ifs-kernel-updates" =>        { Available => "",
-					Builds => "ifs-kernel-updates",
-					PostReq => "",
-					PartOf => "", # filled in at runtime
-					BuildPrereq => [],
-					},
-	"hfi1-psm" =>	{ Available => "",
-					  Builds => "hfi1-psm hfi1-psm-devel hfi1-psm-compat",
-					  PostReq => "hfi1-psm hfi1-psm-devel hfi1-psm-compat",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"libhfi1verbs" =>	{ Available => "",
-					  Builds => "libhfi1verbs libhfi1verbs-devel",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"hfi1-diagtools-sw" =>	{ Available => "",
-					  Builds => "hfi1-diagtools-sw hfi1-diagtools-sw-debuginfo",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'readline-devel', 'ncurses-devel', ],
-					},
-	"hfidiags" =>	{ Available => "",
-					  Builds => "hfidiags",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"hfi1-firmware" =>	{ Available => "",
-					  Builds => "hfi1-firmware",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"hfi1-firmware_debug" =>	{ Available => "",
-					  Builds => "hfi1-firmware_debug",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"ib_wfr_lite" =>	{ Available => "",
-					  Builds => "ib_wfr_lite",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"opa-scripts" => { Available => "",
-					  Builds => "opa-scripts",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"libibumad" =>	{ Available => "",
-					  Builds => "libibumad libibumad-devel libibumad-static libibumad-debuginfo",
-					  PostReq => "libibumad libibumad-devel",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'libtool any user' ],
-					},
-	"ibacm" =>		{ Available => "",
-					  Builds => "ibacm ibacm-devel",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"mpi-selector" => { Available => "",
-					  Builds => "mpi-selector",
-					  PostReq => "mpi-selector",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'tcsh' ],
-					},
-	"mvapich2" =>	{ Available => "",
-						# mpitests are built by do_mvapich2_build
-		 			  Builds => " mvapich2_gcc mpitests_mvapich2_gcc",
-		 			  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'libstdc++ any user',
-					  				   'libstdc++-devel any user',
-									   'sysfsutils any user',
-					  				   'g77', 'libgfortran any user'
-								   	],
-					},
-	"openmpi" =>	{ Available => "",
-						# mpitests are built by do_openmpi_build
-		 			  Builds => "openmpi_gcc_hfi mpitests_openmpi_gcc_hfi openmpi_gcc mpitests_openmpi_gcc",
-		 			  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'libstdc++ any user',
-					  				   'libstdc++-devel any user',
-					  				   'g77', 'libgfortran any user',
-									   'binutils'
-								   	],
-					},
-	"gasnet" =>		{ Available => "",
-		 			  Builds => "gasnet_gcc_hfi gasnet_gcc_hfi-devel gasnet_gcc_hfi-tests",
-		 			  PostReq => "gasnet_gcc_hfi gasnet_gcc_hfi-devel",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ ],
-					},
-	"openshmem" =>	{ Available => "",
-		 			  Builds => "openshmem_gcc_hfi",
-		 			  PostReq => "openshmem_gcc_hfi",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ ],
-					},
-	"openshmem-test-suite" =>	{ Available => "",
-					  Builds => "openshmem-test-suite_gcc_hfi",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"shmem-benchmarks" =>	{ Available => "",
-					  Builds => "shmem-benchmarks_gcc_hfi",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"srptools" =>	{ Available => "",
-					  Builds => "srptools srptools-debuginfo",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'libtool any user' ],
-					},
-	"libibmad" =>  { Available => "",
-					  Builds => "libibmad libibmad-devel libibmad-static",
-					  PostReq => "libibmad libibmad-devel",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'libtool any user' ],
-					},
-    "infiniband-diags" =>  { Available => "",
-					  Builds => "infiniband-diags infiniband-diags-compat",
-					  PostReq => "infiniband-diags",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'opensm-devel any user',
-							   'glib2-devel any user',
-						  	 ],
-					},
-	"hfi1_uefi" => { Available => "",
-					Builds => "hfi1-uefi",
-					PostReq => "",
-					PartOf => "",
-					BuildPrereq => [],
-					},
+	%kmod_ifs_kernel_updates_srpm_info,
+	%hfi1_psm_srpm_info,
+	%libhfi1_srpm_info,
+	%hfi1_diagtools_sw_srpm_info,
+	%hfidiags_srpm_info,
+	%hfi1_firmware_srpm_info,
+	%hfi1_firmware_debug_srpm_info,
+	%ib_wfr_lite_srpm_info,
+	%opa_scripts_srpm_info,
+	%libibumad_srpm_info,
+	%ibacm_srpm_info,
+	%mpi_selector_srpm_info,
+	%mvapich2_srpm_info,
+	%openmpi_srpm_info,
+	%gasnet_srpm_info,
+	%openshmem_srpm_info,
+	%openshmem_test_suite_srpm_info,
+	%shmem_benchmarks_srpm_info,
+	%srptools_srpm_info,
+	%libibmad_srpm_info,
+	%infiniband_diags_srpm_info,
+	%hfi1_uefi_srpm_info,
 );
 
 my %delta_srpm_info_rhel70 = (
-	"compat-rdma" =>        { Available => "",
-					Builds => "compat-rdma compat-rdma-devel",
-					PostReq => "compat-rdma compat-rdma-devel",
-					PartOf => "", # filled in at runtime
-					BuildPrereq => [],
-					},
-	"ifs-kernel-updates" =>        { Available => "",
-					Builds => "ifs-kernel-updates ifs-kernel-updates-devel ifs-kernel-updates-scripts",
-					PostReq => "ifs-kernel-updates ifs-kernel-updates-devel ifs-kernel-updates-scripts",
-					PartOf => "", # filled in at runtime
-					BuildPrereq => [],
-					},
-	"hfi1" =>        { Available => "",
-					Builds => "hfi1 hfi1-devel",
-					PostReq => "hfi1-devel",
-					PartOf => "", # filled in at runtime
-					BuildPrereq => [],
-					},
-	"hfi1-psm" =>	{ Available => "",
-					  Builds => "hfi1-psm hfi1-psm-devel hfi1-psm-compat",
-					  PostReq => "hfi1-psm hfi1-psm-devel hfi1-psm-compat",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"libhfi1verbs" =>	{ Available => "",
-					  Builds => "libhfi1verbs libhfi1verbs-devel",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"hfi1-diagtools-sw" =>	{ Available => "",
-					  Builds => "hfi1-diagtools-sw hfi1-diagtools-sw-debuginfo",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'readline-devel', 'ncurses-devel', ],
-					},
-	"hfidiags" =>	{ Available => "",
-					  Builds => "hfidiags",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"hfi1-firmware" =>	{ Available => "",
-					  Builds => "hfi1-firmware",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"hfi1-firmware_debug" =>	{ Available => "",
-					  Builds => "hfi1-firmware_debug",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"ib_wfr_lite" =>	{ Available => "",
-					  Builds => "ib_wfr_lite",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"opa-scripts" => { Available => "",
-					  Builds => "opa-scripts",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"libibumad" =>	{ Available => "",
-					  Builds => "libibumad libibumad-devel libibumad-static libibumad-debuginfo",
-					  PostReq => "libibumad libibumad-devel",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'libtool any user' ],
-					},
-	"ibacm" =>		{ Available => "",
-					  Builds => "ibacm ibacm-devel",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"mpi-selector" => { Available => "",
-					  Builds => "mpi-selector",
-					  PostReq => "mpi-selector",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'tcsh' ],
-					},
-	"mvapich2" =>	{ Available => "",
-						# mpitests are built by do_mvapich2_build
-		 			  Builds => " mvapich2_gcc mpitests_mvapich2_gcc",
-		 			  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'libstdc++ any user',
-					  				   'libstdc++-devel any user',
-									   'sysfsutils any user',
-					  				   'g77', 'libgfortran any user'
-								   	],
-					},
-	"openmpi" =>	{ Available => "",
-						# mpitests are built by do_openmpi_build
-		 			  Builds => "openmpi_gcc_hfi mpitests_openmpi_gcc_hfi openmpi_gcc mpitests_openmpi_gcc",
-		 			  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'libstdc++ any user',
-					  				   'libstdc++-devel any user',
-					  				   'g77', 'libgfortran any user',
-									   'binutils'
-								   	],
-					},
-	"gasnet" =>		{ Available => "",
-		 			  Builds => "gasnet_gcc_hfi gasnet_gcc_hfi-devel gasnet_gcc_hfi-tests",
-		 			  PostReq => "gasnet_gcc_hfi gasnet_gcc_hfi-devel",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ ],
-					},
-	"openshmem" =>	{ Available => "",
-		 			  Builds => "openshmem_gcc_hfi",
-		 			  PostReq => "openshmem_gcc_hfi",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ ],
-					},
-	"openshmem-test-suite" =>	{ Available => "",
-					  Builds => "openshmem-test-suite_gcc_hfi",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"shmem-benchmarks" =>	{ Available => "",
-					  Builds => "shmem-benchmarks_gcc_hfi",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [],
-					},
-	"srptools" =>	{ Available => "",
-					  Builds => "srptools srptools-debuginfo",
-					  PostReq => "",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'libtool any user' ],
-					},
-	"libibmad" =>  { Available => "",
-					  Builds => "libibmad libibmad-devel libibmad-static",
-					  PostReq => "libibmad libibmad-devel",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'libtool any user' ],
-					},
-        "infiniband-diags" =>  { Available => "",
-					  Builds => "infiniband-diags infiniband-diags-compat",
-					  PostReq => "infiniband-diags",
-					  PartOf => "", # filled in at runtime
-					  BuildPrereq => [ 'opensm-devel any user',
-							   'glib2-devel any user',
-						  	 ],
-					},
-
+	%compat_rdma_srpm_info,
+	%hfi1_psm_srpm_info,
+	%libhfi1_srpm_info,
+	%hfi1_diagtools_sw_srpm_info,
+	%hfidiags_srpm_info,
+	%hfi1_firmware_srpm_info,
+	%hfi1_firmware_debug_srpm_info,
+	%ib_wfr_lite_srpm_info,
+	%opa_scripts_srpm_info,
+	%libibumad_srpm_info,
+	%ibacm_srpm_info,
+	%mpi_selector_srpm_info,
+	%mvapich2_srpm_info,
+	%openmpi_srpm_info,
+	%gasnet_srpm_info,
+	%openshmem_srpm_info,
+	%openshmem_test_suite_srpm_info,
+	%shmem_benchmarks_srpm_info,
+	%srptools_srpm_info,
+#	%libibmad_srpm_info,
+#	%infiniband_diags_srpm_info,
 );
 
+my %delta_srpm_info_sles = (
+	%compat_rdma_srpm_info,
+	%hfi1_psm_srpm_info,
+	%libhfi1_srpm_info,
+	%hfi1_diagtools_sw_srpm_info,
+	%hfidiags_srpm_info,
+	%hfi1_firmware_srpm_info,
+	%hfi1_firmware_debug_srpm_info,
+	%ib_wfr_lite_srpm_info,
+	%opa_scripts_srpm_info,
+	%libibumad3_srpm_info,
+	%ibacm_srpm_info,
+	%mpi_selector_srpm_info,
+	%mvapich2_srpm_info,
+	%openmpi_srpm_info,
+	%gasnet_srpm_info,
+	%openshmem_srpm_info,
+	%openshmem_test_suite_srpm_info,
+	%shmem_benchmarks_srpm_info,
+	%srptools_srpm_info,
+	%libibmad5_srpm_info,
+	%infiniband_diags_srpm_info,
+	%hfi1_uefi_srpm_info,
+);
+
+my %delta_srpm_info_sles12_sp2 = (
+	%kmp_ifs_kernel_updates_srpm_info,
+	%hfi1_psm_srpm_info,
+	%hfi1_diagtools_sw_srpm_info,
+	%hfidiags_srpm_info,
+	%hfi1_firmware_srpm_info,
+	%hfi1_firmware_debug_srpm_info,
+	%opa_scripts_srpm_info,
+	%mpi_selector_srpm_info,
+	%mvapich2_srpm_info,
+	%openmpi_srpm_info,
+	%gasnet_srpm_info,
+	%openshmem_srpm_info,
+	%openshmem_test_suite_srpm_info,
+	%shmem_benchmarks_srpm_info,
+	%infiniband_diags_srpm_info,
+	%hfi1_uefi_srpm_info,
+);
+
+my %delta_srpm_info_rhel73 = (
+	%kmod_ifs_kernel_updates_srpm_info,
+	%hfi1_psm_srpm_info,
+	%hfi1_diagtools_sw_srpm_info,
+	%hfidiags_srpm_info,
+	%hfi1_firmware_srpm_info,
+	%hfi1_firmware_debug_srpm_info,
+	%opa_scripts_srpm_info,
+	%mpi_selector_srpm_info,
+	%mvapich2_srpm_info,
+	%openmpi_srpm_info,
+	%gasnet_srpm_info,
+	%openshmem_srpm_info,
+	%openshmem_test_suite_srpm_info,
+	%shmem_benchmarks_srpm_info,
+	%infiniband_diags_srpm_info,
+	%hfi1_uefi_srpm_info,
+);
 
 my %delta_srpm_info = ( );
 
@@ -1155,18 +1234,44 @@ sub init_delta_rpm_info($)
 	%delta_rpm_info = ();	# start fresh
 
 	# filter components by distro
-	if ( "$CUR_VENDOR_VER" eq "ES72" ) {
+	if ("$CUR_DISTRO_VENDOR" eq 'SuSE'
+		&& ("$CUR_VENDOR_VER" eq 'ES12' || "$CUR_VENDOR_VER" eq 'ES121')) {
+		@delta_components = ( @delta_components_sles );
+		%delta_comp_info = ( %delta_comp_info_sles );
+		@delta_kernel_srpms = ( @delta_kernel_srpms_sles );
+		@delta_user_srpms = ( @delta_user_srpms_sles );
+		%delta_srpm_info = ( %delta_srpm_info_sles );
+	} elsif ("$CUR_DISTRO_VENDOR" eq 'SuSE'
+		&& "$CUR_VENDOR_VER" eq 'ES122') {
+		@delta_components = ( @delta_components_sles12_sp2 );
+		%delta_comp_info = ( %delta_comp_info_sles12_sp2 );
+		@delta_kernel_srpms = ( @delta_kernel_srpms_sles12_sp2 );
+		@delta_user_srpms = ( @delta_user_srpms_sles12_sp2 );
+		%delta_srpm_info = ( %delta_srpm_info_sles12_sp2 );
+	} elsif ( "$CUR_VENDOR_VER" eq "ES73" ) {
+		@delta_components = ( @delta_components_rhel73 );
+		%delta_comp_info = ( %delta_comp_info_rhel73 );
+		@delta_kernel_srpms = ( @delta_kernel_srpms_rhel73 );
+		@delta_user_srpms = ( @delta_user_srpms_rhel73 );
+		%delta_srpm_info = ( %delta_srpm_info_rhel73 );
+	} elsif ( "$CUR_VENDOR_VER" eq "ES72" ) {
 		@delta_components = ( @delta_components_rhel72 );
 		%delta_comp_info = ( %delta_comp_info_rhel72 );
 		@delta_kernel_srpms = ( @delta_kernel_srpms_rhel72 );
 		@delta_user_srpms = ( @delta_user_srpms_rhel72 );
 		%delta_srpm_info = ( %delta_srpm_info_rhel72 );
-#	} elsif ( "$CUR_VENDOR_VER" eq "ES7" ) {
-#		@delta_components = ( @delta_components_rhel70 );
-#		%delta_comp_info = ( %delta_comp_info_rhel70 );
-#		@delta_kernel_srpms = ( @delta_kernel_srpms_rhel70 );
-#		@delta_user_srpms = ( @delta_user_srpms_rhel70 );
-#		%delta_srpm_info = ( %delta_srpm_info_rhel70 );
+	} elsif ( "$CUR_VENDOR_VER" eq "ES7" ) {
+		@delta_components = ( @delta_components_rhel70 );
+		%delta_comp_info = ( %delta_comp_info_rhel70 );
+		@delta_kernel_srpms = ( @delta_kernel_srpms_rhel70 );
+		@delta_user_srpms = ( @delta_user_srpms_rhel70 );
+		%delta_srpm_info = ( %delta_srpm_info_rhel70 );
+	} elsif ( "$CUR_VENDOR_VER" eq "ES67" ) {
+		@delta_components = ( @delta_components_rhel67 );
+		%delta_comp_info = ( %delta_comp_info_rhel67 );
+		@delta_kernel_srpms = ( @delta_kernel_srpms_rhel67 );
+		@delta_user_srpms = ( @delta_user_srpms_rhel67 );
+		%delta_srpm_info = ( %delta_srpm_info_rhel67 );
 	} else {
 		@delta_components = ( @delta_components_other );
 		%delta_comp_info = ( %delta_comp_info_other );
@@ -1314,15 +1419,16 @@ sub delta_rpm_install_list($$$@)
 	{
 		if ($delta_rpm_info{$package}{'Available'} ) {
 			if ( "$delta_rpm_info{$package}{'Mode'}" eq "kernel" ) {
-				if ( "$CUR_VENDOR_VER" eq "ES72" ) {
-					if ( " $package " =~ / hfi1 / ) {
+				if ( "$CUR_VENDOR_VER" eq "ES72" || "$CUR_VENDOR_VER" eq "ES73" || "$CUR_VENDOR_VER" eq "ES122" ) {
+					if ( $package =~ /ifs-kernel-updates/ ) {
 						next if ( $skip_kernelib);
 						$ret = 1;
 					}
+				} elsif ( "$CUR_VENDOR_VER" eq "ES67" ) {
 					if ( " $package " =~ / ifs-kernel-updates / ) {
-						next if ( $skip_kernelib);
-						$ret = 1;
-					}
+                                                next if ( $skip_kernelib);
+                                                $ret = 1;
+                                        }
 				} else {
 					if ( " $package " =~ / compat-rdma / ) {
 						next if ( $skip_kernelib);
@@ -1641,9 +1747,18 @@ sub build_srpm($$$$$)
 	my $srcdir=$ComponentInfo{'opa_stack'}{'SrcDir'};
 	my $SRC_RPM = delta_srpm_file($srcdir, "$srpm*.src.rpm");
 
-        if ("$srpm" eq "openshmem") {
-            $SRC_RPM = delta_srpm_file($srcdir, "${srpm}_*.src.rpm");
-        }
+	# Deal with SLES renaming
+	if ("$srpm" eq "libibumad3") {
+		$SRC_RPM = delta_srpm_file($srcdir, "libibumad-*.src.rpm");
+	} elsif ("$srpm" eq "libibmad5") {
+		$SRC_RPM = delta_srpm_file($srcdir, "libibmad-*.src.rpm");
+	} elsif ("$srpm" eq "openshmem") {
+		$SRC_RPM = delta_srpm_file($srcdir, "${srpm}_*.src.rpm");
+	} elsif ("$srpm" eq "kmod-ifs-kernel-updates") {
+		$SRC_RPM = delta_srpm_file($srcdir, "ifs-kernel-updates*.src.rpm");
+	} elsif ("$srpm" eq "ifs-kernel-updates-kmp-default") {
+		$SRC_RPM = delta_srpm_file($srcdir, "ifs-kernel-updates*.src.rpm");
+	}
 
 	# convert a few variables into the names used in OFED's build_rpm
 	my $parent = $srpm;
@@ -1824,15 +1939,18 @@ sub build_delta($$$$$$)
 	my $need_build = 0;
 	my $build_compat_rdma = 0;
 
-	foreach my $kernel_srpm ( @delta_kernel_srpms ) {
-		$build_kernel_srpms{"${kernel_srpm}_build_kernel"} = need_build_srpm($kernel_srpm, "$K_VER", "$K_VER",
-		   					$installing_list,
-							$force_srpm || $force_kernel_srpm || $OFED_debug,
-							$prompt_srpm);
-		if ("$kernel_srpm" eq "compat-rdma") {
-			$build_compat_rdma = 1;
+	if(!$skip_kernel) {
+		foreach my $kernel_srpm ( @delta_kernel_srpms ) {
+			$build_kernel_srpms{"${kernel_srpm}_build_kernel"} = need_build_srpm($kernel_srpm, "$K_VER", "$K_VER",
+								$installing_list,
+								$force_srpm || $force_kernel_srpm || $OFED_debug,
+								$prompt_srpm);
+			if ("$kernel_srpm" eq "compat-rdma" &&
+				$build_kernel_srpms{"${kernel_srpm}_build_kernel"}) {
+				$build_compat_rdma = 1;
+			}
+			$need_build |= $build_kernel_srpms{"${kernel_srpm}_build_kernel"};
 		}
-		$need_build |= $build_kernel_srpms{"${kernel_srpm}_build_kernel"};
 	}
 
 	my %build_user_srpms = ();
@@ -1859,17 +1977,19 @@ sub build_delta($$$$$$)
 
 	NormalPrint "Checking OS Dependencies needed for builds...\n";
 
-	foreach my $srpm ( @delta_kernel_srpms ) {
-		next if ( ! $build_kernel_srpms{"${srpm}_build_kernel"} );
+	if(!$skip_kernel) {
+		foreach my $srpm ( @delta_kernel_srpms ) {
+			next if ( ! $build_kernel_srpms{"${srpm}_build_kernel"} );
 
-		VerbosePrint("check dependencies for $srpm\n");
-		if (check_kbuild_dependencies($K_VER, $srpm )) {
-			DebugPrint "$srpm kbuild dependency failure\n";
-			$dep_error = 1;
-		}
-		if (check_rpmbuild_dependencies($srpm)) {
-			DebugPrint "$srpm rpmbuild dependency failure\n";
-			$dep_error = 1;
+			VerbosePrint("check dependencies for $srpm\n");
+			if (check_kbuild_dependencies($K_VER, $srpm )) {
+				DebugPrint "$srpm kbuild dependency failure\n";
+				$dep_error = 1;
+			}
+			if (check_rpmbuild_dependencies($srpm)) {
+				DebugPrint "$srpm rpmbuild dependency failure\n";
+				$dep_error = 1;
+			}
 		}
 	}
 
@@ -1945,14 +2065,13 @@ sub build_delta($$$$$$)
 		my $configure_options_kernel;
 		my $cok_macro;
 		my $rpm_release = rpm_query_attr("$srcdir/$OFA_KERNEL_SRC_RPM", "RELEASE");
-		my $rpm_version = rpm_query_attr("$srcdir/$OFA_KERNEL_SRC_RPM", "VERSION");
 
 		$configure_options_kernel = get_build_options($K_VER, %delta_kernel_ib_options);
 		if ( $OFED_debug ) {
 			# TBD --with-memtrack
 			#$configure_options_kernel .= " --with-memtrack";
 		}
-		my $conf_opts = "--with-core-mod --with-user_mad-mod --with-user_access-mod --with-addr_trans-mod --with-ipoib-mod  --with-hfi1-mod  --with-qib-mod  --with-srp-mod  --with-srp-target-mod";
+		my $conf_opts = "--with-core-mod --with-user_mad-mod --with-user_access-mod --with-addr_trans-mod --with-ipoib-mod  --with-rdmavt-mod --with-hfi1-mod  --with-qib-mod  --with-srp-mod  --with-srp-target-mod";
 		VerbosePrint("OS specific kernel configure options: '$configure_options_kernel'\n");
 
 		if ($configure_options_kernel != "") {
@@ -1975,7 +2094,6 @@ sub build_delta($$$$$$)
 				.		" --define 'network_dir ${NETWORK_CONF_DIR}'"
             	.		" --define '__arch_install_post %{nil}'"
 				.		" --define '_release $rpm_release'"
-				.               " --define '_version $rpm_version'"
 				.		" ${OFA_KERNEL_SRC_RPM}",
 				"$resfileop"
 				)) {
@@ -1987,22 +2105,24 @@ sub build_delta($$$$$$)
 	}
 	@need_install = ( @need_install, split /[[:space:]]+/, $delta_srpm_info{'compat-rdma'}{'PostReq'});
 
-	foreach my $srpm ( @delta_kernel_srpms ) {
-		VerbosePrint("process $srpm\n");
+	if(!$skip_kernel) {
+		foreach my $srpm ( @delta_kernel_srpms ) {
+			VerbosePrint("process $srpm\n");
 
-		# compat-rdma is special cased above skip it here
-		next if ( "$srpm" eq "compat-rdma" );
+			# compat-rdma is special cased above skip it here
+			next if ( "$srpm" eq "compat-rdma" );
 
-		my $build_kernel = $build_kernel_srpms{"${srpm}_build_kernel"};
+			my $build_kernel = $build_kernel_srpms{"${srpm}_build_kernel"};
 
-		if ($build_kernel) {
-			$resfileop = "append";
-			if (0 != build_srpm($srpm, $RPM_DIR, $BUILD_ROOT, $prefix, $resfileop)) {
-				return 1;	# failure
+			if ($build_kernel) {
+				$resfileop = "append";
+				if (0 != build_srpm($srpm, $RPM_DIR, $BUILD_ROOT, $prefix, $resfileop)) {
+					return 1;	# failure
+				}
+				@need_install = ( @need_install, split /[[:space:]]+/, $delta_srpm_info{$srpm}{'PostReq'});
+				$must_force_rpm=1;
+				delta_move_rpms("$RPM_DIR/$RPMS_SUBDIR", "$rpmsdir");
 			}
-			@need_install = ( @need_install, split /[[:space:]]+/, $delta_srpm_info{$srpm}{'PostReq'});
-			$must_force_rpm=1;
-			delta_move_rpms("$RPM_DIR/$RPMS_SUBDIR", "$rpmsdir");
 		}
 	}
 
@@ -2106,7 +2226,7 @@ sub uninstall_old_delta_rpms($$$)
 
 	my $ret = 0;	# assume success
 	my @packages = ();
-	my @prev_release_rpms = ( "hfi1-psm-compat-devel" );
+	my @prev_release_rpms = ( "hfi1-psm-compat-devel","hfi1-psm","hfi1-psm-devel","hfi1-psm-debuginfo","libhfi1verbs","libhfi1verbs-devel" );
 
 	if ("$message" eq "" ) {
 		$message = "previous OFA Delta";
@@ -2518,8 +2638,10 @@ sub install_kernel_ib($$)
 		return;
 	}
 
-	foreach my $srpm ( @delta_kernel_srpms ) {
-		rpm_install_with_options("$rpmdir", $CUR_OS_VER, $srpm, " -U --nodeps ");
+	if(!$skip_kernel) {
+		foreach my $srpm ( @delta_kernel_srpms ) {
+			rpm_install_with_options("$rpmdir", $CUR_OS_VER, $srpm, " -U --nodeps ");
+		}
 	}
 	remove_unneeded_kernel_ib_drivers($install_list);
 
@@ -2579,9 +2701,20 @@ sub available_opa_stack()
 sub installed_delta_opa_stack()
 {
 	my $driver_subdir=$ComponentInfo{'opa_stack'}{'DriverSubdir'};
-	if ( "$CUR_VENDOR_VER" eq "ES72" ) {
+	if ( "$CUR_VENDOR_VER" eq "ES67" ) {
+		return ( -e "$ROOT$BASE_DIR/version_delta" 
+				&& rpm_is_installed("libibumad", "user")
+				&& rpm_is_installed("ifs-kernel-updates", $CUR_OS_VER));
+	} elsif ( "$CUR_VENDOR_VER" eq "ES72" || "$CUR_VENDOR_VER" eq "ES73" ) {
 		return ( -e "$ROOT$BASE_DIR/version_delta"
-				&& rpm_is_installed("hfi1", $CUR_OS_VER));
+				&& rpm_is_installed("kmod-ifs-kernel-updates", $CUR_OS_VER));
+	} elsif ( "$CUR_VENDOR_VER" eq 'ES122' ) {
+		return ( -e "$ROOT$BASE_DIR/version_delta"
+				&& rpm_is_installed("ifs-kernel-updates-kmp-default", $CUR_OS_VER));
+	} elsif ( "$CUR_VENDOR_VER" eq 'ES12' || "$CUR_VENDOR_VER" eq 'ES121' ) {
+		return (rpm_is_installed("libibumad3", "user")
+				&& -e "$ROOT$BASE_DIR/version_delta"
+				&& rpm_is_installed("compat-rdma", $CUR_OS_VER));
 	} else {
 		return (rpm_is_installed("libibumad", "user")
 				&& -e "$ROOT$BASE_DIR/version_delta"
@@ -2698,13 +2831,12 @@ sub install_opa_stack($$)
 
 	# Check $BASE_DIR directory ...exist 
 	check_config_dirs();
-	check_dir("/opt/opa");
+	check_dir("/usr/lib/opa");
 
-	copy_systool_file("$srcdir/comp.pl", "/opt/opa/.comp_ofed_delta.pl");
+	copy_systool_file("$srcdir/comp.pl", "/usr/lib/opa/.comp_ofed_delta.pl");
 
 	install_delta_comp('opa_stack', $install_list);
 
-	prompt_opa_conf_param('RENICE_IB_MAD', 'OFA SMI/GSI renice', "y");
 	prompt_opa_conf_param('ARPTABLE_TUNING', 'Adjust kernel ARP table size for large fabrics?', "y");
 	prompt_opa_conf_param('SRP_LOAD', 'SRP initiator autoload?', "n");
 	prompt_opa_conf_param('SRPT_LOAD', 'SRP target autoload?', "n");
@@ -2720,6 +2852,9 @@ sub install_opa_stack($$)
 	check_rpm_config_file("/etc/srp_daemon.conf");
 	check_rpm_config_file("/etc/logrotate.d/srp_daemon");
 	check_rpm_config_file("/etc/rsyslog.d/srp_daemon.conf");
+
+	# Start rdma on run level 235 on RHEL67
+	run_rdma_on_startup();
 
 	need_reboot();
 	$ComponentWasInstalled{'opa_stack'}=1;
@@ -2794,8 +2929,8 @@ sub uninstall_opa_stack($$)
 	remove_udev_permissions;
 
 	system("rm -rf $ROOT$BASE_DIR/version_delta");
-	system("rm -rf $ROOT/opt/opa/.comp_delta.pl");
-	system "rmdir $ROOT/opt/opa 2>/dev/null";	# remove only if empty
+	system("rm -rf $ROOT/usr/lib/opa/.comp_delta.pl");
+	system "rmdir $ROOT/usr/lib/opa 2>/dev/null";	# remove only if empty
 	system "rmdir $ROOT$BASE_DIR 2>/dev/null";	# remove only if empty
 	system "rmdir $ROOT$OPA_CONFIG_DIR 2>/dev/null";	# remove only if empty
 
@@ -2841,12 +2976,20 @@ sub available_intel_hfi()
 sub installed_intel_hfi()
 {
     my $driver_subdir=$ComponentInfo{'intel_hfi'}{'DriverSubdir'};
-    if ( "$CUR_VENDOR_VER" eq "ES72" ) {
-        return (rpm_is_installed("libhfi1verbs", "user")
+    if ( "$CUR_VENDOR_VER" eq "ES67" ) {
+	return ( -e "$ROOT$BASE_DIR/version_delta"
+			&& rpm_is_installed("libhfi1", "user")
+                        && rpm_is_installed("ifs-kernel-updates", $CUR_OS_VER));
+    } elsif ( "$CUR_VENDOR_VER" eq "ES72" || "$CUR_VENDOR_VER" eq "ES73" ) {
+        return (rpm_is_installed("libhfi1", "user")
                         && -e "$ROOT$BASE_DIR/version_delta"
-                        && rpm_is_installed("hfi1", $CUR_OS_VER));
+                        && rpm_is_installed("kmod-ifs-kernel-updates", $CUR_OS_VER));
+	} elsif ( "$CUR_VENDOR_VER" eq "ES122" ) {
+		return (rpm_is_installed("libhfi1verbs-rdmav2", "user")
+                        && -e "$ROOT$BASE_DIR/version_delta"
+                        && rpm_is_installed("ifs-kernel-updates-kmp-default", $CUR_OS_VER));
 	} else {
-        return (rpm_is_installed("libhfi1verbs", "user")
+        return (rpm_is_installed("libhfi1", "user")
                         && -e "$ROOT$BASE_DIR/version_delta"
                         && rpm_is_installed("compat-rdma", $CUR_OS_VER));
 	}
@@ -3198,9 +3341,15 @@ sub available_delta_ipoib()
 sub installed_delta_ipoib()
 {
 	my $driver_subdir=$ComponentInfo{'delta_ipoib'}{'DriverSubdir'};
-	if ( "$CUR_VENDOR_VER" eq "ES72" ) {
+	if ( "$CUR_VENDOR_VER" eq "ES67" ) {
+                return (( -e "$ROOT$BASE_DIR/version_delta"
+				&& rpm_is_installed("ifs-kernel-updates", $CUR_OS_VER)));
+	} elsif ( "$CUR_VENDOR_VER" eq "ES72" || "$CUR_VENDOR_VER" eq "ES73" ) {
 		return ((-e "$ROOT$BASE_DIR/version_delta"
-				&& rpm_is_installed("hfi1", $CUR_OS_VER)));
+				&& rpm_is_installed("kmod-ifs-kernel-updates", $CUR_OS_VER)));
+	} elsif ( "$CUR_VENDOR_VER" eq "ES122" ) {
+		return ((-e "$ROOT$BASE_DIR/version_delta"
+				&& rpm_is_installed("ifs-kernel-updates-kmp-default", $CUR_OS_VER)));
 	} else {
 		return ((-e "$ROOT$BASE_DIR/version_delta"
 				&& rpm_is_installed("compat-rdma", $CUR_OS_VER)));
@@ -3777,9 +3926,9 @@ sub available_delta_mpisrc()
 sub installed_delta_mpisrc()
 {
 	return ((-e "$ROOT$BASE_DIR/version_delta"
-			&& file_glob("$ROOT/opt/opa/src/MPI/mvapich*.src.rpm") ne ""
-			&& file_glob("$ROOT/opt/opa/src/MPI/openmpi*.src.rpm") ne ""
-			&& file_glob("$ROOT/opt/opa/src/MPI/mpitests*.src.rpm") ne ""));
+			&& file_glob("$ROOT/usr/lib/opa/src/MPI/mvapich*.src.rpm") ne ""
+			&& file_glob("$ROOT/usr/lib/opa/src/MPI/openmpi*.src.rpm") ne ""
+			&& file_glob("$ROOT/usr/lib/opa/src/MPI/mpitests*.src.rpm") ne ""));
 }
 
 # only called if installed_delta_mpisrc is true
@@ -3836,29 +3985,29 @@ sub install_delta_mpisrc($$)
 
 	print_install_banner_delta_comp('delta_mpisrc');
 	install_delta_comp('delta_mpisrc', $install_list);
-	check_dir("/opt/opa/src");
-	check_dir("/opt/opa/src/MPI");
+	check_dir("/usr/lib/opa/src");
+	check_dir("/usr/lib/opa/src/MPI");
 	# remove old versions (.src.rpm and built .rpm files too)
-	system "rm -rf $ROOT/opt/opa/src/MPI/mvapich[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/mvapich2[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/openmpi[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/mpitests[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/make.*.res 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/make.*.err 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/make.*.warn 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/.mpiinfo 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mvapich[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mvapich2[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/openmpi[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mpitests[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.res 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.err 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.warn 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/.mpiinfo 2>/dev/null";
 
 	# install new versions
 	foreach my $srpm ( "mvapich2", "openmpi", "mpitests" ) {
 		my $srpmfile = file_glob("$srcdir/$SRPMS_SUBDIR/${srpm}-*.src.rpm");
 		if ( "$srpmfile" ne "" ) {
 			my $file = my_basename($srpmfile);
-			copy_data_file($srpmfile, "/opt/opa/src/MPI/$file");
+			copy_data_file($srpmfile, "/usr/lib/opa/src/MPI/$file");
 		}
 	}
-	copy_systool_file("$srcdir/do_build", "/opt/opa/src/MPI/do_build");
-	copy_systool_file("$srcdir/do_mvapich2_build", "/opt/opa/src/MPI/do_mvapich2_build");
-	copy_systool_file("$srcdir/do_openmpi_build", "/opt/opa/src/MPI/do_openmpi_build");
+	copy_systool_file("$srcdir/do_build", "/usr/lib/opa/src/MPI/do_build");
+	copy_systool_file("$srcdir/do_mvapich2_build", "/usr/lib/opa/src/MPI/do_mvapich2_build");
+	copy_systool_file("$srcdir/do_openmpi_build", "/usr/lib/opa/src/MPI/do_openmpi_build");
 
 	$ComponentWasInstalled{'delta_mpisrc'}=1;
 }
@@ -3878,21 +4027,21 @@ sub uninstall_delta_mpisrc($$)
 	print_uninstall_banner_delta_comp('delta_mpisrc');
 
 	# remove old versions (.src.rpm and built .rpm files too)
-	system "rm -rf $ROOT/opt/opa/src/MPI/mvapich2[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/openmpi[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/mpitests[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/make.*.res 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/make.*.err 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/make.*.warn 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/.mpiinfo 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/do_build 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/do_mvapich2_build 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/do_openmpi_build 2>/dev/null";
-	system "rm -rf $ROOT/opt/opa/src/MPI/.mpiinfo 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mvapich2[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/openmpi[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mpitests[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.res 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.err 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.warn 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/.mpiinfo 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/do_build 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/do_mvapich2_build 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/do_openmpi_build 2>/dev/null";
+	system "rm -rf $ROOT/usr/lib/opa/src/MPI/.mpiinfo 2>/dev/null";
 
 	uninstall_delta_comp('delta_mpisrc', $install_list, $uninstalling_list, 'verbose');
-	system "rmdir $ROOT/opt/opa/src/MPI 2>/dev/null"; # remove only if empty
-	system "rmdir $ROOT/opt/opa/src 2>/dev/null"; # remove only if empty
+	system "rmdir $ROOT/usr/lib/opa/src/MPI 2>/dev/null"; # remove only if empty
+	system "rmdir $ROOT/usr/lib/opa/src 2>/dev/null"; # remove only if empty
 	$ComponentWasInstalled{'delta_mpisrc'}=0;
 }
 
