@@ -1,0 +1,29 @@
+From 5c42875b9e217127bc6fb537e258f386aed2a23a Mon Sep 17 00:00:00 2001
+From: Brendan Cunningham <brendan.cunningham@intel.com>
+Date: Thu, 24 Sep 2015 11:10:45 -0400
+Subject: [PATCH 1/2] Fix well-known tempfile issue in script.
+
+---
+ Esm/ib/src/linux/startup/sm_capture.sh | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/Esm/ib/src/linux/startup/sm_capture.sh b/Esm/ib/src/linux/startup/sm_capture.sh
+index cf1e133..e3fbf4b 100755
+--- a/Esm/ib/src/linux/startup/sm_capture.sh
++++ b/Esm/ib/src/linux/startup/sm_capture.sh
+@@ -46,8 +46,10 @@ fi
+ 
+ 
+ PROGNAME="$0"
+-dirName="smdump-"`date '+%d%b%y%H%M%S'`
+-dumpLocation="/tmp/$dirName"
++# Hedge against bash vs. sh
++dateStr=`date '+%d%b%y%H%M%S'`
++dumpLocation="`mktemp -d /tmp/smdump-${dateStr}-XXXXXX`"
++dirName=`basename $dumpLocation`
+ 
+ usage() {
+ 	echo "Usage:"
+-- 
+1.8.3.1
+
