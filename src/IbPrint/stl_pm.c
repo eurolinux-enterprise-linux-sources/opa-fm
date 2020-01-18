@@ -154,7 +154,7 @@ void PrintStlPortStatusRsp(PrintDest_t *dest, int indent, const STL_PORT_STATUS_
 
 
 	/* per_VL counters */
-	for (i = 0, j = 0; i < MAX_PM_VLS; i++) {
+	for (i = 0, j = 0; i < STL_MAX_VLS; i++) {
 		if ((pStlPortStatusRsp->VLSelectMask >> i) & (uint64)1) {
 			PrintFunc(dest, "\n");
 			PrintFunc(dest, "%*s    VL Number    %d\n",
@@ -392,7 +392,7 @@ void PrintStlDataPortCountersRsp(PrintDest_t *dest, int indent, const STL_DATA_P
 				/* Count the bits in the mask and process the VLs in succession */
 				/* Assume that even though VL numbers may not be contiguous, that entries */
 				/*   in the array are */
-				for (ii = 0, jj = 0; ii < MAX_PM_VLS; ii++) {
+				for (ii = 0, jj = 0; ii < STL_MAX_VLS; ii++) {
 					if ((pStlDataPortCountersRsp->VLSelectMask >> ii) & (uint64)1) {
 						PrintFunc(dest, "%*s    VL Number     %d\n",
 							indent+4, "",
@@ -688,16 +688,16 @@ void PrintStlErrorInfoRsp(PrintDest_t *dest, int indent, const STL_ERROR_INFO_RS
 					case 0:
 					case 1:
 					case 2:
-						PrintFunc(dest, "%*s        VL:               %u\n",
+						PrintFunc(dest, "%*s        Distance:         %u\n",
 							indent+4, "",
-							pStlErrorInfoRsp->Port[k].FMConfigErrorInfo.ErrorInfo.EI0to2.VL);
+							pStlErrorInfoRsp->Port[k].FMConfigErrorInfo.ErrorInfo.EI0to2.Distance);
 						break;
 					case 3:
 					case 4:
 					case 5:
-						PrintFunc(dest, "%*s        Distance:         %u\n",
+						PrintFunc(dest, "%*s        VL:               %u\n",
 							indent+4, "",
-							pStlErrorInfoRsp->Port[k].FMConfigErrorInfo.ErrorInfo.EI3to5.Distance);
+							pStlErrorInfoRsp->Port[k].FMConfigErrorInfo.ErrorInfo.EI3to5.VL);
 						break;
 					case 6:
 						PrintFunc(dest, "%*s        Bad Flit Bits:    0x%010x\n",

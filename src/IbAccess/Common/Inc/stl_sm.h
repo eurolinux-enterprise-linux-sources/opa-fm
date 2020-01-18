@@ -478,7 +478,8 @@ typedef union {
 typedef struct {
 	uint32  LinearFDBCap;	  	/* RO Number of entries supported in the */
 								/* Linear Unicast Forwarding Database */
-	uint32  Reserved20;		
+	uint32  PortGroupFDBCap;	/* RO Number of entries supported in the */
+								/* Port Group Forwarding Database */
 	uint32  MulticastFDBCap;	/* RO Number of entries supported in the */
 								/*  Multicast Forwarding Database */
 	STL_LID_32  LinearFDBTop;		/* RW Indicates the top of the Linear */
@@ -867,7 +868,7 @@ typedef struct {
 
 	STL_PORT_STATES  PortStates;		/* Port states */
 
-	STL_FIELDUNION2(PortPhyConfig,8,
+	STL_FIELDUNION2(PortPhysConfig,8,
 			Reserved:4,				/* Reserved */
 			PortType:4);            /* RO/HS-- PORT_TYPE */
 
@@ -1512,8 +1513,9 @@ typedef struct {
 
 // These are for PortType Standard, uses of these can assume START and END
 // will be on and STL_CABLE_INFO_DATA_SIZE boundary
-#define STL_CIB_STD_START_ADDR		128
-#define STL_CIB_STD_END_ADDR		(STL_CIB_STD_START_ADDR+STL_CABLE_INFO_PAGESZ-1)
+#define STL_CIB_STD_LOW_PAGE_ADDR		0
+#define STL_CIB_STD_HIGH_PAGE_ADDR		128
+#define STL_CIB_STD_END_ADDR		(STL_CIB_STD_HIGH_PAGE_ADDR+STL_CABLE_INFO_PAGESZ-1)
 #define STL_CIB_STD_LEN				(STL_CABLE_INFO_PAGESZ)
 
 #define STL_CIB_STD_MAX_STRING			16		// Max ASCII string in STD CableInfo field
@@ -1859,6 +1861,10 @@ typedef struct {
 		
 } PACK_SUFFIX STL_BUFFER_CONTROL_TABLE;
 
+// NOTE: STL_BUFFER_CONTROL_TABLE is NOT 8 byte aligned. When doing multiblock queries, each block
+// *MUST* be rounded to the nearest 8 byte boundary, or PRR will reject any SMA request for more than
+// one block. In the future we may just want to pad out the structure, for now the following macros should
+// be used when working with BCT blocks inside of SMAs.
 #define STL_BFRCTRLTAB_PAD_SIZE ((sizeof(STL_BUFFER_CONTROL_TABLE)+7)&~0x7)
 #define STL_NUM_BFRCTLTAB_BLOCKS_PER_DRSMP ((uint8_t)(STL_MAX_PAYLOAD_SMP_DR / STL_BFRCTRLTAB_PAD_SIZE))
 #define STL_NUM_BFRCTLTAB_BLOCKS_PER_LID_SMP ((uint8_t)(STL_MAX_PAYLOAD_SMP_LR / STL_BFRCTRLTAB_PAD_SIZE))
@@ -2305,7 +2311,7 @@ typedef struct {
 // USER ADVICE: Be careful with casting and using the macros below:
 // There exist two versions of stl_get_smp_data:
 //  1: Uses Mai_t* input parmaeter to be used with MAI API (a macro)
-//  2: Uses STL_SMP* input parameter to be used with oib utils API (Tools)
+//  2: Uses STL_SMP* input parameter to be used with opamgt API (Tools)
 #define STL_GET_SMP_DATA(MAIP)  ((maip->base.mclass == MAD_CV_SUBN_DR) ?  \
        ((DRStlSmp_t *)(maip->data))->SMPData : ((LRStlSmp_t *)(maip->data))->SMPData)
 
@@ -2477,6 +2483,7 @@ BSWAP_STL_SWITCH_INFO(STL_SWITCH_INFO *Dest)
 {
 #if CPU_LE
 	Dest->LinearFDBCap = ntoh32(Dest->LinearFDBCap);
+	Dest->PortGroupFDBCap = ntoh32(Dest->PortGroupFDBCap);
 	Dest->MulticastFDBCap = ntoh32(Dest->MulticastFDBCap);
 	Dest->LinearFDBTop = ntoh32(Dest->LinearFDBTop);
 	Dest->MulticastFDBTop = ntoh32(Dest->MulticastFDBTop);
@@ -2493,7 +2500,6 @@ static __inline
 void
 ZERO_RSVD_STL_SWITCH_INFO(STL_SWITCH_INFO * Dest)
 {
-	Dest->Reserved20 = 0;
 	Dest->Reserved = 0;
 	Dest->Reserved21 = 0;
 	Dest->Reserved22 = 0;
@@ -2591,7 +2597,7 @@ ZERO_RSVD_STL_PORT_INFO(STL_PORT_INFO * Dest)
 {
 	Dest->VL.s2.Reserved = 0;
 	Dest->PortStates.s.Reserved = 0;
-	Dest->PortPhyConfig.s.Reserved = 0;
+	Dest->PortPhysConfig.s.Reserved = 0;
 	Dest->MultiCollectMask.Reserved = 0;
 	Dest->s1.Reserved = 0;
 	Dest->s3.Reserved20 = 0;

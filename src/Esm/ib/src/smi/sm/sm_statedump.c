@@ -164,7 +164,13 @@ Status_t dumpTopologyStruct(const char * dumpDir, FILE * mapFile)
 
 	printf("Dumping topology.cost\n");
 	if (VSTATUS_OK != (rc = dumpStructure(old_topology.cost,
-	                                      old_topology.bytes, topoFile,
+	                                      old_topology.bytesCost, topoFile,
+	                                      TOPO_FNAME, mapFile)))
+		goto bail;
+
+	printf("Dumping topology.path\n");
+	if (VSTATUS_OK != (rc = dumpStructure(old_topology.path,
+	                                      old_topology.bytesPath, topoFile,
 	                                      TOPO_FNAME, mapFile)))
 		goto bail;
 
@@ -280,7 +286,7 @@ Status_t dumpTopologyNodes(const char * dumpDir, FILE * mapFile)
 				                          portFile, PORT_FNAME, mapFile)))
 				goto bail;
 
-				printf("Dumping port.portData.slvlMap\n");
+				printf("Dumping port.portData.slscMap\n");
 				// FIXME: If we ever get more intelligent about allocating
 				// sl2vl mappings, this len needs to change
 				len = sizeof(STL_SLSCMAP);

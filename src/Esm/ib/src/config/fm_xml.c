@@ -70,7 +70,6 @@ void updateLastScpRetCode(scpFastFabricRetCode_t retCode) {
 
 extern uint32_t sm_state;
 extern size_t g_smPoolSize;
-extern int af_licensed;
 extern Status_t initSmMemoryPool(void);
 extern Status_t freeSmMemoryPool(void);
 extern Status_t vs_pool_delete (Pool_t * handle);
@@ -103,21 +102,22 @@ uint32_t scpInProcess = 0;
 #define PORTS_ALLOC_UNIT 8
 
 #ifndef __VXWORKS__
-int af_licensed = 0;
 extern int kmAdvancedFeatureVerification(char* keyString);
-#define IFS_FM_CFG_NAME		"/etc/sysconfig/opafm.xml"
+#define IFS_FM_CFG_NAME		"/etc/opa-fm/opafm.xml"
 #define FM_SSL_SECURITY_DIR "/usr/local/ssl/opafm"
 #else
 #define FM_SSL_SECURITY_DIR DIR_BASE_NAME
 #endif
 
-static FMXmlCompositeConfig_t 			*configp = NULL;
-static DGConfig_t			 			*dgp;
-static AppConfig_t			 			*app;
-static VFConfig_t						*vfp;
-static SMXmlConfig_t 					*smp;
-static SMMcastDefGrp_t 				*mdgp;
-static PmPortGroupXmlConfig_t			*pgp;
+static FMXmlCompositeConfig_t 	*configp = NULL;
+static DGConfig_t			 	*dgp;
+static AppConfig_t			 	*app;
+static VFConfig_t				*vfp;
+static SMXmlConfig_t 			*smp;
+static SMMcastDefGrp_t 			*mdgp;
+static PmPortGroupXmlConfig_t	*pgp;
+
+static SMMcastDefGrp_t mdgEmpty;
 
 static uint32_t instance;
 static uint32_t common;
@@ -150,9 +150,6 @@ static uint32_t includedAppInstance;
 static uint32_t defaultGroupInstance;
 static uint32_t mlidSharedInstance;
 
-static XmlGuid_t *last_system_image_guid;
-static XmlGuid_t *last_node_guid;
-static XmlGuid_t *last_port_guid;
 static XmlNode_t *last_node_description;
 static RegExp_t  *last_reg_expr;
 static XmlIncGroup_t *last_included_group;
@@ -205,13 +202,13 @@ static void XmlParsePrintWarning(const char *message)
 }
 #endif
 
-// return buffer that is the uncompressed data from an XML config file 
+// return buffer that is the uncompressed data from an XML config file
 int getXMLConfigData(uint8_t *buffer, uint32_t bufflen, uint32_t *filelen)
 {
 	uint32_t nextByte = 0;
 	uint32_t index = 0;
 
-	if (parsingInProcess || !buffer || !filelen) 
+	if (parsingInProcess || !buffer || !filelen)
 		return -1;
 
 	// open the file
@@ -242,7 +239,7 @@ int getXMLConfigData(uint8_t *buffer, uint32_t bufflen, uint32_t *filelen)
 		}
 	}
 	*filelen = index;
-	
+
     fclose(file);
 #ifdef __VXWORKS__
 	remove( IFS_FM_CFG_NAME_UNCOMPRESSED );
@@ -358,7 +355,7 @@ uint32_t xml_compute_pool_size(uint8_t full)
 
 	// otherwise just a single FM instance
 	return XML_PARSE_MEMORY_LIMIT;
-}  
+}
 
 
 // Checksum code
@@ -370,10 +367,10 @@ typedef struct {
 	} u;
 } cksum_t;
 
-static void *cksumBegin(uint32_t method) 
+static void *cksumBegin(uint32_t method)
 {
 	cksum_t *cksum;
-			
+
 	cksum = getXmlMemory(sizeof(cksum_t), "cksum_t cksumBegin()");
 	if (!cksum) return NULL;
 
@@ -456,7 +453,7 @@ static uint32_t cksumEnd(void *ctx)
                                             AddToCksums(#file, &filein, len, flags);            \
                                         close(fd);                                              \
                                     }                                                           \
-                                } while(0);                                                     
+                                } while(0);
 #else
 #define CKSUM_FILE(file, flags)
 #endif
@@ -466,16 +463,23 @@ static uint32_t cksumEnd(void *ctx)
 #else
 #define CKSUM_BEGIN(method) { BeginCksums(method); }
 #endif
-#define DEFAULT_U8(data, default) { if (data == UNDEFINED_XML8) data = default; }
-#define DEFAULT_U16(data, default) { if (data == UNDEFINED_XML16) data = default; }
-#define DEFAULT_U32(data, default) { if (data == UNDEFINED_XML32) data = default; }
-#define DEFAULT_U64(data, default) { if (data == UNDEFINED_XML64) data = default; }
+
+/*
+ * Generic 'DEFAULT' macro for all integer types.
+ */
+#define DEFAULT_INT(data, default) { \
+	/* Do 'typeof((data))' to cast ~0 to the right size */ \
+	if ( data == ((typeof((data)))~0) ) \
+		data = default; \
+}
+
+#define DEFAULT_AND_CKSUM_INT(data,default,flags) { \
+	DEFAULT_INT(data,default); \
+	AddToCksums(#data,&data,sizeof(data),flags); }
+
 #define DEFAULT_STR(data, default) { if (!strlen(data)) strncpy(data,default,sizeof(data)); }
-#define DEFAULT_AND_CKSUM_U8(data, default, flags) { DEFAULT_U8(data, default); AddToCksums(#data, &data, sizeof(uint8_t), flags); }
-#define DEFAULT_AND_CKSUM_U16(data, default, flags) { DEFAULT_U16(data, default); AddToCksums(#data, &data, sizeof(uint16_t), flags); }
-#define DEFAULT_AND_CKSUM_U32(data, default, flags) { DEFAULT_U32(data, default); AddToCksums(#data, &data, sizeof(uint32_t), flags); }
-#define DEFAULT_AND_CKSUM_U64(data, default, flags) { DEFAULT_U64(data, default); AddToCksums(#data, &data, sizeof(uint64_t), flags); }
 #define DEFAULT_AND_CKSUM_STR(data, default, flags) { DEFAULT_STR(data, default); AddToCksums(#data, &data, strlen(data), flags); }
+
 #ifdef CHECKSUM_DEBUG
 #define CKSUM_END(overall, disruptive, consistency) { EndCksums(&overall, &disruptive, &consistency); printf("CKSUM_END %s %d, %d, %d\n",__func__,overall,disruptive,consistency); }
 #else
@@ -484,7 +488,7 @@ static uint32_t cksumEnd(void *ctx)
 
 static cksum_t *cksum_ctx[CKSUM_MAX];
 
-static boolean BeginCksums(uint32_t method) 
+static boolean BeginCksums(uint32_t method)
 {
 	uint32_t i;
 
@@ -573,7 +577,7 @@ static void scrubMap(cl_qmap_t *map, void *freeRoutine)
 	void (*freeRoutineCall)(void *) = freeRoutine;
 	cl_map_item_t 	*cl_map_item;
 
-	for (cl_map_item = cl_qmap_head(map); 
+	for (cl_map_item = cl_qmap_head(map);
 		cl_map_item != cl_qmap_end(map);
 		cl_map_item = cl_qmap_head(map)) {
 			if (freeRoutine)
@@ -756,7 +760,7 @@ static void InvalidOptionParserEnd(IXmlParserState_t *state, const IXML_FIELD *f
 void ParamU32XmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	uint32_t value;
-	
+
 	if (IXmlParseUint32(state, content, len, &value)) {
 		FmParamU32_t *p = (FmParamU32_t *)IXmlParserGetField(field, object);
 		p->value = value;
@@ -768,9 +772,9 @@ void ParamU32XmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, voi
 void HfiXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	uint32_t value;
-	
+
 	if (xml_parse_debug)
-		fprintf(stdout, "DecrementU32XmlParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "DecrementU32XmlParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common);
 
 	if (IXmlParseUint32(state, content, len, &value)) {
 		if (value == 0) {
@@ -786,9 +790,9 @@ void HfiXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *ob
 void PercentageXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	uint32_t value;
-	
+
 	if (xml_parse_debug)
-		fprintf(stdout, "PercentageXmlParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "PercentageXmlParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common);
 
 	if (IXmlParseUint32(state, content, len, &value)) {
 		if (value > 100) {
@@ -825,10 +829,10 @@ void PKeyParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *obje
 	char *sym;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "PKeyParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "PKeyParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML %s tag\n",field->tag); 
+		fprintf(stderr, "Error processing XML %s tag\n",field->tag);
 		return;
 	}
 
@@ -838,12 +842,44 @@ void PKeyParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *obje
 	}
 
 	pkey = strtol(content, &sym, 16);
-	if (*sym || pkey == 0 || pkey > 0x7fff) {		
+	if (*sym) {
+		IXmlParserPrintError(state, "Invalid %s tag value, must be a hexadecimal value", field->tag);
+	}
+
+	if (pkey == 0 || pkey > 0x7fff) {
 		IXmlParserPrintError(state, "Invalid %s tag value, must be in the range 0x0001-0x7fff\n", field->tag);
 		return;
-	} 
+	}
 	*p = pkey;
 }
+
+
+void MinSupportedVLsParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
+{
+	uint32_t *p = (uint32_t *)IXmlParserGetField(field, object);
+	uint32_t value;
+
+	if (xml_parse_debug)
+		fprintf(stdout, "%s %s instance %u common %u\n", __func__, field->tag, (unsigned int)instance, (unsigned int)common);
+
+	if (!valid) {
+		fprintf(stderr, "Error processing XML %s tag\n",field->tag);
+		return;
+	}
+	if (!content) {
+		IXmlParserPrintError(state, "Invalid %s tag value, cannot be empty", field->tag);
+		return;
+	}
+
+	/* MinSupportedVL is deprecated since SM supports heterogeneous fabrics now */
+	IXmlParserPrintWarning(state, "%s tag is no longer supported!", field->tag);
+	IXmlParserPrintWarning(state, "Please remove %s tag from configuration.", field->tag);
+
+	if (IXmlParseUint32(state, content, len, &value)) *p = value;
+}
+
+
+
 
 // Handle U8 percentage value (0-100) with trailing % symbol
 void PercentU8XmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
@@ -853,10 +889,10 @@ void PercentU8XmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 	char *sym;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "PercentU8XmlParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "PercentU8XmlParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML %s tag\n",field->tag); 
+		fprintf(stderr, "Error processing XML %s tag\n",field->tag);
 		return;
 	}
 	if (!content) {
@@ -869,8 +905,8 @@ void PercentU8XmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 		IXmlParserPrintError(state, "Invalid %s tag value, must be in %% example: 100%%", field->tag);
 		return;
 	} else {
-		if (percent < 1 || percent > 100) {
-			IXmlParserPrintError(state, "Invalid %s tag value, must be 1-100%%", field->tag);
+		if (percent > 100) {
+			IXmlParserPrintError(state, "Invalid %s tag value, must be 0-100%%", field->tag);
 			return;
 		}
 		*p = percent;
@@ -882,10 +918,10 @@ void BasisU8XmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void
 	uint8_t *p = (uint8_t *)IXmlParserGetField(field, object);
 
 	if (xml_parse_debug)
-		fprintf(stdout, "BasisU8XmlParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "BasisU8XmlParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML %s tag\n",field->tag); 
+		fprintf(stderr, "Error processing XML %s tag\n",field->tag);
 		return;
 	}
 	if (!content) {
@@ -909,10 +945,10 @@ void MtuU8XmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *
 	uint8_t *p = (uint8_t *)IXmlParserGetField(field, object);
 
 	if (xml_parse_debug)
-		fprintf(stdout, "MtuU8XmlParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "MtuU8XmlParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML %s tag\n",field->tag); 
+		fprintf(stderr, "Error processing XML %s tag\n",field->tag);
 		return;
 	}
 	if (!content) {
@@ -930,7 +966,8 @@ void MtuU8XmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *
 	else if (!strcasecmp(content, "8192")) *p = GetMtuFromBytes(8192);
 	else if (!strcasecmp(content, "10240")) *p = GetMtuFromBytes(10240);
 	else {
-			IXmlParserPrintError(state, "Virtual Fabric MaxMTU must be (2048, 4096, 8192, 10240, or Unlimited)");
+			IXmlParserPrintError(state, "%s must be (2048, 4096, 8192, 10240, or Unlimited)",
+				field->tag);
 			return;
 	}
 }
@@ -940,10 +977,10 @@ void RateU8XmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void 
 	uint8_t *p = (uint8_t *)IXmlParserGetField(field, object);
 
 	if (xml_parse_debug)
-		fprintf(stdout, "RateU8XmlParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "RateU8XmlParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML %s tag\n",field->tag); 
+		fprintf(stderr, "Error processing XML %s tag\n",field->tag);
 		return;
 	}
 
@@ -967,10 +1004,10 @@ static int checkVFSID(VF_t *vf, uint64_t serviceId)
 
 	for_all_qmap_ptr(&vf->apps.sidMap, cl_map_item, a) {
 		if ((!a->service_id_last &&
-			(serviceId == a->service_id)) || 
-			((a->service_id <= serviceId) &&          
-			(a->service_id_last >= serviceId)) ||     
-			((serviceId & a->service_id_mask) ==      
+			(serviceId == a->service_id)) ||
+			((a->service_id <= serviceId) &&
+			(a->service_id_last >= serviceId)) ||
+			((serviceId & a->service_id_mask) ==
 			(a->service_id & a->service_id_mask)))
 				return TRUE;
 	}
@@ -996,6 +1033,25 @@ static void set_log_masks(uint32_t log_level, uint32_t syslog_mode, FmParamU32_t
 	}
 }
 
+boolean isValidMtuSetting(VFConfig_t* vfp) {
+	int numApplications = vfp->number_of_applications;
+	int appIdx;
+	boolean isValid = TRUE;
+	for (appIdx = 0; appIdx < numApplications; appIdx++) {
+		char* appName = &vfp->application[appIdx].application[0];
+		if ( (strcasecmp(appName, "SA") == 0) ||
+			 (strcasecmp(appName, "PA") == 0) ||
+			 (strcasecmp(appName, "PM") == 0)) {
+
+			if (vfp->max_mtu_int < IB_MTU_2048) {
+				isValid = FALSE;
+				break;
+			}
+		}
+	}
+	return isValid;
+}
+
 // Clear FM config
 void fmClearConfig(FMXmlConfig_t *fmp)
 {
@@ -1017,18 +1073,18 @@ void fmClearConfig(FMXmlConfig_t *fmp)
 }
 
 // initialize FM defaults
-void fmInitConfig(FMXmlConfig_t *fmp, uint32_t instance)
+boolean fmInitConfig(FMXmlConfig_t *fmp, uint32_t instance)
 {
 	if (!fmp)
-		return;
+		return 0;
 
 	// FM values are not checksummed.
-	DEFAULT_U32(fmp->start, 0); // Instance defaults to disabled
-	DEFAULT_U32(fmp->hca, 0);
-	DEFAULT_U32(fmp->port, 1);
-	DEFAULT_U32(fmp->startup_retries, 5);
-	DEFAULT_U32(fmp->startup_stable_wait, 10);
-	DEFAULT_U32(fmp->subnet_size, DEFAULT_SUBNET_SIZE);
+	DEFAULT_INT(fmp->start, 0); // Instance defaults to disabled
+	DEFAULT_INT(fmp->hca, 0);
+	DEFAULT_INT(fmp->port, 1);
+	DEFAULT_INT(fmp->startup_retries, 5);
+	DEFAULT_INT(fmp->startup_stable_wait, 10);
+	DEFAULT_INT(fmp->subnet_size, DEFAULT_SUBNET_SIZE);
 	if (fmp->subnet_size > MAX_SUBNET_SIZE) {
         IB_LOG_INFO_FMT(__func__, "FM subnet size is being adjusted from %u to %u", fmp->subnet_size, MAX_SUBNET_SIZE);
         fmp->subnet_size = MAX_SUBNET_SIZE;
@@ -1038,31 +1094,32 @@ void fmInitConfig(FMXmlConfig_t *fmp, uint32_t instance)
         fmp->subnet_size = MIN_SUPPORTED_ENDPORTS;
     }
 
-	DEFAULT_U32(fmp->debug, 0);
-	DEFAULT_U32(fmp->debug_rmpp, 0);
-	DEFAULT_U32(fmp->priority, 0);
-	DEFAULT_U32(fmp->elevated_priority, 0);
-	DEFAULT_U32(fmp->log_level, 1);
-	DEFAULT_U32(fmp->syslog_mode, 0);
+	DEFAULT_INT(fmp->debug, 0);
+	DEFAULT_INT(fmp->debug_rmpp, 0);
+	DEFAULT_INT(fmp->priority, 0);
+	DEFAULT_INT(fmp->elevated_priority, 0);
+	DEFAULT_INT(fmp->log_level, 1);
+	DEFAULT_INT(fmp->syslog_mode, 0);
 	// after parsing is done, fill in unspecified log_masks based on log_level
 	set_log_masks(fmp->log_level, fmp->syslog_mode, fmp->log_masks);
-	DEFAULT_U32(fmp->config_consistency_check_level, DEFAULT_CCC_LEVEL);
-	DEFAULT_U32(fmp->config_consistency_check_method, DEFAULT_CCC_METHOD);
-	DEFAULT_U64(fmp->subnet_prefix, 0);
-	DEFAULT_U64(fmp->port_guid, 0);
+	DEFAULT_INT(fmp->config_consistency_check_level, DEFAULT_CCC_LEVEL);
+	DEFAULT_INT(fmp->config_consistency_check_method, DEFAULT_CCC_METHOD);
+	DEFAULT_INT(fmp->subnet_prefix, 0);
+	DEFAULT_INT(fmp->port_guid, 0);
 	DEFAULT_STR(fmp->CoreDumpLimit, "0");
 	DEFAULT_STR(fmp->CoreDumpDir, "/var/crash/opafm");
 	DEFAULT_STR(fmp->syslog_facility, "local6");
     // FIXME: cjking - Temporary patch, default values for OpenSSL Security Support are to be determined
-	DEFAULT_U32(fmp->SslSecurityEnabled, 0);
+	DEFAULT_INT(fmp->SslSecurityEnabled, 0);
 	DEFAULT_STR(fmp->SslSecurityDir, FM_SSL_SECURITY_DIR);
 	DEFAULT_STR(fmp->SslSecurityFmCertificate, "fm_cert.pem");
 	DEFAULT_STR(fmp->SslSecurityFmPrivateKey, "fm_key.pem");
 	DEFAULT_STR(fmp->SslSecurityFmCaCertificate, "fm_ca_cert.pem");
-	DEFAULT_U32(fmp->SslSecurityFmCertChainDepth, 1);
+	DEFAULT_INT(fmp->SslSecurityFmCertChainDepth, 1);
 	DEFAULT_STR(fmp->SslSecurityFmDHParameters, "fm_dh_parms.pem");
-	DEFAULT_U32(fmp->SslSecurityFmCaCRLEnabled, 0);
+	DEFAULT_INT(fmp->SslSecurityFmCaCRLEnabled, 0);
 	DEFAULT_STR(fmp->SslSecurityFmCaCRL, "fm_ca_crl.pem");
+	return 1;
 }
 
 // Clear PM config
@@ -1072,8 +1129,6 @@ void pmClearConfig(PMXmlConfig_t *pmp)
 		return;
 
 	memset(pmp->log_file, 0, sizeof(pmp->log_file));
-	memset(pmp->CoreDumpLimit, 0, sizeof(pmp->CoreDumpLimit));
-	memset(pmp->CoreDumpDir, 0, sizeof(pmp->CoreDumpDir));
 	memset(pmp->syslog_facility, 0, sizeof(pmp->syslog_facility));
 	memset(pmp->log_masks, 0, sizeof(pmp->log_masks));
 	memset(pmp->name, 0, sizeof(pmp->name));
@@ -1086,7 +1141,7 @@ void pmClearConfig(PMXmlConfig_t *pmp)
 }
 
 // initialize PM defaults
-void pmInitConfig(PMXmlConfig_t *pmp, uint32_t instance, uint32_t ccc_method)
+boolean pmInitConfig(PMXmlConfig_t *pmp, uint32_t instance, uint32_t ccc_method)
 {
 	int i;
 
@@ -1096,7 +1151,7 @@ void pmInitConfig(PMXmlConfig_t *pmp, uint32_t instance, uint32_t ccc_method)
 #endif
 
 	if (!pmp)
-		return;
+		return 0;
 
 #ifdef __VXWORKS__
 	idbSmGetManagersToStart(&startPM, &startFE);
@@ -1104,89 +1159,94 @@ void pmInitConfig(PMXmlConfig_t *pmp, uint32_t instance, uint32_t ccc_method)
 		pmp->start = 0;
 #endif
 
+	DEFAULT_INT(pmp->start, 1); // PM defaults to enabled
+	if (!pmp->start) { // if Pm is diabled, set the checksums to 0 and return
+		pmp->overall_checksum = 0;
+		pmp->disruptive_checksum = 0;
+		pmp->consistency_checksum = 0;
+		return 1;
+	}
+
 	CKSUM_BEGIN(ccc_method);
 
-	DEFAULT_AND_CKSUM_U32(pmp->start, 1, CKSUM_OVERALL_DISRUPT_CONSIST); // PM defaults to enabled
-	DEFAULT_AND_CKSUM_U32(pmp->hca, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(pmp->port, 1, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U64(pmp->port_guid, 0, CKSUM_OVERALL_DISRUPT);
+	// if the pm is enabled, do CKSUM checks
+	CKSUM_DATA(pmp->start, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->hca, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(pmp->port, 1, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(pmp->port_guid, 0, CKSUM_OVERALL_DISRUPT);
 
 	// Currently, dynamic changes to pm log_level are supported.
-	DEFAULT_AND_CKSUM_U32(pmp->log_level, 1, CKSUM_OVERALL);
+	DEFAULT_AND_CKSUM_INT(pmp->log_level, 1, CKSUM_OVERALL);
 	// Dynamic changes to syslog_mode are not (yet) supported.
-	DEFAULT_AND_CKSUM_U32(pmp->syslog_mode, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(pmp->syslog_mode, 0, CKSUM_OVERALL_DISRUPT);
 	// Dynamic manual changes to log_masks are not (yet) supported.
-	// Therefore, add the log_masks to the overall and disruptive 
+	// Therefore, add the log_masks to the overall and disruptive
 	// checksums BEFORE updating them based on defaults,
 	// log_level, and syslog_mode.
 	CKSUM_DATA(pmp->log_masks, CKSUM_OVERALL_DISRUPT);
 	// after parsing is done, fill in unspecified log_masks based on log_level
 	set_log_masks(pmp->log_level, pmp->syslog_mode, pmp->log_masks);
-	DEFAULT_AND_CKSUM_U32(pmp->config_consistency_check_method, DEFAULT_CCC_METHOD, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(pmp->config_consistency_check_level, DEFAULT_CCC_LEVEL, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->config_consistency_check_method, DEFAULT_CCC_METHOD, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->config_consistency_check_level, DEFAULT_CCC_LEVEL, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	// Should PM have it's own CoreDumpLimit and CoreDumpDir? It's a thread inside of SM
-	DEFAULT_AND_CKSUM_STR(pmp->CoreDumpLimit, "0", CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_STR(pmp->CoreDumpDir, "/var/crash/opafm", CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(pmp->priority, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(pmp->elevated_priority, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(pmp->timer, 60, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->sweep_interval, 10, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->ErrorClear, 7, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->ClearDataXfer, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->Clear64bit, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->Clear32bit, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->Clear8bit, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->process_hfi_counters, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->process_vl_counters, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_AND_CKSUM_U32(pmp->priority, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(pmp->elevated_priority, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(pmp->timer, 60, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U16(pmp->sweep_interval, 10, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->ErrorClear, 7, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->ClearDataXfer, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->Clear64bit, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->Clear32bit, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->Clear8bit, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->process_hfi_counters, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->process_vl_counters, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->MaxRetries, PM_DEFAULT_MAX_ATTEMPTS, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->RcvWaitInterval, PM_DEFAULT_RESP_TIMEOUT, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->MinRcvWaitInterval, PM_DEFAULT_MIN_RESP_TIMEOUT, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->SweepErrorsLogThreshold, PM_DEFAULT_SWEEP_ERRORS_LOG_THRESHOLD, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->MaxParallelNodes, PM_DEFAULT_MAX_PARALLEL_NODES, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->PmaBatchSize, PM_DEFAULT_PMA_BATCH_SIZE, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_AND_CKSUM_U32(pmp->MaxRetries, PM_DEFAULT_MAX_ATTEMPTS, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(pmp->RcvWaitInterval, PM_DEFAULT_RESP_TIMEOUT, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(pmp->MinRcvWaitInterval, PM_DEFAULT_MIN_RESP_TIMEOUT, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(pmp->SweepErrorsLogThreshold, PM_DEFAULT_SWEEP_ERRORS_LOG_THRESHOLD, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(pmp->MaxParallelNodes, PM_DEFAULT_MAX_PARALLEL_NODES, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(pmp->PmaBatchSize, PM_DEFAULT_PMA_BATCH_SIZE, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->freeze_frame_lease, PM_DEFAULT_FF_LEASE, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->max_clients, PM_DEFAULT_PA_MAX_CLIENTS, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->freeze_frame_images, PM_DEFAULT_FF_IMAGES, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->total_images, MAX(pmp->freeze_frame_images + 2, PM_DEFAULT_TOTAL_IMAGES), CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_INT(pmp->image_update_interval, pmp->sweep_interval < 2 ? (pmp->sweep_interval + 1) / 2 : pmp->sweep_interval / 2);
 
-	DEFAULT_AND_CKSUM_U32(pmp->freeze_frame_lease, PM_DEFAULT_FF_LEASE, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(pmp->max_clients, PM_DEFAULT_PA_MAX_CLIENTS, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(pmp->freeze_frame_images, PM_DEFAULT_FF_IMAGES, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(pmp->total_images, MAX(pmp->freeze_frame_images + 2, PM_DEFAULT_TOTAL_IMAGES), CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_U16(pmp->image_update_interval, pmp->sweep_interval < 2 ? (pmp->sweep_interval + 1) / 2 : pmp->sweep_interval / 2);
+	DEFAULT_AND_CKSUM_INT(pmp->thresholds.Integrity, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->thresholds.Congestion, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->thresholds.SmaCongestion, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->thresholds.Bubble, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->thresholds.Security, 10, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->thresholds.Routing, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_AND_CKSUM_U32(pmp->thresholds.Integrity, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(pmp->thresholds.Congestion, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(pmp->thresholds.SmaCongestion, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(pmp->thresholds.Bubble, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(pmp->thresholds.Security, 10, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(pmp->thresholds.Routing, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->thresholdsExceededMsgLimit.Integrity, 10, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(pmp->thresholdsExceededMsgLimit.Congestion, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(pmp->thresholdsExceededMsgLimit.SmaCongestion, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(pmp->thresholdsExceededMsgLimit.Bubble, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(pmp->thresholdsExceededMsgLimit.Security, 10, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(pmp->thresholdsExceededMsgLimit.Routing, 10, CKSUM_OVERALL_DISRUPT);
 
-	DEFAULT_AND_CKSUM_U32(pmp->thresholdsExceededMsgLimit.Integrity, 10, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(pmp->thresholdsExceededMsgLimit.Congestion, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(pmp->thresholdsExceededMsgLimit.SmaCongestion, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(pmp->thresholdsExceededMsgLimit.Bubble, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(pmp->thresholdsExceededMsgLimit.Security, 10, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(pmp->thresholdsExceededMsgLimit.Routing, 10, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(pmp->integrityWeights.LocalLinkIntegrityErrors, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->integrityWeights.PortRcvErrors, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->integrityWeights.ExcessiveBufferOverruns, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->integrityWeights.LinkErrorRecovery, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->integrityWeights.LinkDowned, 25, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->integrityWeights.UncorrectableErrors, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->integrityWeights.FMConfigErrors, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->integrityWeights.LinkQualityIndicator, 40, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->integrityWeights.LinkWidthDowngrade, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_AND_CKSUM_U8(pmp->integrityWeights.LocalLinkIntegrityErrors, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->integrityWeights.PortRcvErrors, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->integrityWeights.ExcessiveBufferOverruns, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->integrityWeights.LinkErrorRecovery, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->integrityWeights.LinkDowned, 25, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->integrityWeights.UncorrectableErrors, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->integrityWeights.FMConfigErrors, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->integrityWeights.LinkQualityIndicator, 40, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->integrityWeights.LinkWidthDowngrade, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->congestionWeights.PortXmitWait, 10, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->congestionWeights.SwPortCongestion, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->congestionWeights.PortRcvFECN, 5, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->congestionWeights.PortRcvBECN, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->congestionWeights.PortXmitTimeCong, 25, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->congestionWeights.PortMarkFECN, 25, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_AND_CKSUM_U8(pmp->congestionWeights.PortXmitWait, 10, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->congestionWeights.SwPortCongestion, 100, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->congestionWeights.PortRcvFECN, 5, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->congestionWeights.PortRcvBECN, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->congestionWeights.PortXmitTimeCong, 25, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->congestionWeights.PortMarkFECN, 25, CKSUM_OVERALL_DISRUPT_CONSIST);
-
-	DEFAULT_AND_CKSUM_U8(pmp->resolution.LocalLinkIntegrity, 8000000, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(pmp->resolution.LinkErrorRecovery, 100000, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->resolution.LocalLinkIntegrity, 8000000, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->resolution.LinkErrorRecovery, 100000, CKSUM_OVERALL_DISRUPT_CONSIST);
 
 	for (i = 0; i < pmp->number_of_pm_groups; i++) {
 		if (pmp->pm_portgroups[i].Enabled) {
@@ -1195,10 +1255,10 @@ void pmInitConfig(PMXmlConfig_t *pmp, uint32_t instance, uint32_t ccc_method)
 		}
 	}
 
-	DEFAULT_AND_CKSUM_U32(pmp->debug, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(pmp->debug_rmpp, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(pmp->debug, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(pmp->debug_rmpp, 0, CKSUM_OVERALL_DISRUPT);
 
-	DEFAULT_U32(pmp->subnet_size, DEFAULT_SUBNET_SIZE);
+	DEFAULT_INT(pmp->subnet_size, DEFAULT_SUBNET_SIZE);
 	if (pmp->subnet_size > MAX_SUBNET_SIZE) {
         IB_LOG_INFO_FMT(__func__, "PM subnet size is being adjusted from %u to %u", pmp->subnet_size, MAX_SUBNET_SIZE);
         pmp->subnet_size = MAX_SUBNET_SIZE;
@@ -1209,21 +1269,21 @@ void pmInitConfig(PMXmlConfig_t *pmp, uint32_t instance, uint32_t ccc_method)
     }
 	CKSUM_DATA(pmp->subnet_size, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_AND_CKSUM_U8(pmp->shortTermHistory.enable, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(pmp->shortTermHistory.enable, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
 	if (pmp->shortTermHistory.enable) {
-		DEFAULT_AND_CKSUM_U32(pmp->shortTermHistory.imagesPerComposite, 3, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U32(pmp->shortTermHistory.maxDiskSpace, 1024, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(pmp->shortTermHistory.imagesPerComposite, 3, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(pmp->shortTermHistory.maxDiskSpace, 1024, CKSUM_OVERALL_DISRUPT_CONSIST);
 		DEFAULT_AND_CKSUM_STR(pmp->shortTermHistory.StorageLocation, "/var/lib/opa-fm", CKSUM_OVERALL_DISRUPT);
-		DEFAULT_AND_CKSUM_U32(pmp->shortTermHistory.totalHistory, 24, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U8(pmp->shortTermHistory.compressionDivisions, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(pmp->shortTermHistory.totalHistory, 24, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(pmp->shortTermHistory.compressionDivisions, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
 	}
 
-	DEFAULT_U32(pmp->SslSecurityEnabled, 0);
+	DEFAULT_INT(pmp->SslSecurityEnabled, 0);
 	DEFAULT_STR(pmp->SslSecurityDir, FM_SSL_SECURITY_DIR);
 	DEFAULT_STR(pmp->SslSecurityFmCertificate, "fm_cert.pem");
 	DEFAULT_STR(pmp->SslSecurityFmPrivateKey, "fm_key.pem");
 	DEFAULT_STR(pmp->SslSecurityFmCaCertificate, "fm_ca_cert.pem");
-	DEFAULT_U32(pmp->SslSecurityFmCertChainDepth, 1);
+	DEFAULT_INT(pmp->SslSecurityFmCertChainDepth, 1);
 	DEFAULT_STR(pmp->SslSecurityFmDHParameters, "fm_dh_parms.pem");
 	DEFAULT_STR(pmp->SslSecurityFmCaCRL, "fm_ca_crl.pem");
 
@@ -1239,6 +1299,7 @@ void pmInitConfig(PMXmlConfig_t *pmp, uint32_t instance, uint32_t ccc_method)
 	if (xml_parse_debug)
 		fprintf(stdout, "Pm instance %u checksum overall %u disruptive %u consistency %u\n", (unsigned int)instance,
 			(unsigned int)pmp->overall_checksum, (unsigned int)pmp->disruptive_checksum, (unsigned int)pmp->consistency_checksum);
+	return 1;
 }
 
 // show the PM XML config
@@ -1255,13 +1316,11 @@ void pmShowConfig(PMXmlConfig_t *pmp)
 	printf("XML - hca %u\n", (unsigned int)pmp->hca);
 	printf("XML - port %u\n", (unsigned int)pmp->port);
 	printf("XML - port_guid %u\n", (unsigned int)pmp->port_guid);
-	
+
 	printf("XML - name %s\n", pmp->name);
 	printf("XML - log_file %s\n", pmp->log_file);
 #ifndef __VXWORKS__
 	printf("XML - syslog_facility %s\n", pmp->syslog_facility);
-	printf("XML - CoreDumpLimit %s\n", pmp->CoreDumpLimit);
-	printf("XML - CoreDumpDir %s\n", pmp->CoreDumpDir);
 	for (modid=0; modid<= VIEO_LAST_MOD_ID; ++modid)
 		printf("XML - log_mask[%u] 0x%x\n", modid, (unsigned int)pmp->log_masks[modid].value);
 #endif
@@ -1371,7 +1430,7 @@ void feClearConfig(FEXmlConfig_t *fep)
 }
 
 // initialize FE defaults
-void feInitConfig(FEXmlConfig_t *fep, uint32_t instance, uint32_t ccc_method)
+boolean feInitConfig(FEXmlConfig_t *fep, uint32_t instance, uint32_t ccc_method)
 {
 #ifdef __VXWORKS__
 	int startPM=1;
@@ -1379,9 +1438,7 @@ void feInitConfig(FEXmlConfig_t *fep, uint32_t instance, uint32_t ccc_method)
 #endif
 
     if (!fep)
-        return;
-
-    CKSUM_BEGIN(ccc_method);
+        return 0;
 
 #ifdef __VXWORKS__
 	idbSmGetManagersToStart(&startPM, &startFE);
@@ -1389,18 +1446,29 @@ void feInitConfig(FEXmlConfig_t *fep, uint32_t instance, uint32_t ccc_method)
 		fep->start = 0;
 #endif
 
-	DEFAULT_AND_CKSUM_U32(fep->start, 0, CKSUM_OVERALL_DISRUPT); // FE defaults to disabled
-	DEFAULT_AND_CKSUM_U32(fep->hca, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(fep->port, 1, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U64(fep->port_guid, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_INT(fep->start, 0); // FE defaults to disabled
+	if (!fep->start) { // if fe is diabled, set the checksums to 0 and return
+		fep->overall_checksum = 0;
+		fep->disruptive_checksum = 0;
+		fep->consistency_checksum = 0;
+		return 1;
+	}
 
-	DEFAULT_AND_CKSUM_U32(fep->startup_retries, 5, CKSUM_OVERALL);
-	DEFAULT_AND_CKSUM_U32(fep->startup_stable_wait, 10, CKSUM_OVERALL);
+	CKSUM_BEGIN(ccc_method);
+
+	// if the fe is enabled, do CKSUM checks
+	CKSUM_DATA(fep->start, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(fep->hca, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(fep->port, 1, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(fep->port_guid, 0, CKSUM_OVERALL_DISRUPT);
+
+	DEFAULT_AND_CKSUM_INT(fep->startup_retries, 5, CKSUM_OVERALL);
+	DEFAULT_AND_CKSUM_INT(fep->startup_stable_wait, 10, CKSUM_OVERALL);
 
 	// These are now processed when "fill" at end of parsing whole file
-	DEFAULT_AND_CKSUM_U32(fep->login, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(fep->login, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_U32(fep->subnet_size, DEFAULT_SUBNET_SIZE);
+	DEFAULT_INT(fep->subnet_size, DEFAULT_SUBNET_SIZE);
 	if (fep->subnet_size > MAX_SUBNET_SIZE) {
         IB_LOG_INFO_FMT(__func__, "FE subnet size is being adjusted from %u to %u", fep->subnet_size, MAX_SUBNET_SIZE);
         fep->subnet_size = MAX_SUBNET_SIZE;
@@ -1411,28 +1479,28 @@ void feInitConfig(FEXmlConfig_t *fep, uint32_t instance, uint32_t ccc_method)
     }
 	CKSUM_DATA(fep->subnet_size, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_AND_CKSUM_U32(fep->debug, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(fep->debug_rmpp, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(fep->log_level, 1, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(fep->syslog_mode, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(fep->listen, FE_LISTEN_PORT, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(fep->window, FE_WIN_SIZE, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(fep->debug, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(fep->debug_rmpp, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(fep->log_level, 1, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(fep->syslog_mode, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(fep->listen, FE_LISTEN_PORT, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(fep->window, FE_WIN_SIZE, CKSUM_OVERALL_DISRUPT_CONSIST);
 	set_log_masks(fep->log_level, fep->syslog_mode, fep->log_masks);
 	CKSUM_DATA(fep->log_masks, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(fep->config_consistency_check_method, DEFAULT_CCC_METHOD, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(fep->config_consistency_check_method, DEFAULT_CCC_METHOD, CKSUM_OVERALL_DISRUPT);
 	DEFAULT_AND_CKSUM_STR(fep->CoreDumpLimit, "0", CKSUM_OVERALL_DISRUPT);
 	DEFAULT_AND_CKSUM_STR(fep->CoreDumpDir, "/var/crash/opafm", CKSUM_OVERALL_DISRUPT);
 	DEFAULT_AND_CKSUM_STR(fep->syslog_facility, "local6", CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(fep->manager_check_rate, 60000000, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(fep->SslSecurityEnabled, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(fep->manager_check_rate, 60000000, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(fep->SslSecurityEnabled, 0, CKSUM_OVERALL_DISRUPT);
 	if (fep->SslSecurityEnabled) {
 		DEFAULT_AND_CKSUM_STR(fep->SslSecurityDir, FM_SSL_SECURITY_DIR, CKSUM_OVERALL_DISRUPT);
 		DEFAULT_AND_CKSUM_STR(fep->SslSecurityFmCertificate, "fm_cert.pem", CKSUM_OVERALL_DISRUPT);
 		DEFAULT_AND_CKSUM_STR(fep->SslSecurityFmPrivateKey, "fm_key.pem", CKSUM_OVERALL_DISRUPT);
 		DEFAULT_AND_CKSUM_STR(fep->SslSecurityFmCaCertificate, "fm_ca_cert.pem", CKSUM_OVERALL_DISRUPT);
-		DEFAULT_AND_CKSUM_U32(fep->SslSecurityFmCertChainDepth, 1, CKSUM_OVERALL_DISRUPT);
+		DEFAULT_AND_CKSUM_INT(fep->SslSecurityFmCertChainDepth, 1, CKSUM_OVERALL_DISRUPT);
 		DEFAULT_AND_CKSUM_STR(fep->SslSecurityFmDHParameters, "fm_dh_parms.pem", CKSUM_OVERALL_DISRUPT);
-		DEFAULT_AND_CKSUM_U32(fep->SslSecurityFmCaCRLEnabled, 0, CKSUM_OVERALL_DISRUPT);
+		DEFAULT_AND_CKSUM_INT(fep->SslSecurityFmCaCRLEnabled, 0, CKSUM_OVERALL_DISRUPT);
 		DEFAULT_AND_CKSUM_STR(fep->SslSecurityFmCaCRL, "fm_ca_crl.pem", CKSUM_OVERALL_DISRUPT);
 	}
 
@@ -1441,6 +1509,7 @@ void feInitConfig(FEXmlConfig_t *fep, uint32_t instance, uint32_t ccc_method)
     if (xml_parse_debug)
         fprintf(stdout, "Fe instance %u checksum overall %u disruptive %u consistency %u\n", (unsigned int)instance,
             (unsigned int)fep->overall_checksum, (unsigned int)fep->disruptive_checksum, (unsigned int)fep->consistency_checksum);
+	return 1;
 }
 
 // show the FE XML config
@@ -1580,8 +1649,6 @@ void smClearConfig(SMXmlConfig_t *smp)
 		return;
 
 	memset(smp->dumpCounters, 0, sizeof(smp->dumpCounters));
-	memset(smp->CoreDumpLimit, 0, sizeof(smp->CoreDumpLimit));
-	memset(smp->CoreDumpDir, 0, sizeof(smp->CoreDumpDir));
 	memset(smp->log_file, 0, sizeof(smp->log_file));
 	memset(smp->syslog_facility, 0, sizeof(smp->syslog_facility));
 	memset(smp->log_masks, 0, sizeof(smp->log_masks));
@@ -1600,57 +1667,69 @@ void smClearConfig(SMXmlConfig_t *smp)
 }
 
 // initialize SM defaults
-void smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *mcp, SmMcastMlidShare_t *mlsp, DGXmlConfig_t *dgp, uint32_t instance, uint32_t ccc_method)
+boolean smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *mcp, SmMcastMlidShare_t *mlsp, DGXmlConfig_t *dgp, uint32_t instance, uint32_t ccc_method)
 {
 	DGConfig_t *dg;
 	uint32_t i;
 	SmSPRoutingCtrl_t *SPRoutingCtrl;
 
 	if (!smp || !dplp || !mcp || !mlsp || !dgp)
-		return;
+		return 0;
+
+	DEFAULT_INT(smp->start, 1); // Sm defaults to enabled
+	if (!smp->start) { // if Sm is diabled, set the checksums to 0 and return
+		smp->overall_checksum = 0;
+		smp->disruptive_checksum = 0;
+		smp->consistency_checksum = 0;
+		return 1;
+	}
 
 	CKSUM_BEGIN(ccc_method);
 
-	DEFAULT_AND_CKSUM_U32(smp->start, 1, CKSUM_OVERALL_DISRUPT); // Sm defaults to enabled
-	DEFAULT_AND_CKSUM_U32(smp->hca, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(smp->port, 1, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U64(smp->port_guid, 0, CKSUM_OVERALL_DISRUPT);
+	// if the sm is enabled, do CKSUM checks
+	CKSUM_DATA(smp->start, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->hca, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->port, 1, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->port_guid, 0, CKSUM_OVERALL_DISRUPT);
 
-	DEFAULT_AND_CKSUM_U32(smp->startup_retries, 5, CKSUM_OVERALL);
-	DEFAULT_AND_CKSUM_U32(smp->startup_stable_wait, 10, CKSUM_OVERALL);
+	DEFAULT_AND_CKSUM_INT(smp->startup_retries, 5, CKSUM_OVERALL);
+	DEFAULT_AND_CKSUM_INT(smp->startup_stable_wait, 10, CKSUM_OVERALL);
 
-	DEFAULT_AND_CKSUM_U64(smp->sm_key, 0x0ull, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U64(smp->mkey, 0x0ull, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U64(smp->timer, 300, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->IgnoreTraps, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->max_retries, MAD_RETRIES, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->rcv_wait_msec, MAD_RCV_WAIT_MSEC, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->min_rcv_wait_msec, MAD_MIN_RCV_WAIT_MSEC, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->master_ping_interval, SM_CHECK_MASTER_INTERVAL, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->master_ping_max_fail, SM_CHECK_MASTER_MAX_COUNT, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->topo_errors_threshold, 8, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->topo_abandon_threshold, 2, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->switch_lifetime_n2, 13, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->hoqlife_n2, 8, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->vl15FlowControlDisable, 1, CKSUM_OVERALL_DISRUPT_CONSIST); // by default, VL15 flow ctrl disabled
-	DEFAULT_AND_CKSUM_U32(smp->vl15_credit_rate, 18, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->sa_resp_time_n2, 19, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->sa_packet_lifetime_n2, 16, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->vlstall, 7, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->db_sync_interval, 15, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->trap_threshold, SM_TRAP_THRESHOLD_DEFAULT, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->trap_threshold_min_count, SM_TRAP_THRESHOLD_COUNT_DEFAULT, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->trap_log_suppress_trigger_interval, SM_TRAP_LOG_SUPPRESS_TRIGGER_INTERVAL, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(smp->mc_dos_threshold, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->mc_dos_action, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->mc_dos_interval, 60, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->node_appearance_msg_thresh, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->spine_first_routing, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->shortestPathBalanced, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->lid, 0x0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->sm_key, 0x0ull, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->mkey, 0x0ull, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->timer, 300, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_U32(smp->lmc, 0x0);
-	DEFAULT_U32(smp->lmc_e0, 0x0);
+	DEFAULT_INT(smp->IgnoreTraps, 0);
+	CKSUM_DATA(smp->IgnoreTraps, CKSUM_OVERALL_DISRUPT_CONSIST);
+
+	DEFAULT_AND_CKSUM_INT(smp->max_retries, MAD_RETRIES, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->rcv_wait_msec, MAD_RCV_WAIT_MSEC, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->min_rcv_wait_msec, MAD_MIN_RCV_WAIT_MSEC, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->master_ping_interval, SM_CHECK_MASTER_INTERVAL, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->master_ping_max_fail, SM_CHECK_MASTER_MAX_COUNT, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->topo_errors_threshold, 8, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->topo_abandon_threshold, 2, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->switch_lifetime_n2, 13, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->hoqlife_n2, 8, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->vl15FlowControlDisable, 1, CKSUM_OVERALL_DISRUPT_CONSIST); // by default, VL15 flow ctrl disabled
+	DEFAULT_AND_CKSUM_INT(smp->vl15_credit_rate, 18, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->sa_resp_time_n2, 19, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->sa_packet_lifetime_n2, 16, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->vlstall, 7, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->db_sync_interval, 15, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->trap_threshold, SM_TRAP_THRESHOLD_DEFAULT, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->trap_threshold_min_count, SM_TRAP_THRESHOLD_COUNT_DEFAULT, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->trap_log_suppress_trigger_interval, SM_TRAP_LOG_SUPPRESS_TRIGGER_INTERVAL, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->mc_dos_threshold, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->mc_dos_action, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->mc_dos_interval, 60, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->node_appearance_msg_thresh, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->spine_first_routing, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->shortestPathBalanced, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->lid, 0x0, CKSUM_OVERALL_DISRUPT);
+
+	DEFAULT_INT(smp->lmc, 0x0);
+	DEFAULT_INT(smp->lmc_e0, 0x0);
 	if (smp->lmc > 7) {
         IB_LOG_WARN_FMT(__func__, "'Lmc' option of %d is not valid; defaulting to 0", smp->lmc);
         smp->lmc = 0;
@@ -1662,7 +1741,7 @@ void smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 	CKSUM_DATA(smp->lmc, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_DATA(smp->lmc_e0, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_U32(smp->subnet_size, DEFAULT_SUBNET_SIZE);
+	DEFAULT_INT(smp->subnet_size, DEFAULT_SUBNET_SIZE);
 	if (smp->subnet_size > MAX_SUBNET_SIZE) {
         IB_LOG_INFO_FMT(__func__, "SM subnet size is being adjusted from %u to %u", smp->subnet_size, MAX_SUBNET_SIZE);
         smp->subnet_size = MAX_SUBNET_SIZE;
@@ -1673,43 +1752,41 @@ void smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
     }
 	CKSUM_DATA(smp->subnet_size, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_AND_CKSUM_STR(smp->CoreDumpLimit, "0", CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_STR(smp->CoreDumpDir, "/var/crash/opafm", CKSUM_OVERALL_DISRUPT);
 	DEFAULT_AND_CKSUM_STR(smp->syslog_facility, "local6", CKSUM_OVERALL_DISRUPT);
 	DEFAULT_AND_CKSUM_STR(smp->routing_algorithm, "shortestpath", CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_U32(smp->SslSecurityEnabled, 0);
+	DEFAULT_INT(smp->SslSecurityEnabled, 0);
 	DEFAULT_STR(smp->SslSecurityDir, FM_SSL_SECURITY_DIR);
 	DEFAULT_STR(smp->SslSecurityFmCertificate, "fm_cert.pem");
 	DEFAULT_STR(smp->SslSecurityFmPrivateKey, "fm_key.pem");
 	DEFAULT_STR(smp->SslSecurityFmCaCertificate, "fm_ca_cert.pem");
-	DEFAULT_U32(smp->SslSecurityFmCertChainDepth, 1);
+	DEFAULT_INT(smp->SslSecurityFmCertChainDepth, 1);
 	DEFAULT_STR(smp->SslSecurityFmDHParameters, "fm_dh_parms.pem");
-	DEFAULT_U32(smp->SslSecurityFmCaCRLEnabled, 0);
+	DEFAULT_INT(smp->SslSecurityFmCaCRLEnabled, 0);
 	DEFAULT_STR(smp->SslSecurityFmCaCRL, "fm_ca_crl.pem");
 
-	DEFAULT_AND_CKSUM_U32(smp->debug, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(smp->debug_rmpp, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(smp->priority, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(smp->elevated_priority, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->debug, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->debug_rmpp, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->priority, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->elevated_priority, 0, CKSUM_OVERALL_DISRUPT);
 	// Currently, dynamic changes to sm log_level are supported.
-	DEFAULT_AND_CKSUM_U32(smp->log_level, 1, CKSUM_OVERALL);
+	DEFAULT_AND_CKSUM_INT(smp->log_level, 1, CKSUM_OVERALL);
 	// Dynamic changes to syslog_mode are not (yet) supported.
-	DEFAULT_AND_CKSUM_U32(smp->syslog_mode, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->syslog_mode, 0, CKSUM_OVERALL_DISRUPT);
 	// Dynamic manual changes to log_masks are not (yet) supported.
-	// Therefore, add the log_masks to the overall and disruptive 
+	// Therefore, add the log_masks to the overall and disruptive
 	// checksums BEFORE updating them based on defaults,
 	// log_level, and syslog_mode.
 	CKSUM_DATA(smp->log_masks, CKSUM_OVERALL_DISRUPT);
 	// after parsing is done, fill in unspecified log_masks based on log_level
 	set_log_masks(smp->log_level, smp->syslog_mode, smp->log_masks);
-	DEFAULT_AND_CKSUM_U32(smp->config_consistency_check_method, DEFAULT_CCC_METHOD, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->config_consistency_check_level, DEFAULT_CCC_LEVEL, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->path_selection, PATH_MODE_MINIMAL, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->queryValidation, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->config_consistency_check_method, DEFAULT_CCC_METHOD, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->config_consistency_check_level, DEFAULT_CCC_LEVEL, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->path_selection, PATH_MODE_MINIMAL, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->queryValidation, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_U32(smp->sma_batch_size, 2);
-	DEFAULT_U32(smp->max_parallel_reqs, 3);
+	DEFAULT_INT(smp->sma_batch_size, 2);
+	DEFAULT_INT(smp->max_parallel_reqs, 3);
     if (smp->sma_batch_size == 0)
         smp->sma_batch_size = 1;
     if (smp->max_parallel_reqs == 0)
@@ -1718,58 +1795,59 @@ void smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 	CKSUM_DATA(smp->max_parallel_reqs, CKSUM_OVERALL_DISRUPT_CONSIST);
 
 
-	DEFAULT_AND_CKSUM_U32(smp->check_mft_responses, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->sm_debug_perf, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(smp->sa_debug_perf, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(smp->sm_debug_vf, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(smp->sm_debug_lid_assign, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(smp->debug_jm, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(smp->sa_rmpp_checksum, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(smp->loop_test_on, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(smp->loop_test_fast_mode, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(smp->loop_test_packets, 0, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U64(smp->non_resp_tsec, NONRESP_TIMEOUT, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->non_resp_max_count, NONRESP_MAXRETRY, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->monitor_standby_enable, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->dynamic_port_alloc, 1, CKSUM_OVERALL_DISRUPT);
-	DEFAULT_AND_CKSUM_U32(smp->topo_lid_offset, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->loopback_mode, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->force_rebalance, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->use_cached_node_data, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->sma_spoofing_check, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U16(smp->hfi_link_policy.link_max_downgrade, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(smp->hfi_link_policy.width_policy.enabled, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U16(smp->hfi_link_policy.width_policy.policy, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(smp->hfi_link_policy.speed_policy.enabled, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U16(smp->hfi_link_policy.speed_policy.policy, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U16(smp->isl_link_policy.link_max_downgrade, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(smp->isl_link_policy.width_policy.enabled, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U16(smp->isl_link_policy.width_policy.policy, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(smp->isl_link_policy.speed_policy.enabled, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U16(smp->isl_link_policy.speed_policy.policy, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->preemption.small_packet, SM_PREEMPT_SMALL_PACKET_DEF, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->preemption.large_packet, SM_PREEMPT_LARGE_PACKET_DEF, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->preemption.preempt_limit, SM_PREEMPT_LIMIT_DEF, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(smp->congestion.enable, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->check_mft_responses, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->sm_debug_perf, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->sa_debug_perf, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->sm_debug_vf, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->sm_debug_routing, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->sm_debug_lid_assign, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->debug_jm, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->sa_rmpp_checksum, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->loop_test_on, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->loop_test_fast_mode, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->loop_test_packets, 0, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->non_resp_tsec, NONRESP_TIMEOUT, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->non_resp_max_count, NONRESP_MAXRETRY, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->monitor_standby_enable, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->dynamic_port_alloc, 1, CKSUM_OVERALL_DISRUPT);
+	DEFAULT_AND_CKSUM_INT(smp->topo_lid_offset, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->loopback_mode, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->force_rebalance, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->use_cached_node_data, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->sma_spoofing_check, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->hfi_link_policy.link_max_downgrade, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->hfi_link_policy.width_policy.enabled, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->hfi_link_policy.width_policy.policy, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->hfi_link_policy.speed_policy.enabled, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->hfi_link_policy.speed_policy.policy, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->isl_link_policy.link_max_downgrade, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->isl_link_policy.width_policy.enabled, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->isl_link_policy.width_policy.policy, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->isl_link_policy.speed_policy.enabled, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->isl_link_policy.speed_policy.policy, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->preemption.small_packet, SM_PREEMPT_SMALL_PACKET_DEF, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->preemption.large_packet, SM_PREEMPT_LARGE_PACKET_DEF, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->preemption.preempt_limit, SM_PREEMPT_LIMIT_DEF, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->congestion.enable, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
 	if (smp->congestion.enable) {
-		DEFAULT_AND_CKSUM_U8(smp->congestion.debug, 0, CKSUM_OVERALL_DISRUPT);
-		DEFAULT_AND_CKSUM_U8(smp->congestion.sw.victim_marking_enable, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U8(smp->congestion.sw.threshold, 8, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_U8(smp->congestion.sw.packet_size, 0);
+		DEFAULT_AND_CKSUM_INT(smp->congestion.debug, 0, CKSUM_OVERALL_DISRUPT);
+		DEFAULT_AND_CKSUM_INT(smp->congestion.sw.victim_marking_enable, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->congestion.sw.threshold, 8, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_INT(smp->congestion.sw.packet_size, 0);
 		if (smp->congestion.sw.packet_size > 162) {
 			IB_LOG_WARN_FMT(__func__, "FM CC SwitchCongestionSetting:Packet Size Limit %d exceeds max value setting to 162", smp->congestion.sw.packet_size);
 			smp->congestion.sw.packet_size = 162;
 		}
 		CKSUM_DATA(smp->congestion.sw.packet_size, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U8(smp->congestion.sw.cs_threshold, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U16(smp->congestion.sw.cs_return_delay, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U32(smp->congestion.sw.marking_rate, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U8(smp->congestion.ca.sl_based, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U8(smp->congestion.ca.increase, 5, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U16(smp->congestion.ca.timer, 10, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U8(smp->congestion.ca.threshold, 8, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U8(smp->congestion.ca.min, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_U16(smp->congestion.ca.limit, 127);
+		DEFAULT_AND_CKSUM_INT(smp->congestion.sw.cs_threshold, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->congestion.sw.cs_return_delay, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->congestion.sw.marking_rate, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->congestion.ca.sl_based, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->congestion.ca.increase, 5, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->congestion.ca.timer, 10, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->congestion.ca.threshold, 8, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->congestion.ca.min, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_INT(smp->congestion.ca.limit, 127);
 
 		// limit is max index == max_entries-1
 		//Enforcing implementation limit for congestion rather than architectural limit (CONGESTION_CONTROL_TABLE_ENTRIES_PER_MAD-1).
@@ -1784,28 +1862,28 @@ void smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 		}
 
 		CKSUM_DATA(smp->congestion.ca.limit, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U32(smp->congestion.ca.desired_max_delay, 8000, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->congestion.ca.desired_max_delay, 8000, CKSUM_OVERALL_DISRUPT_CONSIST);
 	}
 
-	DEFAULT_AND_CKSUM_U8(smp->adaptiveRouting.enable, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->adaptiveRouting.enable, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
 	if (smp->adaptiveRouting.enable) {
-		DEFAULT_AND_CKSUM_U8(smp->adaptiveRouting.debug, 0, CKSUM_OVERALL_DISRUPT);
-		DEFAULT_AND_CKSUM_U8(smp->adaptiveRouting.lostRouteOnly, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U8(smp->adaptiveRouting.algorithm, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U8(smp->adaptiveRouting.arFrequency, 4, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U8(smp->adaptiveRouting.threshold, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->adaptiveRouting.debug, 0, CKSUM_OVERALL_DISRUPT);
+		DEFAULT_AND_CKSUM_INT(smp->adaptiveRouting.lostRouteOnly, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->adaptiveRouting.algorithm, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->adaptiveRouting.arFrequency, 4, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->adaptiveRouting.threshold, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
 	}
 
-	DEFAULT_AND_CKSUM_U8(smp->ftreeRouting.systematic, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(smp->ftreeRouting.debug, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(smp->ftreeRouting.tierCount, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(smp->ftreeRouting.fis_on_same_tier, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->ftreeRouting.systematic, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->ftreeRouting.debug, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->ftreeRouting.tierCount, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->ftreeRouting.fis_on_same_tier, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
 
 	for (i = 0; i < smp->dgRouting.dgCount; i++) {
 		CKSUM_STR(smp->dgRouting.dg[i].member, CKSUM_OVERALL_DISRUPT_CONSIST);
 	}
 
-	DEFAULT_AND_CKSUM_U8(smp->hypercubeRouting.debug, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->hypercubeRouting.debug, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_STR(smp->hypercubeRouting.routeLast.member, CKSUM_OVERALL_DISRUPT_CONSIST);
 
 	SPRoutingCtrl = smp->hypercubeRouting.enhancedRoutingCtrl;
@@ -1827,21 +1905,21 @@ void smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 		SPRoutingCtrl = SPRoutingCtrl->next;
 	}
 
-#ifdef CONFIG_INCLUDE_DOR
 	if (!strcasecmp(smp->routing_algorithm, "dor")) {
 		// If using dor, checksum the smDorRouting config.
 		CKSUM_DATA(smp->smDorRouting.dimensionCount, CKSUM_OVERALL_DISRUPT_CONSIST);
 		CKSUM_DATA(smp->smDorRouting.numToroidal, CKSUM_OVERALL_DISRUPT_CONSIST);
-		//CKSUM_DATA(smp->smDorRouting.updownOnly, CKSUM_OVERALL_DISRUPT_CONSIST); // Set by SM
 		CKSUM_DATA(smp->smDorRouting.dimension, CKSUM_OVERALL_DISRUPT_CONSIST);
+		CKSUM_DATA(smp->smDorRouting.escapeVLs, CKSUM_OVERALL_DISRUPT_CONSIST);
+		CKSUM_DATA(smp->smDorRouting.faultRegions, CKSUM_OVERALL_DISRUPT_CONSIST);
+		CKSUM_STR(smp->ftreeRouting.routeLast.member, CKSUM_OVERALL_DISRUPT_CONSIST);
 		CKSUM_DATA(smp->smDorRouting.debug, CKSUM_OVERALL_DISRUPT);
 		CKSUM_DATA(smp->smDorRouting.warn_threshold, CKSUM_OVERALL_DISRUPT);
-		CKSUM_DATA(smp->smDorRouting.updn_mc_same_spanning_tree, CKSUM_OVERALL_DISRUPT_CONSIST);
 		CKSUM_DATA(smp->smDorRouting.routingSCs, CKSUM_OVERALL_DISRUPT_CONSIST);
-		CKSUM_DATA(smp->smDorRouting.useUpDownOnDisruption, CKSUM_OVERALL_DISRUPT_CONSIST);
 		CKSUM_DATA(smp->smDorRouting.topology, CKSUM_OVERALL_DISRUPT_CONSIST);
+		CKSUM_DATA(smp->smDorRouting.overlayMCast, CKSUM_OVERALL_DISRUPT_CONSIST);
 	}
-#endif
+
 	if (!strcasecmp(smp->routing_algorithm, "fattree")) {
 		//If using fattree, checksum the fattree configuration
 		CKSUM_DATA(smp->ftreeRouting.debug, CKSUM_OVERALL_DISRUPT);
@@ -1850,12 +1928,13 @@ void smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 		CKSUM_STR(smp->ftreeRouting.coreSwitches.member, CKSUM_OVERALL_DISRUPT_CONSIST);
 		CKSUM_STR(smp->ftreeRouting.routeLast.member, CKSUM_OVERALL_DISRUPT_CONSIST);
 	}
-	DEFAULT_AND_CKSUM_U32(smp->appliances.enable, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+
+	DEFAULT_AND_CKSUM_INT(smp->appliances.enable, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
 	if (smp->appliances.enable)
 		for (i = 0; i < MAX_SM_APPLIANCES; i++)
-			DEFAULT_AND_CKSUM_U32(smp->appliances.guids[i], 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+			DEFAULT_AND_CKSUM_INT(smp->appliances.guids[i], 0, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_U8(smp->preDefTopo.enabled, 0)
+	DEFAULT_INT(smp->preDefTopo.enabled, 0)
 #ifdef __VXWORKS__
 	if(smp->preDefTopo.enabled) {
 		smp->preDefTopo.enabled = 0;
@@ -1863,28 +1942,31 @@ void smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 	}
 #endif
 	// If no pre-defined topology filename was provided, disable the feature
-	if (!strlen(smp->preDefTopo.topologyFilename)) 
+	if (!strlen(smp->preDefTopo.topologyFilename)) {
+		if (smp->preDefTopo.enabled)
+			IB_LOG_ERROR0("Pre Defined Topology: (Disabled) Empty topology file path.");
 		smp->preDefTopo.enabled = 0;
-	
-	DEFAULT_AND_CKSUM_U8(smp->preDefTopo.enabled, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	}
+
+	DEFAULT_AND_CKSUM_INT(smp->preDefTopo.enabled, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
 	if(smp->preDefTopo.enabled) {
 		CKSUM_STR(smp->preDefTopo.topologyFilename, CKSUM_OVERALL_DISRUPT);
 		CKSUM_FILE(smp->preDefTopo.topologyFilename, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U32(smp->preDefTopo.logMessageThreshold, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U32(smp->preDefTopo.fieldEnforcement.nodeDesc, FIELD_ENF_LEVEL_DISABLED, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U32(smp->preDefTopo.fieldEnforcement.nodeGuid, FIELD_ENF_LEVEL_DISABLED, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U32(smp->preDefTopo.fieldEnforcement.portGuid, FIELD_ENF_LEVEL_DISABLED, CKSUM_OVERALL_DISRUPT_CONSIST);
-		DEFAULT_AND_CKSUM_U32(smp->preDefTopo.fieldEnforcement.undefinedLink, FIELD_ENF_LEVEL_DISABLED, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->preDefTopo.logMessageThreshold, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->preDefTopo.fieldEnforcement.nodeDesc, FIELD_ENF_LEVEL_DISABLED, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->preDefTopo.fieldEnforcement.nodeGuid, FIELD_ENF_LEVEL_DISABLED, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->preDefTopo.fieldEnforcement.portGuid, FIELD_ENF_LEVEL_DISABLED, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(smp->preDefTopo.fieldEnforcement.undefinedLink, FIELD_ENF_LEVEL_DISABLED, CKSUM_OVERALL_DISRUPT_CONSIST);
 	}
 
 
-	DEFAULT_AND_CKSUM_U32(dplp->dp_lifetime[0], 0x01, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(dplp->dp_lifetime[0], 0x01, CKSUM_OVERALL_DISRUPT_CONSIST);
 	for (i = 1; i < DYNAMIC_PACKET_LIFETIME_ARRAY_SIZE; i++)
-		DEFAULT_AND_CKSUM_U32(dplp->dp_lifetime[i], 0x0, CKSUM_OVERALL_DISRUPT_CONSIST);
+		DEFAULT_AND_CKSUM_INT(dplp->dp_lifetime[i], 0x0, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_AND_CKSUM_U32(mcp->disable_mcast_check, 0x0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(mcp->enable_pruning, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(mcp->mcast_mlid_table_cap, DEFAULT_SW_MLID_TABLE_CAP, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(mcp->disable_mcast_check, 0x0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(mcp->enable_pruning, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(mcp->mcast_mlid_table_cap, DEFAULT_SW_MLID_TABLE_CAP, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_STR(mcp->mcroot_select_algorithm, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_STR(mcp->mcroot_min_cost_improvement, CKSUM_OVERALL_DISRUPT_CONSIST);
 
@@ -1895,27 +1977,27 @@ void smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 		CKSUM_DATA(mlsp->mcastMlid[i].mcastGrpMGidLimitValueConvert, CKSUM_OVERALL_DISRUPT_CONSIST);
 	}
 
-	DEFAULT_AND_CKSUM_U32(smp->minSharedVLMem, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->dedicatedVLMemMulti, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(smp->cableInfoPolicy, CIP_LINK, CKSUM_OVERALL_DISRUPT_CONSIST);
-    DEFAULT_AND_CKSUM_U32(smp->timerScalingEnable, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->min_supported_vls, 8, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->minSharedVLMem, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->dedicatedVLMemMulti, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->cableInfoPolicy, CIP_LINK, CKSUM_OVERALL_DISRUPT_CONSIST);
+    DEFAULT_AND_CKSUM_INT(smp->timerScalingEnable, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->min_supported_vls, 8, CKSUM_OVERALL_DISRUPT_CONSIST);
 
 	CKSUM_DATA(smp->wireDepthOverride, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_DATA(smp->replayDepthOverride, CKSUM_OVERALL_DISRUPT_CONSIST);
 
 	// If NoReplyIfBusy is set to 1, a MAD_STATUS_BUSY will not be returned to the SA requester.
-	DEFAULT_AND_CKSUM_U32(smp->NoReplyIfBusy, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->NoReplyIfBusy, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
 
 	if ((smp->lft_multi_block == UNDEFINED_XML32) || (smp->lft_multi_block > (STL_MAX_PAYLOAD_SMP_DR/MAX_LFT_ELEMENTS_BLOCK)))
 		smp->lft_multi_block = STL_MAX_PAYLOAD_SMP_DR/MAX_LFT_ELEMENTS_BLOCK;
 	CKSUM_DATA(smp->lft_multi_block, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->use_aggregates, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->sc_multi_block, STL_NUM_SCSC_BLOCKS_PER_DRSMP, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->optimized_portinfo, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->use_aggregates, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->sc_multi_block, STL_NUM_SCSC_BLOCKS_PER_DRSMP, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->optimized_portinfo, 1, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_AND_CKSUM_U32(smp->forceAttributeRewrite, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->skipAttributeWrite, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->forceAttributeRewrite, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->skipAttributeWrite, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
 
 	if (smp->defaultPortErrorAction == UNDEFINED_XML32) {
 		// Making defaultPortErrorAction a _PortErrorAction would make more sense
@@ -1931,12 +2013,12 @@ void smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 	}
 	CKSUM_DATA(smp->defaultPortErrorAction, CKSUM_OVERALL_DISRUPT_CONSIST);
 
-	DEFAULT_AND_CKSUM_U32(smp->switchCascadeActivateEnable, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->neighborNormalRetries, 2, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U8(smp->terminateAfter, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
-	DEFAULT_AND_CKSUM_U32(smp->portBounceLogLimit, PORT_BOUNCE_LOG_NO_LIMIT, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->switchCascadeActivateEnable, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->neighborNormalRetries, 2, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->terminateAfter, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->portBounceLogLimit, PORT_BOUNCE_LOG_NO_LIMIT, CKSUM_OVERALL_DISRUPT_CONSIST);
 	// FIXME: cjking - Temporary patch for FPGA related PR-124905
-	DEFAULT_AND_CKSUM_U32(smp->neighborFWAuthenEnable, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
+	DEFAULT_AND_CKSUM_INT(smp->neighborFWAuthenEnable, 0, CKSUM_OVERALL_DISRUPT_CONSIST);
 
 	CKSUM_STR(smp->dumpCounters, CKSUM_OVERALL_DISRUPT);
 
@@ -1946,7 +2028,7 @@ void smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 	// If they were in a map, then order wouldn't matter.
 	// NOTE: DGs are a good candidate to make non-disruptive.
 	for(i = 0 ; i < dgp->number_of_dgs; i++) {
-		XmlGuid_t *guidp;
+		cl_map_item_t *guidqp;
 		XmlNode_t *nodep;
 		XmlIncGroup_t *groupp;
 
@@ -1956,14 +2038,17 @@ void smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 		// The checksum will change if the order in the xml file changes.
 		// If they were maps, then order wouldn't matter.
 		CKSUM_DATA(dg->name, CKSUM_OVERALL_DISRUPT_CONSIST);
-		for (guidp = dg->system_image_guid; guidp; guidp = guidp->next) {
-			CKSUM_DATA(guidp->guid, CKSUM_OVERALL_DISRUPT_CONSIST);
+		for_all_qmap_item(&dg->system_image_guid, guidqp) {
+			uint64_t guid = cl_qmap_key(guidqp);
+			CKSUM_DATA(guid, CKSUM_OVERALL_DISRUPT_CONSIST);
 		}
-		for (guidp = dg->node_guid; guidp; guidp = guidp->next) {
-			CKSUM_DATA(guidp->guid, CKSUM_OVERALL_DISRUPT_CONSIST);
+		for_all_qmap_item(&dg->node_guid, guidqp) {
+			uint64_t guid = cl_qmap_key(guidqp);
+			CKSUM_DATA(guid, CKSUM_OVERALL_DISRUPT_CONSIST);
 		}
-		for (guidp = dg->port_guid; guidp; guidp = guidp->next) {
-			CKSUM_DATA(guidp->guid, CKSUM_OVERALL_DISRUPT_CONSIST);
+		for_all_qmap_item(&dg->port_guid, guidqp) {
+			uint64_t guid = cl_qmap_key(guidqp);
+			CKSUM_DATA(guid, CKSUM_OVERALL_DISRUPT_CONSIST);
 		}
 		for (nodep = dg->node_description; nodep; nodep = nodep->next) {
 			CKSUM_DATA(nodep->node, CKSUM_OVERALL_DISRUPT_CONSIST);
@@ -1973,7 +2058,6 @@ void smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 		}
 		CKSUM_DATA(dg->select_all, CKSUM_OVERALL_DISRUPT_CONSIST);
 		CKSUM_DATA(dg->select_self, CKSUM_OVERALL_DISRUPT_CONSIST);
-		CKSUM_DATA(dg->select_all_sm, CKSUM_OVERALL_DISRUPT_CONSIST);
 		CKSUM_DATA(dg->select_hfi_direct_connect, CKSUM_OVERALL_DISRUPT_CONSIST);
 		CKSUM_DATA(dg->select_swe0, CKSUM_OVERALL_DISRUPT_CONSIST);
 		CKSUM_DATA(dg->select_all_mgmt_allowed, CKSUM_OVERALL_DISRUPT_CONSIST);
@@ -1989,6 +2073,7 @@ void smInitConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 	if (xml_parse_debug)
 		fprintf(stdout, "Sm instance %u checksum overall %u disruptive %u consistency %u\n", (unsigned int)instance,
 			(unsigned int)smp->overall_checksum, (unsigned int)smp->disruptive_checksum, (unsigned int)smp->consistency_checksum);
+	return 1;
 }
 
 // show the SM XML config
@@ -2037,8 +2122,6 @@ void smShowConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 	printf("XML - subnet_size %u\n", (unsigned int)smp->subnet_size);
 #ifndef __VXWORKS__
 	printf("XML - syslog_facility %s\n", smp->syslog_facility);
-	printf("XML - CoreDumpLimit %s\n", smp->CoreDumpLimit);
-	printf("XML - CoreDumpDir %s\n", smp->CoreDumpDir);
 	for (i = 0; i <= VIEO_LAST_MOD_ID; ++i)
 		printf("XML - log_mask[%u] 0x%x\n", i, (unsigned int)smp->log_masks[i].value);
 #endif
@@ -2070,6 +2153,7 @@ void smShowConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 	printf("XML - sm_debug_perf %u\n", (unsigned int)smp->sm_debug_perf);
 	printf("XML - sa_debug_perf %u\n", (unsigned int)smp->sa_debug_perf);
 	printf("XML - sm_debug_vf %u\n", (unsigned int)smp->sm_debug_vf);
+	printf("XML - sm_debug_routing %u\n", (unsigned int)smp->sm_debug_routing);
 	printf("XML - sm_debug_lid_assign %u\n", (unsigned int)smp->sm_debug_lid_assign);
 	printf("XML - debug_jm %u\n", (unsigned int)smp->debug_jm);
 	printf("XML - sa_rmpp_checksum %u\n", (unsigned int)smp->sa_rmpp_checksum);
@@ -2106,9 +2190,9 @@ void smShowConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 	printf("XML - isl_link_policy.link_width.policy 0x%x\n", (unsigned int)smp->isl_link_policy.width_policy.policy);
 	printf("XML - isl_link_policy.link_speed.enabled 0x%x\n", (unsigned int)smp->isl_link_policy.speed_policy.enabled);
 	printf("XML - isl_link_policy.link_speed.policy 0x%x\n", (unsigned int)smp->isl_link_policy.speed_policy.policy);
-	printf("XML - preemption.small_packet 0x%x\n", (unsigned int) smp->preemption.small_packet);   
-	printf("XML - preemption.large_packet 0x%x\n", (unsigned int) smp->preemption.large_packet);  
-	printf("XML - preemption.preempt_limit 0x%x\n", (unsigned int) smp->preemption.preempt_limit);  
+	printf("XML - preemption.small_packet 0x%x\n", (unsigned int) smp->preemption.small_packet);
+	printf("XML - preemption.large_packet 0x%x\n", (unsigned int) smp->preemption.large_packet);
+	printf("XML - preemption.preempt_limit 0x%x\n", (unsigned int) smp->preemption.preempt_limit);
 	printf("XML - congestion.enable %u\n", (unsigned int)smp->congestion.enable);
 	printf("XML - congestion.debug %u\n", (unsigned int)smp->congestion.debug);
 	printf("XML - congestion.sw.victim_marking_enable %u\n", (unsigned int)smp->congestion.sw.victim_marking_enable);
@@ -2158,7 +2242,7 @@ void smShowConfig(SMXmlConfig_t *smp, SMDPLXmlConfig_t *dplp, SMMcastConfig_t *m
 	printf("XML - sm_mc_config.mcroot_select_algorithm %s\n", mcp->mcroot_select_algorithm);
 	printf("XML - sm_mc_config.mcroot_min_cost_improvement %s\n", mcp->mcroot_min_cost_improvement);
 
-	snprintf(str, 32, "dynamicPlt");
+	cs_strlcpy(str, "dynamicPlt", sizeof(str));
 	for (i = 0; i < DYNAMIC_PACKET_LIFETIME_ARRAY_SIZE; i++) {
 		printf("XML - %s %u\n", str, (unsigned int)dplp->dp_lifetime[i]);
 		snprintf(str, 32, "dynamicPlt_%.2u", (unsigned int)(i + 1));
@@ -2235,12 +2319,14 @@ boolean smMdgCopyConfig(SMMcastDefGrpCfg_t *dst, SMMcastDefGrpCfg_t *src)
 	return 1;
 }
 
+static
 void vfInitConfig(VFXmlConfig_t *vf)
 {
 	memset(vf->vf, 0, sizeof(vf->vf));
 	vf->number_of_vfs = 0;
 }
 
+static
 boolean vfCopyConfig(VFXmlConfig_t *dst, VFXmlConfig_t *src)
 {
 	int i;
@@ -2254,14 +2340,17 @@ boolean vfCopyConfig(VFXmlConfig_t *dst, VFXmlConfig_t *src)
 	*dst = *src;
 	memset(dst->vf, 0, sizeof(dst->vf));
 	dst->number_of_vfs = 0;
+
 	for (i = 0; i < src->number_of_vfs; i++) {
 		if (NULL != (dst->vf[i] = getVfObject())) {
 			*dst->vf[i] = *src->vf[i];
 			dst->number_of_vfs++;
 		}
 	}
-	if (dst->number_of_vfs == src->number_of_vfs) return 1;
-	else return 0;
+	if (dst->number_of_vfs == src->number_of_vfs)
+		return 1;
+
+	return 0;
 }
 
 void dgInitConfig(DGXmlConfig_t *dg)
@@ -2350,7 +2439,6 @@ boolean cloneFmInstance(FMXmlInstance_t *dst, FMXmlInstance_t *src)
 void xmlInitConfigInstance(FMXmlInstance_t *instance)
 {
 	uint32_t i;
-	SMMcastDefGrp_t 			*mdgp;
 
 	// set all fields to 0xFF
 	memset(instance, UNDEFINED_XML8, sizeof(FMXmlInstance_t));
@@ -2392,7 +2480,7 @@ void xmlInitConfigInstance(FMXmlInstance_t *instance)
 
 	// init Default Group values
 	instance->sm_mdg_config.number_of_groups = 0;
-	for (i = 0; i < MAX_DEFAULT_GROUPS; i++) { 
+	for (i = 0; i < MAX_DEFAULT_GROUPS; i++) {
 		mdgp = &instance->sm_mdg_config.group[i];
 		memset(mdgp->virtual_fabric, 0, sizeof(mdgp->virtual_fabric));
 		memset(mdgp->mgid, 0, sizeof(mdgp->mgid));
@@ -2402,7 +2490,7 @@ void xmlInitConfigInstance(FMXmlInstance_t *instance)
 
 	// Init Pm configuration
 	pmClearConfig(&instance->pm_config);
-		
+
 	// Init Fe configuration
 	feClearConfig(&instance->fe_config);
 }
@@ -2410,8 +2498,6 @@ void xmlInitConfigInstance(FMXmlInstance_t *instance)
 // initialize XML data structures
 void xmlInitConfig(void)
 {
-	uint32_t i;
-
 	// zero instance
 	instance = 0;
 
@@ -2441,9 +2527,7 @@ void xmlInitConfig(void)
 	PmPgInstance = 0;
 	PmPgMonitorInstance = 0;
 
-	last_system_image_guid = NULL;
-	last_node_guid = NULL;
-	last_port_guid = NULL;
+
 	last_node_description = NULL;
 	last_included_group = NULL;
 
@@ -2465,7 +2549,7 @@ void xmlInitConfig(void)
 		fprintf(stdout, "XML parse error - configp->fm_instance_common is NULL\n");
 		return;
 	}
-		
+
 	// clear/set debug info
 	memset(&configp->xmlDebug, 0, sizeof(XmlDebug_t));
 	configp->xmlDebug.xml_vf_debug = xml_vf_debug;
@@ -2476,17 +2560,38 @@ void xmlInitConfig(void)
 
 	xmlInitConfigInstance(configp->fm_instance_common);
 
-	// init all instances if we are doing a full parse
-	if (full_parse) {
-		for (i = fm_instance; i < end_instance; i++)
-			if (!cloneFmInstance(configp->fm_instance[i], configp->fm_instance_common)) break;
+	// initialize the empty multicast group structure
+	mdgEmpty = configp->fm_instance_common->sm_mdg_config.group[0];
+}
+
+static
+void releaseFMXmlInstance(FMXmlInstance_t *inst, int freeInst)
+{
+	uint32_t i;
+	if (!inst)
+		return;
+
+	for (i = 0; i < MAX_CONFIGURED_VFABRICS; i++) {
+		if (!inst->vf_config.vf[i])
+			break;
+		freeXmlMemory(inst->vf_config.vf[i], sizeof(VFConfig_t), __func__);
+		inst->vf_config.vf[i] = NULL;
 	}
+	for (i = 0; i < MAX_VFABRIC_GROUPS; i++) {
+		if (!inst->dg_config.dg[i])
+			break;
+		freeGroupObject(inst->dg_config.dg[i], /* full */ 1);
+		inst->dg_config.dg[i] = NULL;
+	}
+
+	freeAppConfigMap(&inst->app_config);
+	if (freeInst)
+		freeXmlMemory(inst, sizeof(FMXmlInstance_t), __func__);
 }
 
 // release all memory in XML Configuration
 void releaseXmlConfig(FMXmlCompositeConfig_t *config, uint32_t full)
 {
-	uint32_t i;
 	uint32_t fm;
 
 	if (xml_parse_debug)
@@ -2497,41 +2602,18 @@ void releaseXmlConfig(FMXmlCompositeConfig_t *config, uint32_t full)
 
 	// free common XML objects
 	if (config->fm_instance_common && full_parse) {
-		for (i = 0; i < MAX_CONFIGURED_VFABRICS; i++) {
-			if (!config->fm_instance_common->vf_config.vf[i])
-				break;
-			freeXmlMemory(config->fm_instance_common->vf_config.vf[i], sizeof(VFConfig_t), 
-				"VFConfig_t releaseXmlConfig()");
-		}
-		for (i = 0; i < MAX_VFABRIC_GROUPS; i++) {
-			if (!config->fm_instance_common->dg_config.dg[i])
-				break;
-			freeGroupObject(config->fm_instance_common->dg_config.dg[i], /* full */ 1);
-		}
-		freeAppConfigMap(&config->fm_instance_common->app_config);
-		freeXmlMemory(config->fm_instance_common, sizeof(FMXmlInstance_t), "FMXmlInstance_t releaseXmlConfig()");
+		releaseFMXmlInstance(config->fm_instance_common, 1);
 	}
 	config->fm_instance_common = NULL;
 
 	// free specific XML objects
-	for (fm = fm_instance; fm < end_instance; fm++) { 
-		for (i = 0; i < MAX_CONFIGURED_VFABRICS; i++) {
-			if (!config->fm_instance[fm]->vf_config.vf[i])
-				break;
-			freeXmlMemory(config->fm_instance[fm]->vf_config.vf[i], sizeof(VFConfig_t),
-				"VFConfig_t releaseXmlConfig()");
-			config->fm_instance[fm]->vf_config.vf[i] = NULL;
-		}
-		for (i = 0; i < MAX_VFABRIC_GROUPS; i++) {
-			if (!config->fm_instance[fm]->dg_config.dg[i])
-				break; 
-			freeGroupObject(config->fm_instance[fm]->dg_config.dg[i], /* full */ 1);
-		}
-		freeAppConfigMap(&config->fm_instance[fm]->app_config);
-		if (full) {
-			freeXmlMemory(config->fm_instance[fm], sizeof(FMXmlInstance_t), "FMXmlInstance_t releaseXmlConfig()");
+	for (fm = fm_instance; fm < end_instance; fm++) {
+		if (!config->fm_instance[fm])
+			continue;
+
+		releaseFMXmlInstance(config->fm_instance[fm], full);
+		if (full)
 			config->fm_instance[fm] = NULL;
-		}
 	}
 
 	if (full) {
@@ -2590,10 +2672,11 @@ PmPortGroupXmlConfig_t* getPmPgObject(void)
 	for (i = 0; i < STL_PM_MAX_DG_PER_PMPG; i++) {
 		memset(pmpgp->Monitors[i].monitor, 0, sizeof(pmpgp->Monitors[i].monitor));
 	}
-	
+
 
 	return pmpgp;
 }
+
 // get Group object pointer and initialize data
 static DGConfig_t* getGroupObject(void)
 {
@@ -2610,9 +2693,9 @@ static DGConfig_t* getGroupObject(void)
 	memset(dgp->name, 0, sizeof(dgp->name));
 
 	// clear device pointers
-	dgp->system_image_guid = NULL;
-	dgp->node_guid = NULL;
-	dgp->port_guid = NULL;
+	cl_qmap_init(&dgp->system_image_guid, NULL);
+	cl_qmap_init(&dgp->node_guid, NULL);
+	cl_qmap_init(&dgp->port_guid, NULL);
 	dgp->node_description = NULL;
 	dgp->reg_expr = NULL;
 	dgp->included_group = NULL;
@@ -2620,7 +2703,6 @@ static DGConfig_t* getGroupObject(void)
 	// default flags
 	dgp->select_all = 0;
 	dgp->select_self = 0;
-	dgp->select_all_sm = 0;
 	dgp->select_hfi_direct_connect = 0;
 	dgp->select_swe0 = 0;
 	dgp->select_all_mgmt_allowed = 0;
@@ -2634,8 +2716,6 @@ static DGConfig_t* getGroupObject(void)
 // free Group object
 static void freeGroupObject(DGConfig_t *group, uint8_t full)
 {
-	XmlGuid_t *guid;
-	XmlGuid_t *lastGuid;
 	XmlNode_t *node;
 	XmlNode_t *lastNode;
 	RegExp_t  *regEx;
@@ -2643,24 +2723,10 @@ static void freeGroupObject(DGConfig_t *group, uint8_t full)
 	XmlIncGroup_t *incGroup;
 	XmlIncGroup_t *lastIncGroup;
 
-	guid = group->system_image_guid;
-	while(guid != NULL) {
-		lastGuid = guid->next;
-		freeXmlMemory(guid, sizeof(XmlGuid_t), "XmlGuid_t freeGroup()");
-		guid = lastGuid;
-	}
-	guid = group->node_guid;
-	while(guid != NULL) {
-		lastGuid = guid->next;
-		freeXmlMemory(guid, sizeof(XmlGuid_t), "XmlGuid_t freeGroup()");
-		guid = lastGuid;
-	}
-	guid = group->port_guid;
-	while(guid != NULL) {
-		lastGuid = guid->next;
-		freeXmlMemory(guid, sizeof(XmlGuid_t), "XmlGuid_t freeGroup()");
-		guid = lastGuid;
-	}
+	scrubMap(&group->system_image_guid, NULL);
+	scrubMap(&group->node_guid, NULL);
+	scrubMap(&group->port_guid, NULL);
+
 	node = group->node_description;
 	while(node != NULL) {
 		lastNode = node->next;
@@ -2765,34 +2831,6 @@ static AppConfig_t *dupApplicationObject(AppConfig_t *obj)
 	return new_obj;
 }
 
-// copy of Group Device Guids
-static int8_t cloneGroupDeviceGuids(XmlGuid_t *source, XmlGuid_t **dest)
-{
-	XmlGuid_t *lastGuid = NULL;
-	XmlGuid_t *newGuid = NULL;
-	XmlGuid_t *guidPtr;
-
-	if (source == NULL || dest == NULL)
-		return 0;
-
-	guidPtr = source;
-
-	while(guidPtr != NULL) {
-		newGuid = getXmlMemory(sizeof(XmlGuid_t), "XmlGuid_t cloneGroupDeviceGuids()"); 
-		if (newGuid == NULL)
-			return -1;
-		newGuid->guid = guidPtr->guid;
-		newGuid->next = NULL;
-		if (lastGuid == NULL)
-			*dest = newGuid;
-		else 
-			lastGuid->next = newGuid;
-		lastGuid = newGuid;
-		guidPtr = guidPtr->next;
-	}
-	return 0;
-}
-
 // copy of Group Device Nodes
 static int8_t cloneGroupDeviceNodes(XmlNode_t *source, XmlNode_t **dest)
 {
@@ -2806,14 +2844,14 @@ static int8_t cloneGroupDeviceNodes(XmlNode_t *source, XmlNode_t **dest)
 	nodePtr = source;
 
 	while(nodePtr != NULL) {
-		newNode = getXmlMemory(sizeof(XmlNode_t), "XmlNode_t cloneGroupDeviceNodes()"); 
+		newNode = getXmlMemory(sizeof(XmlNode_t), "XmlNode_t cloneGroupDeviceNodes()");
 		if (newNode == NULL)
 			return -1;
-		strcpy(newNode->node, nodePtr->node);
+		cs_strlcpy(newNode->node, nodePtr->node, MAX_VFABRIC_NAME+1);
 		newNode->next = NULL;
 		if (lastNode == NULL)
 			*dest = newNode;
-		else 
+		else
 			lastNode->next = newNode;
 		lastNode = newNode;
 		nodePtr = nodePtr->next;
@@ -2833,7 +2871,7 @@ int8_t cloneGroupRegExpr(RegExp_t *source, RegExp_t **dest)
 	regExprPtr = source;
 
 	while(regExprPtr != NULL) {
-		newRegExpr = getXmlMemory(sizeof(RegExp_t), "RegExp_t cloneGroupRegExpr()"); 
+		newRegExpr = getXmlMemory(sizeof(RegExp_t), "RegExp_t cloneGroupRegExpr()");
 		if (newRegExpr == NULL)
 			return -1;
 
@@ -2842,7 +2880,7 @@ int8_t cloneGroupRegExpr(RegExp_t *source, RegExp_t **dest)
 		newRegExpr->next = NULL;
 		if (lastRegExpr == NULL)
 			*dest = newRegExpr;
-		else 
+		else
 			lastRegExpr->next = newRegExpr;
 		lastRegExpr = newRegExpr;
 		regExprPtr = regExprPtr->next;
@@ -2864,14 +2902,14 @@ int8_t cloneGroupIncGroups(XmlIncGroup_t *source, XmlIncGroup_t **dest)
 	incGroupPtr = source;
 
 	while(incGroupPtr != NULL) {
-		newIncGroup = getXmlMemory(sizeof(XmlIncGroup_t), "XmlIncGroup_t cloneGroupIncGroups()"); 
+		newIncGroup = getXmlMemory(sizeof(XmlIncGroup_t), "XmlIncGroup_t cloneGroupIncGroups()");
 		if (newIncGroup == NULL)
 			return -1;
-		strcpy(newIncGroup->group, incGroupPtr->group);
+		cs_strlcpy(newIncGroup->group, incGroupPtr->group, MAX_VFABRIC_NAME+1);
 		newIncGroup->next = NULL;
 		if (lastIncGroup == NULL)
 			*dest = newIncGroup;
-		else 
+		else
 			lastIncGroup->next = newIncGroup;
 		lastIncGroup = newIncGroup;
 		incGroupPtr = incGroupPtr->next;
@@ -2890,19 +2928,14 @@ static int8_t cloneGroup(DGConfig_t *source, DGConfig_t *dest, int freeObjectBef
 	// copy other info but null the pointers
 	*dest = *source;
 
-	dest->system_image_guid = NULL;
-	dest->node_guid = NULL;
-	dest->port_guid = NULL;
 	dest->node_description = NULL;
 	dest->reg_expr = NULL;
 	dest->included_group = NULL;
 
-	if (cloneGroupDeviceGuids(source->system_image_guid, &dest->system_image_guid) < 0)
-		return -1;
-	if (cloneGroupDeviceGuids(source->node_guid, &dest->node_guid) < 0)
-		return -1;
-	if (cloneGroupDeviceGuids(source->port_guid, &dest->port_guid) < 0)
-		return -1;
+	dest->number_of_system_image_guids=cloneMap(&dest->system_image_guid, &source->system_image_guid, NULL, NULL);
+	dest->number_of_node_guids=cloneMap(&dest->node_guid, &source->node_guid, NULL, NULL);
+	dest->number_of_port_guids=cloneMap(&dest->port_guid, &source->port_guid, NULL, NULL);
+
 	if (cloneGroupDeviceNodes(source->node_description, &dest->node_description) < 0)
 		return -1;
 	if (cloneGroupRegExpr(source->reg_expr, &dest->reg_expr) < 0)
@@ -2925,6 +2958,7 @@ int8_t copyDgVfInfo(FMXmlInstance_t *instance, DGXmlConfig_t *dg, VFXmlConfig_t 
 }
 
 // verify and convert an SID Range or Masked value into an VFAppSid_t structure
+static
 int verifyAndConvertSidCompoundString(char *sidString, uint8_t range, VFAppSid_t *sidMapping)
 {
 	uint64 sidLower;
@@ -2933,34 +2967,34 @@ int verifyAndConvertSidCompoundString(char *sidString, uint8_t range, VFAppSid_t
 
 	if (!sidString || !sidMapping) {
 		if (xml_parse_debug)
-			fprintf(stdout, "NULL pointer sent to verifyAndConvertSidCompoundString()\n"); 
+			fprintf(stdout, "NULL pointer sent to verifyAndConvertSidCompoundString()\n");
 		return -1;
 	}
 
 	if (FSUCCESS != StringToUint64(&sidLower, sidString, &operator, 16, TRUE)) {
 		if (xml_parse_debug)
 			fprintf(stdout, "Illegal ServiceID length found in hex string %s in verifyAndConvertSidCompoundString\n", sidString);
-		return -1;  
+		return -1;
 	}
 
 	if (range) {
 		if (*operator != '-') {
 			if (xml_parse_debug)
 				fprintf(stdout, "Illegal range operator found in hex string %s in verifyAndConvertSidCompoundString\n", sidString);
-			return -1;  
+			return -1;
 		}
 	} else {
 		if (*operator != '*') {
 			if (xml_parse_debug)
 				fprintf(stdout, "Illegal mask operator found in hex string %s in verifyAndConvertSidCompoundString\n", sidString);
-			return -1;  
+			return -1;
 		}
 	}
 
 	if (FSUCCESS != StringToUint64(&sidUpper, operator+1, NULL, 16, TRUE)) {
 		if (xml_parse_debug)
 			fprintf(stdout, "Illegal ServiceID length found in hex string %s in verifyAndConvertSidCompoundString\n", sidString);
-		return -1;  
+		return -1;
 	}
 
 #ifdef XML_DEBUG
@@ -2971,7 +3005,7 @@ int verifyAndConvertSidCompoundString(char *sidString, uint8_t range, VFAppSid_t
 
 	sidMapping->service_id = sidLower;
 
-	if (range) { 
+	if (range) {
 		sidMapping->service_id_last = sidUpper;
 		sidMapping->service_id_mask = UNDEFINED_XML64;
 	} else {
@@ -2988,7 +3022,7 @@ int verifyAndConvertMGidString(char *mgidString, VFAppMgid_t *mgidMapping)
 
 	if (!mgidString || !mgidMapping) {
 		if (xml_parse_debug)
-			fprintf(stdout, "NULL pointer sent to verifyAndConvertMGidString()\n"); 
+			fprintf(stdout, "NULL pointer sent to verifyAndConvertMGidString()\n");
 		return -1;
 	}
 
@@ -3024,38 +3058,38 @@ int verifyAndConvertMGidCompoundString(char *mgidString, uint8_t range, VFAppMgi
 
 	if (!mgidString || !mgidMapping) {
 		if (xml_parse_debug)
-			fprintf(stdout, "NULL pointer sent to verifyAndConvertMGidCompoundString()\n"); 
+			fprintf(stdout, "NULL pointer sent to verifyAndConvertMGidCompoundString()\n");
 		return -1;
 	}
 
 	if (FSUCCESS != StringToGid(&mgidLower[0], &mgidLower[1], mgidString, &operator, TRUE)) {
 		if (xml_parse_debug)
 			fprintf(stdout, "Illegal MGID found in hex string %s in verifyAndConvertMGidCompoundString\n", mgidString);
-		return -1;  
+		return -1;
 	}
 
 	if (range) {
 		if (*operator != '-') {
 			if (xml_parse_debug)
 				fprintf(stdout, "Illegal range operator found in hex string %s in verifyAndConvertMGidCompoundString\n", mgidString);
-			return -1;  
+			return -1;
 		}
 	} else {
 		if (*operator != '*') {
 			if (xml_parse_debug)
 				fprintf(stdout, "Illegal mask operator found in hex string %s in verifyAndConvertMGidCompoundString\n", mgidString);
-			return -1;  
+			return -1;
 		}
 	}
 	if (FSUCCESS != StringToGid(&mgidUpper[0], &mgidUpper[1], operator+1, NULL, TRUE)) {
 		if (xml_parse_debug)
 			fprintf(stdout, "Illegal MGID found in hex string %s in verifyAndConvertMGidCompoundString\n", mgidString);
-		return -1;  
+		return -1;
 	}
 
 #ifdef XML_DEBUG
 /*
-		fprintf(stdout, "mgidLower[0] 0x%llx mgidLower[1] 0x%llx mgidUpper[0] 0x%llx mgidUpper[1] 0x%llx\n", 
+		fprintf(stdout, "mgidLower[0] 0x%llx mgidLower[1] 0x%llx mgidUpper[0] 0x%llx mgidUpper[1] 0x%llx\n",
 			mgidLower[0], mgidLower[1], mgidUpper[0], mgidUpper[1]);
 */
 #endif
@@ -3063,7 +3097,7 @@ int verifyAndConvertMGidCompoundString(char *mgidString, uint8_t range, VFAppMgi
 	mgidMapping->mgid[0] = mgidLower[0];
 	mgidMapping->mgid[1] = mgidLower[1];
 
-	if (range) { 
+	if (range) {
 		mgidMapping->mgid_last[0] = mgidUpper[0];
 		mgidMapping->mgid_last[1] = mgidUpper[1];
 		mgidMapping->mgid_mask[0] = UNDEFINED_XML64;
@@ -3090,7 +3124,7 @@ void scrubVF(VF_t *vfp)
 	scrubMap(&vfp->full_members.nodeGuidMap, NULL);
 	scrubMap(&vfp->full_members.portGuidMap, NULL);
 	scrubMap(&vfp->full_members.nodeDescMap, freeName);
-			
+
 	// free LimitedMember objects
 	scrubMap(&vfp->limited_members.sysGuidMap, NULL);
 	scrubMap(&vfp->limited_members.nodeGuidMap, NULL);
@@ -3120,13 +3154,13 @@ boolean cloneVF(VF_t *dst, VF_t *src)
 	dst->full_members.nodeGuidMapSize = cloneMap(&dst->full_members.nodeGuidMap, &src->full_members.nodeGuidMap, NULL, NULL);
 	dst->full_members.portGuidMapSize = cloneMap(&dst->full_members.portGuidMap, &src->full_members.portGuidMap, NULL, NULL);
 	dst->full_members.nodeDescMapSize = cloneMap(&dst->full_members.nodeDescMap, &src->full_members.nodeDescMap, compareName, dupName);
-			
+
 	// duplicate LimitedMember objects
 	dst->limited_members.sysGuidMapSize = cloneMap(&dst->limited_members.sysGuidMap, &src->limited_members.sysGuidMap, NULL, NULL);
 	dst->limited_members.nodeGuidMapSize = cloneMap(&dst->limited_members.nodeGuidMap, &src->limited_members.nodeGuidMap, NULL, NULL);
 	dst->limited_members.portGuidMapSize = cloneMap(&dst->limited_members.portGuidMap, &src->limited_members.portGuidMap, NULL, NULL);
 	dst->limited_members.nodeDescMapSize = cloneMap(&dst->limited_members.nodeDescMap, &src->full_members.nodeDescMap, compareName, dupName);
-			
+
 	// duplicate default group and associated MGID list
 	dst->default_group = NULL;
 	for (src_dgp = src->default_group; src_dgp; src_dgp = src_dgp->next_default_group) {
@@ -3154,19 +3188,19 @@ void releaseVirtualFabricsConfig(VirtualFabrics_t *vfsip)
 	if (!vfsip)
 		return;
 
-	for (i = 0; i < vfsip->number_of_vfs; i++) {
+	for (i = 0; i < vfsip->number_of_vfs && i < MAX_ENABLED_VFABRICS; i++) {
 		vfp = &vfsip->v_fabric[i];
 
 		scrubVF(vfp);
 	}
-	for (i = 0; i < vfsip->number_of_vfs_all; i++) {
+	for (i = 0; i < vfsip->number_of_vfs_all && i < MAX_ENABLED_VFABRICS; i++) {
 		vfp = &vfsip->v_fabric_all[i];
 
 		scrubVF(vfp);
 	}
 
 	// finally free the parent object
-	freeXmlMemory(vfsip, sizeof(VirtualFabrics_t), 
+	freeXmlMemory(vfsip, sizeof(VirtualFabrics_t),
 		"VirtualFabrics_t releaseVirtualFabricsConfig()");
 
 	// print memory info
@@ -3183,7 +3217,7 @@ void checksumOneVirtualFabricsConfig(VF_t *vfp, SMXmlConfig_t *smp)
 	uint64_t					guid;
 	char						*name;
 	cl_map_item_t				*cl_map_item;
-	
+
 	if (!vfp)
 		return;
 
@@ -3198,13 +3232,12 @@ void checksumOneVirtualFabricsConfig(VF_t *vfp, SMXmlConfig_t *smp)
 	CKSUM_DATA(vfp->max_rate_specified, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_DATA(vfp->qos_enable, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_DATA(vfp->base_sl, CKSUM_OVERALL_DISRUPT_CONSIST);
-	CKSUM_DATA(vfp->base_sc, CKSUM_OVERALL_DISRUPT_CONSIST);
-	CKSUM_DATA(vfp->updown_only, CKSUM_OVERALL_DISRUPT_CONSIST);
-	CKSUM_DATA(vfp->mcast_isolate, CKSUM_OVERALL_DISRUPT_CONSIST);
+	CKSUM_DATA(vfp->requires_resp_sl, CKSUM_OVERALL_DISRUPT_CONSIST);
+	CKSUM_DATA(vfp->resp_sl, CKSUM_OVERALL_DISRUPT_CONSIST);
+
+	CKSUM_DATA(vfp->contains_mcast, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_DATA(vfp->mcast_sl, CKSUM_OVERALL_DISRUPT_CONSIST);
-	CKSUM_DATA(vfp->mcast_sc, CKSUM_OVERALL_DISRUPT_CONSIST);
-	CKSUM_DATA(vfp->routing_sls, CKSUM_OVERALL_DISRUPT_CONSIST);
-	CKSUM_DATA(vfp->routing_scs, CKSUM_OVERALL_DISRUPT_CONSIST);
+
 	CKSUM_DATA(vfp->flowControlDisable, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_DATA(vfp->percent_bandwidth, CKSUM_OVERALL_CONSIST);
 	CKSUM_DATA(vfp->priority, CKSUM_OVERALL_DISRUPT_CONSIST);
@@ -3236,7 +3269,6 @@ void checksumOneVirtualFabricsConfig(VF_t *vfp, SMXmlConfig_t *smp)
 
 	CKSUM_DATA(vfp->full_members.select_all, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_DATA(vfp->full_members.select_self, CKSUM_OVERALL_DISRUPT_CONSIST);
-	CKSUM_DATA(vfp->full_members.select_all_sm, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_DATA(vfp->full_members.select_hfi_direct_connect, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_DATA(vfp->full_members.select_swe0, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_DATA(vfp->full_members.select_all_mgmt_allowed, CKSUM_OVERALL_DISRUPT_CONSIST);
@@ -3259,7 +3291,6 @@ void checksumOneVirtualFabricsConfig(VF_t *vfp, SMXmlConfig_t *smp)
 
 	CKSUM_DATA(vfp->limited_members.select_all, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_DATA(vfp->limited_members.select_self, CKSUM_OVERALL_DISRUPT_CONSIST);
-	CKSUM_DATA(vfp->limited_members.select_all_sm, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_DATA(vfp->limited_members.select_hfi_direct_connect, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_DATA(vfp->limited_members.select_swe0, CKSUM_OVERALL_DISRUPT_CONSIST);
 	CKSUM_DATA(vfp->limited_members.select_all_mgmt_allowed, CKSUM_OVERALL_DISRUPT_CONSIST);
@@ -3292,14 +3323,14 @@ void checksumVirtualFabricsConfig(VirtualFabrics_t *vfsip, SMXmlConfig_t *smp)
 {
 	VF_t						*vfp;
 	uint32_t 					i;
-	
+
 	if (!vfsip)
 		return;
 
 	// Checksum each individual Virtual Fabric
 	for (i = 0; i < vfsip->number_of_vfs_all; i++) {
 		vfp = &vfsip->v_fabric_all[i];
-		
+
 		CKSUM_BEGIN(smp->config_consistency_check_method);
 		checksumOneVirtualFabricsConfig(vfp, smp);
 		CKSUM_END(vfp->overall_checksum, vfp->disruptive_checksum, vfp->consistency_checksum);
@@ -3321,111 +3352,13 @@ void checksumVirtualFabricsConfig(VirtualFabrics_t *vfsip, SMXmlConfig_t *smp)
 
 	for (i = 0; i < vfsip->number_of_vfs_all; i++) {
 		vfp = &vfsip->v_fabric_all[i];
-		
+
 		checksumOneVirtualFabricsConfig(vfp, smp);
 	}
 
 	CKSUM_END(vfsip->overall_checksum, vfsip->disruptive_checksum, vfsip->consistency_checksum);
 
 	return;
-}
-
-// create a clone of a Virtual Fabric Configuration
-VirtualFabrics_t* cloneVirtualFabricsConfig(VirtualFabrics_t *vfsip)
-{
-/*
-	VFMemSysGuid_t				*sgidp;
-	VFMemNodeGuid_t				*ngidp;
-	VFMemPortGuid_t				*pgidp;
-	VFMemNodeDes_t				*descp;
-	VFDg_t						*dgip;
-	VF_t						*vfp;
-
-	if (xml_parse_debug)
-		fprintf(stdout, "Cloning Virtual Fabrics config in cloneVirtualFabricsConfig()\n");
-
-	if (!vfsip)
-		return NULL;
-
-	// get new VF object
-	vfsnp = getXmlMemory(sizeof(VirtualFabrics_t), "VirtualFabrics_t cloneVirtualFabricsConfig()");
-	if (!vfsnp)
-		return NULL;
-
-	// copy data
-	*vfsnp = *vfsip;
-
-	// clear out array of VF pointers in new parent structure
-	memset(vfsnp->v_fabric, 0, sizeof(vfsnp->v_fabric));
-
-	// now get all new objects and clone the dynamic data
-	for (i = 0; i < vfsip->number_of_vfs; i++) {
-		vfp = &vfsip->v_fabric[i];
-		vfnp = getXmlMemory(sizeof(VF_t), "VF_t cloneVirtualFabricsConfig()");
-		if (!vfnp) {
-			releaseVirtualFabricsConfig(vfsnp);
-			return NULL;
-		}
-		*vfnp = *vfp;
-
-		// JPW - complete the copies
-
-		scrubMap(vfp->apps.sidMap, freeAppSid);
-		scrubMap(vfp->apps.mgidMap, freeAppMgid);
-
-		// free Member objects
-		while (vfp->full_members.sys_guid) {
-			sgidp = vfp->full_members.sys_guid->next_sys_guid;
-			freeXmlMemory(vfp->full_members.sys_guid);
-			vfp->full_members.sys_guid = sgidp;
-		}
-		while (vfp->full_members.node_guid) {
-			ngidp = vfp->full_members.node_guid->next_node_guid;
-			freeXmlMemory(vfp->full_members.node_guid);
-			vfp->full_members.node_guid = ngidp;
-		}
-		while (vfp->full_members.port_guid) {
-			pgidp = vfp->full_members.port_guid->next_port_guid;
-			freeXmlMemory(vfp->full_members.port_guid);
-			vfp->full_members.port_guid = pgidp;
-		}
-		while (vfp->full_members.node_descr) {
-			descp = vfp->full_members.node_descr->next_node_description;
-			freeXmlMemory(vfp->full_members.node_descr);
-			vfp->full_members.node_descr = descp;
-		}
-
-		// free LimitedMember objects
-		while (vfp->limited_members.sys_guid) {
-			sgidp = vfp->limited_members.sys_guid->next_sys_guid;
-			freeXmlMemory(vfp->limited_members.sys_guid);
-			vfp->limited_members.sys_guid = sgidp;
-		}
-		while (vfp->limited_members.node_guid) {
-			ngidp = vfp->limited_members.node_guid->next_node_guid;
-			freeXmlMemory(vfp->limited_members.node_guid);
-			vfp->limited_members.node_guid = ngidp;
-		}
-		while (vfp->limited_members.port_guid) {
-			pgidp = vfp->limited_members.port_guid->next_port_guid;
-			freeXmlMemory(vfp->limited_members.port_guid);
-			vfp->limited_members.port_guid = pgidp;
-		}
-		while (vfp->limited_members.node_descr) {
-			descp = vfp->limited_members.node_descr->next_node_description;
-			freeXmlMemory(vfp->limited_members.node_descr);
-			vfp->limited_members.node_descr = descp;
-		}
-
-		while (vfp->default_group) {
-			mdgp = vfp->default_group->next_default_group;
-			freeDMCG(vfp->default_group);
-			vfp->default_group = mdgp;
-		}
-	}
-
-*/
-	return NULL;
 }
 
 // create a default Virtual Fabric Configuration in firmware
@@ -3458,7 +3391,7 @@ addDefaultVirtualFabric(uint32_t fm, FMXmlCompositeConfig_t *config, VFXmlConfig
 	// Try to name the App "Default". If that name is in use,
 	// try appending a number until we find a name that is
 	// not in use.
-	strcpy(app->name, "Default");
+	cs_strlcpy(app->name, "Default", MAX_VFABRIC_NAME+1);
 	j = 0;
 	while (cl_qmap_get(&app_config->appMap, XML_QMAP_U64_CAST app->name) != cl_qmap_end(&app_config->appMap)) {
 		// Name already in use
@@ -3469,7 +3402,7 @@ addDefaultVirtualFabric(uint32_t fm, FMXmlCompositeConfig_t *config, VFXmlConfig
 	app->serviceIdRangeMapSize = 0;
 	app->serviceIdMaskedMapSize = 0;
     app->number_of_mgids = 1;
-    strcpy(app->mgid[0].mgid,"0x0000000000000000:0x0000000000000000");
+    cs_strlcpy(app->mgid[0].mgid,"0x0000000000000000:0x0000000000000000", MAX_VFABRIC_NAME+1);
     app->number_of_mgid_ranges = 0;
     app->number_of_mgid_range_maskeds = 0;
     app->number_of_included_apps = 0;
@@ -3481,7 +3414,7 @@ addDefaultVirtualFabric(uint32_t fm, FMXmlCompositeConfig_t *config, VFXmlConfig
 	// Try to name the VF "Default". If that name is in use,
 	// try appending a number until we find a name that is
 	// not in use.
-	strcpy(vfp->name, "Default");
+	cs_strlcpy(vfp->name, "Default", MAX_VFABRIC_NAME+1);
 	j = 0;
 	do {
 		for (i = 0; i < vf->number_of_vfs; i++) {
@@ -3499,8 +3432,9 @@ addDefaultVirtualFabric(uint32_t fm, FMXmlCompositeConfig_t *config, VFXmlConfig
     vfp->security = 0;
     vfp->qos_enable = 0;
     vfp->base_sl = UNDEFINED_XML8;
+	vfp->resp_sl = UNDEFINED_XML8;
+	vfp->mcast_sl = UNDEFINED_XML8;
     vfp->flowControlDisable = UNDEFINED_XML8;
-    vfp->updown_only = 0;
     vfp->percent_bandwidth = UNDEFINED_XML8;
     // uint8_t      absolute_bandwidth;
     vfp->priority = 0;
@@ -3517,7 +3451,7 @@ addDefaultVirtualFabric(uint32_t fm, FMXmlCompositeConfig_t *config, VFXmlConfig
     vfp->number_of_limited_members = 0;
 
     vfp->number_of_applications = 1;
-    snprintf(vfp->application[0].application, sizeof(vfp->application[0].application), app->name);
+    cs_strlcpy(vfp->application[0].application, app->name, MAX_VFABRIC_NAME+1);
 
 	if (!addMap(&app_config->appMap, XML_QMAP_U64_CAST app)) {
 		freeApplicationObject(app);
@@ -3561,7 +3495,7 @@ DGConfig_t* findGroupPointer(FMXmlCompositeConfig_t *config, char *group, uint32
 	uint32_t i;
 
 	if (xml_vf_debug)
-		fprintf(stdout, "findGroupPointer() group %s\n", group); 
+		fprintf(stdout, "findGroupPointer() group %s\n", group);
 
 	for (i = 0; i < MAX_VFABRIC_GROUPS; i++) {
 		dgp = config->fm_instance[instance]->dg_config.dg[i];
@@ -3579,7 +3513,7 @@ AppConfig_t* findAppPointer(FMXmlCompositeConfig_t *config, char *name, uint32_t
 	cl_map_item_t *app_item;
 
 	if (xml_vf_debug)
-		fprintf(stdout, "findAppPointer() app %s\n", name); 
+		fprintf(stdout, "findAppPointer() app %s\n", name);
 
 	app_item = cl_qmap_get(&config->fm_instance[instance]->app_config.appMap, XML_QMAP_U64_CAST name);
 	if (app_item)
@@ -3604,8 +3538,8 @@ int includedApps(FMXmlCompositeConfig_t *config, uint32_t fm, AppConfig_t **list
 	}
 
 	if (xml_vf_debug)
-		fprintf(stdout, "includedApps() parent->name %s included apps %u index %u\n", 
-			parent->name, (unsigned int)parent->number_of_included_apps, (unsigned int)*index); 
+		fprintf(stdout, "includedApps() parent->name %s included apps %u index %u\n",
+			parent->name, (unsigned int)parent->number_of_included_apps, (unsigned int)*index);
 
 	for (i = 0; i < parent->number_of_included_apps; i++)
 	{
@@ -3616,14 +3550,14 @@ int includedApps(FMXmlCompositeConfig_t *config, uint32_t fm, AppConfig_t **list
 			return -1;
 		}
 
-		// if the parent does not have a name then parse error 
+		// if the parent does not have a name then parse error
 		if (strlen(parent->name) == 0) {
 			if (error)
 				sprintf(error, "Parent Application encountered without a name");
 			return -1;
 		}
 
-		// if included does not have a name then parse error 
+		// if included does not have a name then parse error
 		if (strlen(parent->included_app[i].node) == 0) {
 			if (error)
 				sprintf(error, "Included Application encountered without a name");
@@ -3641,8 +3575,8 @@ int includedApps(FMXmlCompositeConfig_t *config, uint32_t fm, AppConfig_t **list
 		}
 
 	if (xml_vf_debug)
-		fprintf(stdout, "includedApps() parent->name %s included name %s index %u\n", 
-			parent->name, parent->included_app[i].node, (unsigned int)*index); 
+		fprintf(stdout, "includedApps() parent->name %s included name %s index %u\n",
+			parent->name, parent->included_app[i].node, (unsigned int)*index);
 
 		// make sure this pointer is not already on the list
 		for (ii = 0; ii < MAX_VFABRIC_APPS; ii++) {
@@ -3659,7 +3593,7 @@ int includedApps(FMXmlCompositeConfig_t *config, uint32_t fm, AppConfig_t **list
 			continue;
 
 		// save app pointer on app list
-		list[*index] = included; 
+		list[*index] = included;
 		(*index)++;
 
 		// recursively call this again for this included app
@@ -3669,7 +3603,7 @@ int includedApps(FMXmlCompositeConfig_t *config, uint32_t fm, AppConfig_t **list
 	}
 	return 0;
 }
-	
+
 // add to list of groups all included groups - this is a reccursive routine
 int includedGroups(FMXmlCompositeConfig_t *config, uint32_t fm, DGConfig_t **list, DGConfig_t *parent, uint32_t *index, char *error)
 {
@@ -3686,8 +3620,8 @@ int includedGroups(FMXmlCompositeConfig_t *config, uint32_t fm, DGConfig_t **lis
 	}
 
 	if (xml_vf_debug)
-		fprintf(stdout, "includedGroups() parent->name %s included groups %u index %u\n", 
-			parent->name, (unsigned int)parent->number_of_included_groups, (unsigned int)*index); 
+		fprintf(stdout, "includedGroups() parent->name %s included groups %u index %u\n",
+			parent->name, (unsigned int)parent->number_of_included_groups, (unsigned int)*index);
 
 	// get pointer to first included group
 	groupPtr = parent->included_group;
@@ -3701,14 +3635,14 @@ int includedGroups(FMXmlCompositeConfig_t *config, uint32_t fm, DGConfig_t **lis
 			return -1;
 		}
 
-		// if the parent does not have a name then parse error 
+		// if the parent does not have a name then parse error
 		if (strlen(parent->name) == 0) {
 			if (error)
 				sprintf(error, "Parent DeviceGroup encountered without a name");
 			return -1;
 		}
 
-		// if included does not have a name then parse error 
+		// if included does not have a name then parse error
 		if (strlen(groupPtr->group) == 0) {
 			if (error)
 				sprintf(error, "Included DeviceGroup encountered without a name");
@@ -3726,8 +3660,8 @@ int includedGroups(FMXmlCompositeConfig_t *config, uint32_t fm, DGConfig_t **lis
 		}
 
 		if (xml_vf_debug)
-			fprintf(stdout, "includedGroups() parent->name %s included name %s index %u\n", 
-				parent->name, groupPtr->group, (unsigned int)*index); 
+			fprintf(stdout, "includedGroups() parent->name %s included name %s index %u\n",
+				parent->name, groupPtr->group, (unsigned int)*index);
 
 		// make sure this pointer is not already on the list
 		for (i = 0; i < MAX_VFABRIC_GROUPS; i++) {
@@ -3746,7 +3680,7 @@ int includedGroups(FMXmlCompositeConfig_t *config, uint32_t fm, DGConfig_t **lis
 		}
 
 		// save group pointer on group list
-		list[*index] = included; 
+		list[*index] = included;
 		(*index)++;
 
 		// recursively call this again for this included group
@@ -3777,32 +3711,29 @@ void checkDefaultGroupMGIDDuplicates(VirtualFabrics_t *vfsip, char *error)
 	for (vf = 0; vf < vfsip->number_of_vfs; vf++) {
 		dg_ref = vfsip->v_fabric[vf].default_group;
 		while (dg_ref) {
-			for_all_qmap_ptr(&dg_ref->mgidMap, item1, mgid_ref) {
-				dg_check = vfsip->v_fabric[vf].default_group;
-				while (dg_check) {
-					for_all_qmap_ptr(&dg_check->mgidMap, item2, mgid_check) {
-/*
-							printf("dg_ref %x dg_check %x mgid_ref (0x%16.16llx:0x%16.16llx) mgid_check (0x%16.16llx:0x%16.16llx) VirtualFabric (%s)\n", 
-								dg_ref, dg_check,
-								(long long unsigned int)mgid_ref->mgid[0], (long long unsigned int)mgid_ref->mgid[1],
-								(long long unsigned int)mgid_check->mgid[0], (long long unsigned int)mgid_check->mgid[1], vfsip->v_fabric[vf].name); 
-*/
-						if (mgid_ref != mgid_check) {
-							if (mgid_ref->mgid[0] == mgid_check->mgid[0] && mgid_ref->mgid[1] == mgid_check->mgid[1]) {
-								sprintf(error, "Duplicate MGID (0x%16.16llx:0x%16.16llx) in MulticastGroup definitions for VirtualFabric (%s)", 
-									(long long unsigned int)mgid_ref->mgid[0], (long long unsigned int)mgid_ref->mgid[1], vfsip->v_fabric[vf].name); 
-								return;
+			if (dg_ref->def_mc_create) {
+				for_all_qmap_ptr(&dg_ref->mgidMap, item1, mgid_ref) {
+					dg_check = vfsip->v_fabric[vf].default_group;
+					while (dg_check) {
+						if (dg_check->def_mc_create) {
+							for_all_qmap_ptr(&dg_check->mgidMap, item2, mgid_check) {
+								if (mgid_ref == mgid_check) continue;
+								if (mgid_ref->mgid[0] == mgid_check->mgid[0] && mgid_ref->mgid[1] == mgid_check->mgid[1]) {
+									sprintf(error, "Duplicate MGID (0x%016"PRIx64":0x%016"PRIx64") in MulticastGroup definitions for VirtualFabric (%s)",
+										mgid_ref->mgid[0], mgid_ref->mgid[1], vfsip->v_fabric[vf].name);
+									return;
+								}
 							}
 						}
+						dg_check = dg_check->next_default_group;
 					}
-					dg_check = dg_check->next_default_group;
 				}
 			}
 			dg_ref = dg_ref->next_default_group;
 		}
 	}
 }
-	
+
 // find a pointer to a rendered Virtual Fabric given the name
 VF_t* findVfPointer(VirtualFabrics_t* vf_config, char* virtualFabric)
 {
@@ -3819,11 +3750,11 @@ VF_t* findVfPointer(VirtualFabrics_t* vf_config, char* virtualFabric)
 }
 
 // build a list of GUID's
-int32_t buildGuidList(cl_qmap_t *map, XmlGuid_t *guid_list, char *error, uint32_t *entries)
+static int32_t buildGuidMap(cl_qmap_t *map, cl_qmap_t *guid_list, char *error, uint32_t *entries)
 {
-	while (guid_list) {
-		*entries += addMap(map, guid_list->guid);
-		guid_list = guid_list->next;
+	cl_map_item_t *cl_map_item;
+	for_all_qmap_item(guid_list, cl_map_item) {
+		*entries += addMap(map, cl_qmap_key(cl_map_item));
 	}
 	return 0;
 }
@@ -3836,7 +3767,7 @@ int nodeDescCompare(IN const uint64 desc1, IN  const uint64 desc2)
 
 	return strncmp(XML_QMAP_CHAR_CAST desc1, XML_QMAP_CHAR_CAST desc2, MAX_VFABRIC_NAME);
 }
-			
+
 // build a list of Node Descriptions
 int32_t buildDescList(cl_qmap_t *map, XmlNode_t *desc_list, char *error, uint32_t *entries)
 {
@@ -3850,7 +3781,7 @@ int32_t buildDescList(cl_qmap_t *map, XmlNode_t *desc_list, char *error, uint32_
 			fprintf(stdout, OUT_OF_MEMORY_RETURN);
 			return -1;
 		}
-		strcpy(node_descr, desc_list->node);
+		cs_strlcpy(node_descr, desc_list->node, MAX_VFABRIC_NAME+1);
 		if (addMap(map, XML_QMAP_U64_CAST node_descr)) {
 			(*entries)++;
 		} else {
@@ -3861,6 +3792,376 @@ int32_t buildDescList(cl_qmap_t *map, XmlNode_t *desc_list, char *error, uint32_
 	return 0;
 }
 
+static boolean testSlSharing(VF_t *testVf, uint8_t testSl, VF_t *targetVf, uint8_t targetSl, char *type, IXmlParserPrintMessage printError, IXmlParserPrintMessage printWarning)
+{
+	const char *sharing_error = "Virtual Fabric (%s) shares %s (%d) with Virtual Fabric (%s), but different %s setting.\n";
+	const char *reuse_error = "Virtual Fabric (%s) %s (%d) previously used in VirtualFabric (%s) as %s.\n";
+	const char *mixeduse_error = "Virtual Fabric (%s) shares %s (%d) with Virtual Fabric (%s), but have different %s.\n";
+	char msg[256];
+	boolean result = 1;
+
+	if (testSl != UNDEFINED_XML8) {
+		if (targetSl != UNDEFINED_XML8 && testSl == targetSl) {
+			if (testVf->priority != targetVf->priority) {
+				if (printError) {
+					snprintf(msg, sizeof(msg),  sharing_error, testVf->name, type, testSl, targetVf->name, "HighPriority");
+					(*printError)(msg);
+				}
+				result = 0;
+			}
+			if (testVf->preempt_rank != targetVf->preempt_rank) {
+				if (printError) {
+					snprintf(msg, sizeof(msg),  sharing_error, testVf->name, type, testSl, targetVf->name, "PreemptRank");
+					(*printError)(msg);
+				}
+				result = 0;
+			}
+			if (testVf->flowControlDisable != targetVf->flowControlDisable) {
+				if (printError) {
+					snprintf(msg, sizeof(msg),  sharing_error, testVf->name, type, testSl, targetVf->name, "FlowControlDisable");
+					(*printError)(msg);
+				}
+				result = 0;
+			}
+			if (testVf->hoqlife_vf != targetVf->hoqlife_vf) {
+				if (printError) {
+					snprintf(msg, sizeof(msg),  sharing_error, testVf->name, type, testSl, targetVf->name, "HoqLife");
+					(*printError)(msg);
+				}
+				result = 0;
+			}
+			if (testVf->pkt_lifetime_mult != targetVf->pkt_lifetime_mult) {
+				if (printError) {
+					snprintf(msg, sizeof(msg),  sharing_error, testVf->name, type, testSl, targetVf->name, "PktLifeTimeMult");
+					(*printError)(msg);
+				}
+				result = 0;
+			}
+		}
+		if (targetVf->base_sl != UNDEFINED_XML8 && targetVf->base_sl == testSl) {
+			if (testSl != testVf->base_sl) {
+				if (printError) {
+					snprintf(msg, sizeof(msg), reuse_error, testVf->name, type, testSl, targetVf->name, "BaseSl");
+					(*printError)(msg);
+				}
+				result = 0;
+			} else {
+				if (testVf->resp_sl != UNDEFINED_XML8 && targetVf->resp_sl != UNDEFINED_XML8 && testVf->resp_sl != targetVf->resp_sl) {
+					if (printError) {
+						snprintf(msg, sizeof(msg), mixeduse_error, testVf->name, type, testSl, targetVf->name, "RespSL");
+						(*printError)(msg);
+					}
+					result = 0;
+				}
+				if (testVf->mcast_sl != UNDEFINED_XML8 && targetVf->mcast_sl != UNDEFINED_XML8 && testVf->mcast_sl != targetVf->mcast_sl) {
+					if (printError) {
+						snprintf(msg, sizeof(msg), mixeduse_error, testVf->name, type, testSl, targetVf->name, "MulticastSL");
+						(*printError)(msg);
+					}
+					result = 0;
+				}
+			}
+		}
+		if (targetVf->resp_sl != UNDEFINED_XML8 && targetVf->resp_sl == testSl) {
+			if (testSl != testVf->resp_sl) {
+				if (printError) {
+					snprintf(msg, sizeof(msg), reuse_error, testVf->name, type, testSl, targetVf->name, "RespSl");
+					(*printError)(msg);
+				}
+				result = 0;
+			} else {
+				if (testVf->base_sl != UNDEFINED_XML8 && targetVf->base_sl != UNDEFINED_XML8 && testVf->base_sl != targetVf->base_sl) {
+					if (printError) {
+						snprintf(msg, sizeof(msg), mixeduse_error, testVf->name, type, testSl, targetVf->name, "BaseSL");
+						(*printError)(msg);
+					}
+					result = 0;
+				}
+				if (testVf->mcast_sl != UNDEFINED_XML8 && targetVf->mcast_sl != UNDEFINED_XML8 && testVf->mcast_sl != targetVf->mcast_sl) {
+					if (printError) {
+						snprintf(msg, sizeof(msg), mixeduse_error, testVf->name, type, testSl, targetVf->name, "MulticastSL");
+						(*printError)(msg);
+					}
+					result = 0;
+				}
+			}
+		}
+		if (targetVf->mcast_sl != UNDEFINED_XML8 && targetVf->mcast_sl == testSl) {
+			if (testSl != testVf->mcast_sl) {
+				if (printError) {
+					snprintf(msg, sizeof(msg), reuse_error, testVf->name, type, testSl, targetVf->name, "MulticastSL");
+					(*printError)(msg);
+				}
+				result = 0;
+			} else {
+				if (testVf->base_sl != UNDEFINED_XML8 && targetVf->base_sl != UNDEFINED_XML8 && testVf->base_sl != targetVf->base_sl) {
+					if (printError) {
+						snprintf(msg, sizeof(msg), mixeduse_error, testVf->name, type, testSl, targetVf->name, "BaseSL");
+						(*printError)(msg);
+					}
+					result = 0;
+				}
+				if (testVf->resp_sl != UNDEFINED_XML8 && targetVf->resp_sl != UNDEFINED_XML8 && testVf->resp_sl != targetVf->resp_sl) {
+					if (printError) {
+						snprintf(msg, sizeof(msg), mixeduse_error, testVf->name, type, testSl, targetVf->name, "RespSL");
+						(*printError)(msg);
+					}
+					result = 0;
+				}
+			}
+		}
+	}
+	return result;
+}
+
+// Test routine to validate SL assignement to VFs
+boolean applyVirtualFabricRules(VirtualFabrics_t *vfsip, IXmlParserPrintMessage printError, IXmlParserPrintMessage printWarning)
+{
+	boolean result = 1;
+	char msg[256];
+	boolean slsWithBw[MAX_SLS] = { 0 };
+	int vf;
+
+	for (vf = 0; vf < vfsip->number_of_vfs_all && vf < MAX_ENABLED_VFABRICS; vf++) {
+		const char *ignored = "Virtual Fabric (%s) is %s, configured %s (%d%s) will be ignored.\n";
+		VF_t *vfp = &vfsip->v_fabric_all[vf];
+
+		if (!vfp->qos_enable) {
+			if (vfp->preempt_rank) {
+				if (printWarning) {
+					snprintf(msg, sizeof(msg), ignored, vfp->name, "Qos disabled", "PreemptRank", vfp->preempt_rank, "");
+					(*printWarning)(msg);
+				}
+				vfp->preempt_rank = 0;
+			}
+			if (vfp->flowControlDisable) {
+				if (printWarning) {
+					snprintf(msg, sizeof(msg), ignored, vfp->name, "Qos disabled", "FlowControlDisable", vfp->flowControlDisable, "");
+					(*printWarning)(msg);
+				}
+				vfp->flowControlDisable = 0;
+			}
+			if (vfp->priority) {
+				if (printWarning) {
+					snprintf(msg, sizeof(msg), ignored, vfp->name, "Qos disabled", "HighPriority", vfp->priority, "");
+					(*printWarning)(msg);
+				}
+				vfp->priority = 0;
+			}
+			if (!vfp->standby && vfp->percent_bandwidth != UNDEFINED_XML8) {
+				if (printWarning) {
+					snprintf(msg, sizeof(msg), ignored, vfp->name, "Qos disabled", "Bandwidth", vfp->percent_bandwidth, "%");
+					(*printWarning)(msg);
+				}
+				vfp->percent_bandwidth = UNDEFINED_XML8;
+			}
+			if (vfp->base_sl != UNDEFINED_XML8) {
+				if (printWarning) {
+					snprintf(msg, sizeof(msg), ignored, vfp->name, "Qos disabled", "BaseSL", vfp->base_sl, "");
+					(*printWarning)(msg);
+				}
+				vfp->base_sl = UNDEFINED_XML8;
+			}
+			if (vfp->resp_sl != UNDEFINED_XML8) {
+				if (printWarning) {
+					snprintf(msg, sizeof(msg), ignored, vfp->name, "Qos disabled", "RespSL", vfp->resp_sl, "");
+					(*printWarning)(msg);
+				}
+				vfp->resp_sl = UNDEFINED_XML8;
+			}
+			if (vfp->mcast_sl != UNDEFINED_XML8) {
+				if (printWarning) {
+					snprintf(msg, sizeof(msg), ignored, vfp->name, "Qos disabled", "MulticastSL", vfp->mcast_sl, "");
+					(*printWarning)(msg);
+				}
+				vfp->mcast_sl = UNDEFINED_XML8;
+			}
+		} else {
+			const char *ib_access = "Virtual Fabric (%s) %s (%d) above 15, may not be accessible to verbs applications.\n";
+			const char *unneeded = "Virtual Fabric (%s) includes a user specified %s (%d), but includes no %s.\n";
+			const char *reused = "Virtual Fabric (%s) cannot share SL (%d) for %s and %s, %s.\n";
+			const char *missing = "Virtual Fabric (%s) includes %s (%d) but missing required %s.\n";
+			int i;
+
+			if (vfp->priority && !vfp->standby && vfp->percent_bandwidth != UNDEFINED_XML8) {
+				if (printWarning) {
+					snprintf(msg, sizeof(msg), ignored, vfp->name, "High Priority", "Bandwidth", vfp->percent_bandwidth, "%");
+					(*printWarning)(msg);
+				}
+				vfp->percent_bandwidth = UNDEFINED_XML8;
+			}
+			if (vfp->base_sl != UNDEFINED_XML8) {
+				if (vfp->requires_resp_sl) {
+					if (vfp->resp_sl == UNDEFINED_XML8) {
+						if (printError) {
+							snprintf(msg, sizeof(msg), missing, vfp->name, "BaseSL", vfp->base_sl, "RespSL");
+							(*printError)(msg);
+						}
+						result = 0;
+					} else if (vfp->resp_sl == vfp->base_sl) {
+						if (printError) {
+							snprintf(msg, sizeof(msg), reused, vfp->name, vfp->base_sl, "BaseSL", "RespSL", "requires separate RespSL");
+							(*printError)(msg);
+						}
+						result = 0;
+					}
+				}
+				if (vfp->base_sl >= MAX_SLS) {
+					if (printWarning) {
+						snprintf(msg, sizeof(msg), ib_access, vfp->name, "BaseSL", vfp->base_sl);
+						(*printWarning)(msg);
+					}
+				}
+			}
+			if (vfp->resp_sl != UNDEFINED_XML8) {
+				if (vfp->base_sl == UNDEFINED_XML8) {
+					if (printError) {
+						snprintf(msg, sizeof(msg), missing, vfp->name, "RespSL", vfp->resp_sl, "BaseSL");
+						(*printError)(msg);
+					}
+					result = 0;
+				} else {
+					if (vfp->resp_sl != vfp->base_sl) {
+						if (!vfp->requires_resp_sl) {
+							if (printWarning) {
+								snprintf(msg, sizeof(msg), unneeded, vfp->name, "RespSL", vfp->resp_sl, "response applications");
+								(*printWarning)(msg);
+							}
+						}
+					}
+				}
+			}
+			if (vfp->mcast_sl != UNDEFINED_XML8) {
+				if (vfp->base_sl == UNDEFINED_XML8) {
+					if (printError) {
+						snprintf(msg, sizeof(msg), missing, vfp->name, "MulticastSL", vfp->mcast_sl, "BaseSL");
+						(*printError)(msg);
+					}
+					result = 0;
+				} else {
+					if (vfp->mcast_sl != vfp->base_sl) {
+						if (!vfp->contains_mcast) {
+							if (printWarning) {
+								snprintf(msg, sizeof(msg), unneeded, vfp->name, "MulticastSL", vfp->mcast_sl, "multicast groups");
+								(*printWarning)(msg);
+							}
+						}
+						// MCAST != BASE, but MCAST == RESP
+						if (vfp->resp_sl != UNDEFINED_XML8 && vfp->mcast_sl == vfp->resp_sl) {
+							if (printError) {
+								snprintf(msg, sizeof(msg), reused, vfp->name, vfp->mcast_sl, "RespSL", "MulticastSL", "must be separate SLs");
+								(*printError)(msg);
+							}
+							result = 0;
+						}
+					}
+				}
+				if (vfp->mcast_sl >= MAX_SLS) {
+					if (printWarning) {
+						snprintf(msg, sizeof(msg), ib_access, vfp->name, "MulticastSL", vfp->mcast_sl);
+						(*printWarning)(msg);
+					}
+				}
+			}
+			// Check this VF against all previous VFs
+			for (i = 0; i < vf; i++) {
+				VF_t *tmpVf = &vfsip->v_fabric_all[i];
+
+				if (!tmpVf->qos_enable) continue;
+
+				if (!testSlSharing(vfp, vfp->base_sl, tmpVf, tmpVf->base_sl, "BaseSL", printError, printWarning)) {
+					result = 0;
+				}
+				if (!testSlSharing(vfp, vfp->resp_sl, tmpVf, tmpVf->resp_sl, "RespSL", printError, printWarning)) {
+					result = 0;
+				}
+				if (!testSlSharing(vfp, vfp->mcast_sl, tmpVf, tmpVf->mcast_sl, "MulticastSL", printError, printWarning)) {
+					result = 0;
+				}
+
+			}
+		}
+		if (!vfp->standby && vfp->qos_enable && !vfp->priority && vfp->percent_bandwidth != 0) {
+			// Find all the SLs that are used by Qos, Low Priority, and have a nonzero bandwidth
+			if (vfp->base_sl < MAX_SLS) { // note that this implicitly checks for != UNDEFINED.
+				slsWithBw[vfp->base_sl] = 1;
+			}
+			if (vfp->resp_sl < MAX_SLS) { // note that this implicitly checks for != UNDEFINED.
+				slsWithBw[vfp->resp_sl] = 1;
+			}
+			if (vfp->mcast_sl < MAX_SLS) { // note that this implicitly checks for != UNDEFINED.
+				slsWithBw[vfp->mcast_sl] = 1;
+			}
+		}
+	}
+	for (vf = 0; vf < vfsip->number_of_vfs_all; vf++) {
+		const char *no_bw_sl = "Virtual Fabric (%s) specifies 0%% Bandwidth, %s (%d) must be included in a VF with nonzero Bandwidth.\n";
+		const char *no_bw_no_sl = "Virtual Fabric (%s) specifies 0%% Bandwidth, must include SLs shared by other VFs.\n";
+		VF_t *vfp = &vfsip->v_fabric_all[vf];
+
+		if (!vfp->standby && vfp->qos_enable && !vfp->priority && vfp->percent_bandwidth == 0) {
+			boolean hasSls = 0;
+			if (vfp->base_sl < MAX_SLS) { // note that this implicitly checks for != UNDEFINED.
+				hasSls = 1;
+				if (!slsWithBw[vfp->base_sl]) {
+					if (printError) {
+						snprintf(msg, sizeof(msg), no_bw_sl, vfp->name, "BaseSL", vfp->base_sl);
+						(*printError)(msg);
+					}
+					result = 0;
+				}
+			}
+			if (vfp->resp_sl < MAX_SLS) { // note that this implicitly checks for != UNDEFINED.
+				hasSls = 1;
+				if (!slsWithBw[vfp->resp_sl]) {
+					if (printError) {
+						snprintf(msg, sizeof(msg), no_bw_sl, vfp->name, "RespSL", vfp->resp_sl);
+						(*printError)(msg);
+					}
+					result = 0;
+				}
+			}
+			if (vfp->mcast_sl < MAX_SLS) { // note that this implicitly checks for != UNDEFINED.
+				hasSls = 1;
+				if (!slsWithBw[vfp->mcast_sl]) {
+					if (printError) {
+						snprintf(msg, sizeof(msg), no_bw_sl, vfp->name, "MulticastSL", vfp->mcast_sl);
+						(*printError)(msg);
+					}
+					result = 0;
+				}
+			}
+			if (!hasSls) {
+				if (printError) {
+					snprintf(msg, sizeof(msg), no_bw_no_sl, vfp->name);
+					(*printError)(msg);
+				}
+				result = 0;
+			}
+		}
+	}
+
+	// Update active VFs
+	int activeVf;
+	for (vf = 0, activeVf = 0; vf < vfsip->number_of_vfs_all; vf++) {
+		VF_t *vfp = &vfsip->v_fabric_all[vf];
+		if (!vfp->standby) {
+			VF_t *activeVfp = &vfsip->v_fabric[activeVf];
+
+			activeVfp->preempt_rank = vfp->preempt_rank;
+			activeVfp->flowControlDisable = vfp->flowControlDisable;
+			activeVfp->priority = vfp->priority;
+			activeVfp->percent_bandwidth = vfp->percent_bandwidth;
+			activeVfp->base_sl = vfp->base_sl;
+			activeVfp->resp_sl = vfp->resp_sl;
+			activeVfp->mcast_sl = vfp->mcast_sl;
+
+			activeVf++;
+		}
+	}
+	return result;
+}
+
 // conversion utility  to render XML captured data into a more application readable format
 VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t *config, SMXmlConfig_t *smp, char *error)
 {
@@ -3868,8 +4169,6 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 
 	VirtualFabrics_t			*vfsip;
 	VF_t						*vfip;
-	XmlGuid_t 					*guid_list;
-	XmlNode_t 					*desc_list;
 
 	DGConfig_t					*group_list[MAX_VFABRIC_GROUPS];
 	DGConfig_t	 				*parent_group;
@@ -3893,10 +4192,10 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 	uint32_t 					v_fabrics;
 	uint32_t					valid_vfs;
 	uint32_t					total_bw;
-	uint32_t					num_non_qos_enabled;
-	uint32_t					num_qos_defined;
-	uint32_t					num_enabled;
-	uint32_t					needed_bw_reserve;
+
+	uint8_t						num_non_qos = 0;
+	uint8_t						num_bwundef_qos = 0;
+
 	int32_t						result;
 	uint8_t						dg_match;
 	uint8_t						default_vf_check;
@@ -3921,10 +4220,11 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 	// is not 0 length
 	valid_vfs = 0;
 	total_bw = 0;
-	num_non_qos_enabled = 0;
-	num_qos_defined = 0;
-	num_enabled = 0;
-	needed_bw_reserve = 0;
+
+	/*
+	 * Account for VLArb peculiarities when processing VF QoS values, in
+	 * particular, the fact that VLArb works in 5% increments
+	 */
 
 	for (v_fabrics = 0; v_fabrics < MAX_CONFIGURED_VFABRICS; v_fabrics++) {
 
@@ -3935,24 +4235,22 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 			break;
 
 		// if the VF is not enabled then continue
-		if (!vfp->enable) 
+		if (!vfp->enable)
 			continue;
 
 		// see if the number of enabled VF's will exceed 32
 		if (valid_vfs >= MAX_ENABLED_VFABRICS) {
 			if (error) {
-				sprintf(error, "No more than 32 Virtual Fabrics can be enabled in the configuration"); 
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				sprintf(error, "No more than 32 Virtual Fabrics can be enabled in the configuration");
+				goto fail;
 			}
 			continue;
 		}
 		// verify that Virtual Fabric has a Name
 		if (strlen(vfp->name) == 0) {
 			if (error) {
-				sprintf(error, "Virtual Fabric must have a name if its Enabled"); 
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				sprintf(error, "Virtual Fabric must have a name if its Enabled");
+				goto fail;
 			}
 			continue;
 		}
@@ -3960,9 +4258,8 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 		// verify that Virtual Fabric PKey is >0 and <= 15 bits
 		if ((vfp->pkey != UNDEFINED_XML32) && (((vfp->pkey == 0) || (vfp->pkey > 0x7fff)))) {
 			if (error) {
-				sprintf(error, "Virtual Fabric (%s) Invalid PKey: 0x%x, must be in the range 0x0001-0x7fff", vfp->name, vfp->pkey); 
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				sprintf(error, "Virtual Fabric (%s) Invalid PKey: 0x%x, must be in the range 0x0001-0x7fff", vfp->name, vfp->pkey);
+				goto fail;
 			}
 			continue;
 		}
@@ -3970,17 +4267,15 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 		// verify that necessary objects in Virtual Fabric are specified
 		if (vfp->number_of_full_members == 0 && vfp->number_of_limited_members == 0) {
 			if (error) {
-				sprintf(error, "Virtual Fabric (%s) must have either one or more Member or LimitedMember entries defined", vfp->name); 
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				sprintf(error, "Virtual Fabric (%s) must have either one or more Member or LimitedMember entries defined", vfp->name);
+				goto fail;
 			}
 			continue;
 		}
 		if (vfp->number_of_applications == 0) {
 			if (error) {
-				sprintf(error, "Virtual Fabric (%s) must have either one or more Application entries defined", vfp->name); 
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				sprintf(error, "Virtual Fabric (%s) must have either one or more Application entries defined", vfp->name);
+				goto fail;
 			}
 			continue;
 		}
@@ -3988,42 +4283,28 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 		default_vf_check = (vfp->pkey & ~0x8000) == STL_DEFAULT_PKEY;
 
 		// get pointer to next internal VF object
-		vfip = &vfsip->v_fabric_all[vfsip->number_of_vfs_all]; 
+		vfip = &vfsip->v_fabric_all[vfsip->number_of_vfs_all];
 
 		// save settings for this VF
-		strcpy(vfip->name, vfp->name);
+		cs_strlcpy(vfip->name, vfp->name, MAX_VFABRIC_NAME+1);
 		vfip->index = v_fabrics;
 		vfip->pkey = vfp->pkey;
 		vfip->standby = vfp->standby;
 
-		if (vfp->security == UNDEFINED_XML8) {
-			// Change undefined to off.
-			vfp->security = 0;
-		}
 		vfip->security = vfp->security;
 
 		vfip->qos_enable = vfp->qos_enable;
-		if (!vfip->qos_enable)
-			num_non_qos_enabled++;
-
-		num_enabled++;
 
 		vfip->base_sl = vfp->base_sl;
+		vfip->resp_sl = vfp->resp_sl;
+		vfip->mcast_sl = vfp->mcast_sl;
 
 		if (vfp->flowControlDisable == UNDEFINED_XML8) {
 			// change undefined to keep enabled
 			vfp->flowControlDisable = 0;
 		}
 		vfip->flowControlDisable = vfp->flowControlDisable;
-
-		vfip->routing_scs = 1; 
-		vfip->routing_sls = 1;
-		vfip->updown_only = vfp->updown_only;
-
 		vfip->percent_bandwidth = vfp->percent_bandwidth;
-		if (vfp->qos_enable && 
-			((vfp->percent_bandwidth != UNDEFINED_XML8) || (vfp->priority == 1)))
-			num_qos_defined++;
 
 		if (vfp->priority == UNDEFINED_XML8) {
 			// Change undefined to low.
@@ -4034,7 +4315,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 		vfip->pkt_lifetime_mult = vfp->pkt_lifetime_mult;
 		if (vfip->pkt_lifetime_mult != UNDEFINED_XML8) {
         	vfip->pkt_lifetime_specified = 1;
-		} 
+		}
 		if (vfp->max_mtu_int != UNDEFINED_XML8) {
 			vfip->max_mtu_int = vfp->max_mtu_int;
         	vfip->max_mtu_specified = 1;
@@ -4048,18 +4329,6 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 		} else {
         	vfip->max_rate_int = IB_STATIC_RATE_MAX;
         	vfip->max_rate_specified = 0;
-		}
-
-		// if QOS is enabled then check for total bandwidth
-		if (!vfp->standby && (vfp->qos_enable && vfp->percent_bandwidth != UNDEFINED_XML8)) {
-			total_bw += vfp->percent_bandwidth;
-			if (total_bw > 100) {
-				if (error) 
-					sprintf(error, "Total QOS Bandwidth cannot exceed 100%% for enabled Virtual Fabrics with QOS enabled");
-				fprintf(stdout, "Total QOS Bandwidth cannot exceed 100%% for enabled Virtual Fabrics with QOS enabled\n" );
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
-			}
 		}
 
 		// Inherit default values from SM Instance if not yet defined by VF.
@@ -4079,7 +4348,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
         }
 */
 
-		// build a list of all applications and included application pointers 
+		// build a list of all applications and included application pointers
 		// if an app is encountered more than once disregard but let the user know - this
 		// is not really a parse error
 		memset(app_list, 0, sizeof(app_list));
@@ -4097,17 +4366,15 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 				result = includedApps(config, fm, app_list, parent_app, &app_list_index, error);
 				if (result < 0) {
 					if (error) {
-						releaseVirtualFabricsConfig(vfsip);
-						return NULL;
+						goto fail;
 					}
 				}
 			} else if (error) {
-				sprintf(error, "VirtualFabric (%s) does not have any valid Application named (%s) in the configuration", 
+				sprintf(error, "VirtualFabric (%s) does not have any valid Application named (%s) in the configuration",
 					vfp->name, vfp->application[apps].application);
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				goto fail;
 			}
-			
+
 		}
 		apps_in_list = app_list_index;
 
@@ -4115,12 +4382,10 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 		if (apps_in_list == 0) {
 			if (error) {
 				sprintf(error, "VirtualFabric (%s) does not have any valid Applications specified in the configuration", vfp->name);
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				goto fail;
 			}
 			continue;
 		}
-
 
 		// aggregate the flags for each parsed app into the internal app structure
 		for (app_list_index = 0; app_list_index < apps_in_list; app_list_index++) {
@@ -4131,7 +4396,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 
 		for (app_list_index = 0; app_list_index < apps_in_list; app_list_index++)
 			vfip->apps.select_pm |= app_list[app_list_index]->select_pm;
-	
+
 
 		// now that we have the app list create entries in internal database for service ID's
 		// and MGID's.
@@ -4155,8 +4420,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 					if (error)
 						sprintf(error, OUT_OF_MEMORY);
 					fprintf(stdout, OUT_OF_MEMORY_RETURN);
-					releaseVirtualFabricsConfig(vfsip);
-					return NULL;
+					goto fail;
 				}
 
 				// since this is a unique service ID set SID then set last to 0 to
@@ -4179,8 +4443,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 					if (error)
 						sprintf(error, OUT_OF_MEMORY);
 					fprintf(stdout, OUT_OF_MEMORY_RETURN);
-					releaseVirtualFabricsConfig(vfsip);
-					return NULL;
+					goto fail;
 				}
 
 				// since this is a range of service ID's then set it up appropriately
@@ -4200,8 +4463,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 					if (error)
 						sprintf(error, OUT_OF_MEMORY);
 					fprintf(stdout, OUT_OF_MEMORY_RETURN);
-					releaseVirtualFabricsConfig(vfsip);
-					return NULL;
+					goto fail;
 				}
 
 				// since this is a masked service ID then set it up appropriately
@@ -4220,8 +4482,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 					if (error)
 						sprintf(error, OUT_OF_MEMORY);
 					fprintf(stdout, OUT_OF_MEMORY_RETURN);
-					releaseVirtualFabricsConfig(vfsip);
-					return NULL;
+					goto fail;
 				}
 
 				// since this is an individual MGID ID then set it up appropriately
@@ -4240,8 +4501,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 					if (error)
 						sprintf(error, OUT_OF_MEMORY);
 					fprintf(stdout, OUT_OF_MEMORY_RETURN);
-					releaseVirtualFabricsConfig(vfsip);
-					return NULL;
+					goto fail;
 				}
 
 				// since this is an MGID range then set it up appropriately
@@ -4260,8 +4520,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 					if (error)
 						sprintf(error, OUT_OF_MEMORY);
 					fprintf(stdout, OUT_OF_MEMORY_RETURN);
-					releaseVirtualFabricsConfig(vfsip);
-					return NULL;
+					goto fail;
 				}
 
 				// since this is an MGID mask then set it up appropriately
@@ -4275,41 +4534,51 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 			}
 		}
 
-		// If this is a Default VF, make sure that SA, PM or PA is included.
+		vfip->requires_resp_sl = 0;
+		vfip->contains_mcast = (vfip->apps.mgidMapSize != 0) || vfip->apps.select_unmatched_mgid;
+
+		// Keep track of bandwidth in use but don't check until all
+		// VFs have been processed
+		if (!vfip->standby) {
+			if (!vfip->qos_enable) {
+				num_non_qos++;
+			} else if (!vfip->priority) {
+				if (vfip->percent_bandwidth != UNDEFINED_XML8) {
+					total_bw += vfip->percent_bandwidth;
+				} else {
+					num_bwundef_qos++;
+				}
+			}
+		}
+
+		// If this is a Default VF, make sure that SA, PM, or PA is included.
 		if (default_vf_check) {
-			if (vfip->apps.select_sa || checkVFSID(vfip, PM_SERVICE_ID) || vfip->apps.select_pm) {
+			if (vfip->apps.select_sa || checkVFSID(vfip, PM_SERVICE_ID) ||
+				vfip->apps.select_pm ) {
 				if (!vfp->standby) {
 					if (vfip->apps.select_sa) isSAAssigned++;
 					if (checkVFSID(vfip, PM_SERVICE_ID)) isPAAssigned++;
 					if (vfip->apps.select_pm) isPMAssigned++;
 				}
 			} else {
-				const char errStr[] = "Virtual Fabrics (%s) using the Mgmt Pkey must have <Select>SA</Select>, <Select>PM</Select> or "
-								  "PA Service ID configured in an Application";
+				const char errStr[] = "Virtual Fabrics (%s) using the Mgmt Pkey must have <Select>SA</Select>, <Select>PM</Select>, "
+								  "or PA Service ID configured in an Application";
 				if (error)
 					sprintf(error, errStr, vfip->name);
 				else fprintf(stdout, errStr, vfip->name);
 
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				goto fail;
 			}
-		} else if (vfip->apps.select_sa || vfip->apps.select_pm || checkVFSID(vfip, PM_SERVICE_ID)) {
-				const char errStr[] = "Virtual Fabrics (%s) including <Select>SA</Select>, <Select>PM</Select> or "
-								  "PA Service ID configured in an Application must use Mgmt Pkey";
+		} else if (vfip->apps.select_sa || checkVFSID(vfip, PM_SERVICE_ID) ||
+				vfip->apps.select_pm ) {
+				const char errStr[] = "Virtual Fabrics (%s) including <Select>SA</Select>, <Select>PM</Select>, "
+								  "or PA Service ID configured in an Application must use Mgmt Pkey";
 				if (error)
 					sprintf(error, errStr, vfip->name);
 				else fprintf(stdout, errStr, vfip->name);
 
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				goto fail;
 		}
-
-		// In a DOR fabric we will need to put multicast traffic on a separate
-		// SL.
-		vfip->mcast_isolate = (vfip->routing_scs > 1 && 
-			(vfip->apps.mgidMapSize > 0 || vfip->apps.select_unmatched_mgid));
-		vfip->mcast_sl = UNDEFINED_XML8;
-		vfip->mcast_sc = UNDEFINED_XML8;
 
 		// Make sure only 1 Active VF has the <Select>SA</Select> in an application
 		if (isSAAssigned > 1) {
@@ -4318,8 +4587,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 				sprintf(error, errStr);
 			else fprintf(stdout, errStr);
 
-			releaseVirtualFabricsConfig(vfsip);
-			return NULL;
+			goto fail;
 		}
 
 		// DN 441 - make sure only 1 VF has <Select>PM</Select>
@@ -4329,8 +4597,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 				sprintf(error, errStr);
 			else fprintf(stdout, errStr);
 
-			releaseVirtualFabricsConfig(vfsip);
-			return NULL;
+			goto fail;
 		}
 
 		// build a list of all included groups pointers and all of their included group pointers
@@ -4351,15 +4618,13 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 				result = includedGroups(config, fm, group_list, parent_group, &group_list_index, error);
 				if (result < 0) {
 					if (error) {
-						releaseVirtualFabricsConfig(vfsip);
-						return NULL;
+						goto fail;
 					}
 				}
 			} else if (error) {
-				sprintf(error, "VirtualFabric (%s) does not have any valid DeviceGroup named (%s) in the configuration", 
+				sprintf(error, "VirtualFabric (%s) does not have any valid DeviceGroup named (%s) in the configuration",
 					vfp->name, vfp->full_member[full_member_groups].member);
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				goto fail;
 			}
 		}
 		full_groups_in_list = group_list_index;
@@ -4368,7 +4633,6 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 		for (group_list_index = 0; group_list_index < full_groups_in_list; group_list_index++) {
 			vfip->full_members.select_all |= group_list[group_list_index]->select_all;
 			vfip->full_members.select_self |= group_list[group_list_index]->select_self;
-			vfip->full_members.select_all_sm |= group_list[group_list_index]->select_all_sm;
 			vfip->full_members.select_hfi_direct_connect |= group_list[group_list_index]->select_hfi_direct_connect;
 			vfip->full_members.select_swe0 |= group_list[group_list_index]->select_swe0;
 			vfip->full_members.select_all_mgmt_allowed |= group_list[group_list_index]->select_all_mgmt_allowed;
@@ -4380,7 +4644,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 			vfip->full_members.node_type_fi |= group_list[group_list_index]->node_type_fi;
 			vfip->full_members.node_type_sw |= group_list[group_list_index]->node_type_sw;
 		}
-		
+
 		// now that we have the group list create entries for the full member
 		cl_qmap_init(&vfip->full_members.sysGuidMap, NULL);
 		vfip->full_members.sysGuidMapSize = 0;
@@ -4391,33 +4655,33 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 		cl_qmap_init(&vfip->full_members.nodeDescMap, compareName);
 		vfip->full_members.nodeDescMapSize = 0;
 		for (group_list_index = 0; group_list_index < full_groups_in_list; group_list_index++) {
+			XmlNode_t *desc_list;
 
 			// add all of the SystemImageGUID entries
-			guid_list = group_list[group_list_index]->system_image_guid;
-			if(buildGuidList(&vfip->full_members.sysGuidMap, guid_list, error, &vfip->full_members.sysGuidMapSize) < 0) {
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+			if(buildGuidMap(&vfip->full_members.sysGuidMap,
+				&group_list[group_list_index]->system_image_guid,
+				error, &vfip->full_members.sysGuidMapSize) < 0) {
+				goto fail;
 			}
 
 			// add all of the NodeGUID entries
-			guid_list = group_list[group_list_index]->node_guid;
-			if(buildGuidList(&vfip->full_members.nodeGuidMap, guid_list, error, &vfip->full_members.nodeGuidMapSize) < 0) {
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+			if(buildGuidMap(&vfip->full_members.nodeGuidMap,
+				&group_list[group_list_index]->node_guid,
+				error, &vfip->full_members.nodeGuidMapSize) < 0) {
+				goto fail;
 			}
 
 			// add all of the PortGUID entries
-			guid_list = group_list[group_list_index]->port_guid;
-			if(buildGuidList(&vfip->full_members.portGuidMap, guid_list, error, &vfip->full_members.portGuidMapSize) < 0) {
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+			if(buildGuidMap(&vfip->full_members.portGuidMap,
+				&group_list[group_list_index]->port_guid,
+				error, &vfip->full_members.portGuidMapSize) < 0) {
+				goto fail;
 			}
 
 			// add all of the NodeDesc entries
 			desc_list = group_list[group_list_index]->node_description;
 			if(buildDescList(&vfip->full_members.nodeDescMap, desc_list, error, &vfip->full_members.nodeDescMapSize) < 0) {
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				goto fail;
 			}
 		}
 
@@ -4439,15 +4703,13 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 				result = includedGroups(config, fm, group_list, parent_group, &group_list_index, error);
 				if (result < 0) {
 					if (error) {
-						releaseVirtualFabricsConfig(vfsip);
-						return NULL;
+						goto fail;
 					}
 				}
 			} else if (error) {
-				sprintf(error, "VirtualFabric (%s) does not have any valid DeviceGroup named (%s) in the configuration", 
+				sprintf(error, "VirtualFabric (%s) does not have any valid DeviceGroup named (%s) in the configuration",
 					vfp->name, vfp->full_member[limited_member_groups].member);
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				goto fail;
 			}
 		}
 		limited_groups_in_list = group_list_index;
@@ -4456,7 +4718,6 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 		for (group_list_index = 0; group_list_index < limited_groups_in_list; group_list_index++) {
 			vfip->limited_members.select_all |= group_list[group_list_index]->select_all;
 			vfip->limited_members.select_self |= group_list[group_list_index]->select_self;
-			vfip->limited_members.select_all_sm |= group_list[group_list_index]->select_all_sm;
 			vfip->limited_members.select_hfi_direct_connect |= group_list[group_list_index]->select_hfi_direct_connect;
 			vfip->limited_members.select_swe0 |= group_list[group_list_index]->select_swe0;
 			vfip->limited_members.select_all_mgmt_allowed |= group_list[group_list_index]->select_all_mgmt_allowed;
@@ -4469,9 +4730,8 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 			const char errStr[] = "Default Virtual Fabric (%s) must have <Select>All</Select> or <Select>AllMgmtAllowed</Select> configured in a Member";
 			if (error)
 				sprintf(error, errStr, vfip->name);
-			fprintf(stdout, errStr, vfip->name);
-			releaseVirtualFabricsConfig(vfsip);
-			return NULL;
+			else fprintf(stdout, errStr, vfip->name);
+			goto fail;
 		}
 
 		// make sure that All is included as a full or limited member if this virtual fabric includes SA or PM- this rule was added
@@ -4483,8 +4743,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 				if (error)
 					sprintf(error, errStr, vfip->name, vfip->apps.select_sa?(vfip->apps.select_pm?"SA and PM":"SA"):"PM");
 				else fprintf(stdout, errStr, vfip->name, vfip->apps.select_sa?(vfip->apps.select_pm?"SA and PM":"SA"):"PM");
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				goto fail;
 			}
 		}
 
@@ -4504,33 +4763,33 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 		cl_qmap_init(&vfip->limited_members.nodeDescMap, compareName);
 		vfip->limited_members.nodeDescMapSize = 0;
 		for (group_list_index = 0; group_list_index < limited_groups_in_list; group_list_index++) {
+			XmlNode_t *desc_list;
 
 			// add all of the SystemImageGUID entries
-			guid_list = group_list[group_list_index]->system_image_guid;
-			if(buildGuidList(&vfip->limited_members.sysGuidMap, guid_list, error, &vfip->limited_members.sysGuidMapSize) < 0) {
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+			if(buildGuidMap(&vfip->limited_members.sysGuidMap,
+				&group_list[group_list_index]->system_image_guid,
+				error, &vfip->limited_members.sysGuidMapSize) < 0) {
+				goto fail;
 			}
 
 			// add all of the NodeGUID entries
-			guid_list = group_list[group_list_index]->node_guid;
-			if(buildGuidList(&vfip->limited_members.nodeGuidMap, guid_list, error, &vfip->limited_members.nodeGuidMapSize) < 0) {
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+			if(buildGuidMap(&vfip->limited_members.nodeGuidMap,
+				&group_list[group_list_index]->node_guid,
+				error, &vfip->limited_members.nodeGuidMapSize) < 0) {
+				goto fail;
 			}
 
 			// add all of the PortGUID entries
-			guid_list = group_list[group_list_index]->port_guid;
-			if(buildGuidList(&vfip->limited_members.portGuidMap, guid_list, error, &vfip->limited_members.portGuidMapSize) < 0) {
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+			if(buildGuidMap(&vfip->limited_members.portGuidMap,
+				&group_list[group_list_index]->port_guid,
+				error, &vfip->limited_members.portGuidMapSize) < 0) {
+				goto fail;
 			}
 
 			// add all of the NodeDesc entries
 			desc_list = group_list[group_list_index]->node_description;
 			if(buildDescList(&vfip->limited_members.nodeDescMap, desc_list, error, &vfip->limited_members.nodeDescMapSize) < 0) {
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				goto fail;
 			}
 		}
 
@@ -4538,8 +4797,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 		if (full_groups_in_list == 0 && limited_groups_in_list == 0) {
 			if (error) {
 				sprintf(error, "VirtualFabric %s does not have any valid Members or LimitedMembers specified in the configuration", vfp->name);
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				goto fail;
 			}
 			continue;
 		}
@@ -4556,10 +4814,9 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 			if (strlen(mdgp->virtual_fabric) > 0 && strcmp(mdgp->virtual_fabric, vfip->name) == 0) {
 				if (mdgp->def_mc_pkey != UNDEFINED_XML32 && vfip->pkey != UNDEFINED_XML32 && (mdgp->def_mc_pkey & 0x7fff) != (vfip->pkey & 0x7fff)) {
 					if (error) {
-						sprintf(error, "The MulticastGroup referencing VirtualFabric (%s) has a PKey (0x%4.4x) specified that does not match the PKey in that VirtualFabric", 
+						sprintf(error, "The MulticastGroup referencing VirtualFabric (%s) has a PKey (0x%4.4x) specified that does not match the PKey in that VirtualFabric",
 							vfp->name, (unsigned int)mdgp->def_mc_pkey);
-						releaseVirtualFabricsConfig(vfsip);
-						return NULL;
+						goto fail;
 					}
 					continue;
 				}
@@ -4572,8 +4829,7 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 					if (error) {
 						sprintf(error, "The MulticastGroup referencing PKey (0x%4.4x) has a VirtualFabric specified that does not match VirtualFabric (%s)",
 							(unsigned int)mdgp->def_mc_pkey, vfp->name);
-						releaseVirtualFabricsConfig(vfsip);
-						return NULL;
+						goto fail;
 					}
 					continue;
 				}
@@ -4582,12 +4838,14 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 
 			// if we do have a match then make sure the SL's are the same regardless of whether QOS is enabled or not
 			if (dg_match) {
-				if (mdgp->def_mc_sl != UNDEFINED_XML8 && vfip->base_sl != UNDEFINED_XML8 && mdgp->def_mc_sl != vfip->base_sl) {
-					if (error) {
-						sprintf(error, "The MulticastGroup with SL (%u) references VirtualFabric (%s) that has a different QOS BaseSL (%u)",
-							(unsigned int)mdgp->def_mc_sl, vfp->name, (unsigned int)vfip->base_sl);
-						releaseVirtualFabricsConfig(vfsip);
-						return NULL;
+				if (mdgp->def_mc_sl != UNDEFINED_XML8) {
+					if ((vfip->mcast_sl != UNDEFINED_XML8 && mdgp->def_mc_sl != vfip->mcast_sl)
+					|| (vfip->base_sl != UNDEFINED_XML8 && mdgp->def_mc_sl != vfip->base_sl)) {
+						if (error) {
+							sprintf(error, "The MulticastGroup with SL (%u) references VirtualFabric (%s) that has a different QOS BaseSL (%u)",
+								(unsigned int)mdgp->def_mc_sl, vfp->name, (unsigned int)vfip->base_sl);
+							goto fail;
+						}
 					}
 					continue;
 				}
@@ -4606,9 +4864,8 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 			if (!dgip) {
 				if (error)
 					sprintf(error, OUT_OF_MEMORY);
-				fprintf(stdout, OUT_OF_MEMORY_RETURN);
-				releaseVirtualFabricsConfig(vfsip);
-				return NULL;
+				else fprintf(stdout, OUT_OF_MEMORY_RETURN);
+				goto fail;
 			}
 
 			// if Create not specified then default
@@ -4651,9 +4908,8 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 				if (!mgid) {
 					if (error)
 						sprintf(error, OUT_OF_MEMORY);
-					fprintf(stdout, OUT_OF_MEMORY_RETURN);
-					releaseVirtualFabricsConfig(vfsip);
-					return NULL;
+					else fprintf(stdout, OUT_OF_MEMORY_RETURN);
+					goto fail;
 				}
 
 				// since this is an individual MGID ID then set it up appropriately
@@ -4672,9 +4928,8 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 				if (!mgid) {
 					if (error)
 						sprintf(error, OUT_OF_MEMORY);
-					fprintf(stdout, OUT_OF_MEMORY_RETURN);
-					releaseVirtualFabricsConfig(vfsip);
-					return NULL;
+					else fprintf(stdout, OUT_OF_MEMORY_RETURN);
+					goto fail;
 				}
 
 				// since this is an MGID range then set it up appropriately
@@ -4693,9 +4948,8 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 				if (!mgid) {
 					if (error)
 						sprintf(error, OUT_OF_MEMORY);
-					fprintf(stdout, OUT_OF_MEMORY_RETURN);
-					releaseVirtualFabricsConfig(vfsip);
-					return NULL;
+					else fprintf(stdout, OUT_OF_MEMORY_RETURN);
+					goto fail;
 				}
 
 				// since this is an MGID mask then set it up appropriately
@@ -4713,35 +4967,35 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 
 		if (!vfp->standby) {
 			if (cloneVF(&vfsip->v_fabric[vfsip->number_of_vfs], vfip)) {
-				vfsip->number_of_vfs++; 
+				vfsip->number_of_vfs++;
 			}
 		}
-		vfsip->number_of_vfs_all++; 
+		vfsip->number_of_vfs_all++;
 		valid_vfs++;
 	}
 
-	//need to leave at least 1% for each unallocated QoS enabled VF
-	if (num_enabled > num_qos_defined) {
-		needed_bw_reserve = (num_enabled - num_qos_defined - num_non_qos_enabled) * 1;
-		if (num_non_qos_enabled)
-			needed_bw_reserve += 5;
+	// if there is at least 1 nonQos VF, BW can't be greater than 95%
+	// Reserve 1% BW per QoS VF without BW specified
+	uint32_t needed_bw_reserve = ((num_non_qos!=0)?5:0) + num_bwundef_qos;
 
-		if ((total_bw+needed_bw_reserve) > 100) {
-			//if there is at least 1 nonQos VF, BW can't be greater than 95%
-			if (num_non_qos_enabled != 0) {
-				if (error) 
-					sprintf(error, "Total QOS Bandwidth cannot exceed 95%% for enabled Virtual Fabrics with QOS enabled when there is an enabled VF with QoS disabled");
-				fprintf(stdout, "Total QOS Bandwidth cannot exceed 95%% for enabled Virtual Fabrics with QOS enabled when there is an enabled VF with QoS disabled\n" );
-			}
-			else {
-				if (error) 
-					sprintf(error, "QOS Bandwidth allocation error; not enough BW to allocate to the VFs with QoS enabled, but that did not explicitly specify a BW allocation amount");
-				fprintf(stdout, "QOS Bandwidth allocation error; not enough BW to allocate to the VFs with QoS enabled, but that did not explicitly specify a BW allocation amount\n" );
-			}
+	if (total_bw > 100) {
+		if (error)
+			sprintf(error, "Total user-specified bandwidth for all active, enabled VFs (%d) cannot exceed 100%%", total_bw);
+		else fprintf(stdout, "Total user-specified bandwidth for all active, enabled VFs (%d) cannot exceed 100%%\n", total_bw);
+		goto fail;
+	}
 
-			releaseVirtualFabricsConfig(vfsip);
-			return NULL;
-		}
+	if ((total_bw+needed_bw_reserve) > 100) {
+		// if there is at least 1 nonQos VF, BW can't be greater than 95%
+		// Reserve 1% BW per QoS VF without BW specified
+		if (error)
+			sprintf(error, "Need %d%% remaining bandwidth for Virtual Fabrics that cannot"
+				" or do not specify bandwidth. Available remaining bandwidth is %d%%",
+				needed_bw_reserve, 100 - total_bw);
+		else fprintf(stdout, "Need %d%% remaining bandwidth for Virtual Fabrics that cannot"
+			" or do not specify bandwidth. Available remaining bandwidth is %d%%\n",
+			needed_bw_reserve, 100 - total_bw);
+		goto fail;
 	}
 
 	if (!isSAAssigned) {
@@ -4749,44 +5003,46 @@ VirtualFabrics_t* renderVirtualFabricsConfig(uint32_t fm, FMXmlCompositeConfig_t
 		if (error)
 			sprintf(error, errStr);
 		else fprintf(stdout, errStr);
-		
-		releaseVirtualFabricsConfig(vfsip);
-		return NULL;
+
+		goto fail;
 	}
 	if (!isPMAssigned) {
 		const char errStr[] = "An Active Virtual Fabric must exist with <Select>PM</Select> configured in an Application";
 		if (error)
 			sprintf(error, errStr);
 		else fprintf(stdout, errStr);
-		
-		releaseVirtualFabricsConfig(vfsip);
-		return NULL;
+
+		goto fail;
 	}
 	if (!isPAAssigned) {
 		const char errStr[] = "An Active Default Virtual Fabric must exist with PA Service ID configured in an Application";
 		if (error)
 			sprintf(error, errStr);
 		else fprintf(stdout, errStr);
-		
-		releaseVirtualFabricsConfig(vfsip);
-		return NULL;
+
+		goto fail;
 	}
-		
+
 
 	if (!error && xml_vf_debug)
-		fprintf(stdout, "Number of valid Virtual Fabrics %u\n", (unsigned int)valid_vfs); 
+		fprintf(stdout, "Number of valid Virtual Fabrics %u\n", (unsigned int)valid_vfs);
 
 	// for this VF check for duplicate MGID's in all default group
 	checkDefaultGroupMGIDDuplicates(vfsip, error);
 
 	// calculate Virtual Fabric database checksum
 	if (vfsip)
-		checksumVirtualFabricsConfig(vfsip, smp);	
-			
+		checksumVirtualFabricsConfig(vfsip, smp);
+
 	if (xml_memory_debug)
 		fprintf(stdout, "Memory level %u after renderVirtualFabricsConfig()\n", (unsigned int)memory);
 
 	return vfsip;
+
+fail:
+	if (vfsip)
+		releaseVirtualFabricsConfig(vfsip);
+	return NULL;
 }
 
 #ifndef __VXWORKS__
@@ -4887,13 +5143,13 @@ static void* SmDPLifetimeXmlParserStart(IXmlParserState_t *state, void *parent, 
 	SMDPLXmlConfig_t *dplp = getXmlMemory(sizeof(SMDPLXmlConfig_t), "SMDPLXmlConfig_t SmDPLifetimeXmlParserStart()");
 
 	if (xml_parse_debug)
-		fprintf(stdout, "SmDPLifetimeXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "SmDPLifetimeXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
 	if (!dplp) {
 		PRINT_MEMORY_ERROR;
 		return NULL;
 	}
-		
+
 	// inherit the values of config items already set
 	if (!common && configp->fm_instance[instance])
 		*dplp = configp->fm_instance[instance]->sm_dpl_config;
@@ -4906,23 +5162,18 @@ static void* SmDPLifetimeXmlParserStart(IXmlParserState_t *state, void *parent, 
 // Sm "DynamicPacketLifetime" end tag
 static void SmDPLifetimeXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
-	SMDPLXmlConfig_t *dplp = (SMDPLXmlConfig_t*)IXmlParserGetField(field, object);
-	uint32_t i;
+	SMDPLXmlConfig_t *dplp = (SMDPLXmlConfig_t *)IXmlParserGetField(field, object);
 
 	if (xml_parse_debug)
-		fprintf(stdout, "SmDPLifetimeXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "SmDPLifetimeXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Sm DynamicPacketLifetime tag\n"); 
+		fprintf(stderr, "Error processing XML Sm DynamicPacketLifetime tag\n");
 	} else {
 		// as needed process or validate self consistency of config
 	}
 
 	if (common) {
-		// since this is common place in all instances of Sm DefaultMulticast
-		for (i = fm_instance; i < end_instance; i++) {
-			configp->fm_instance[i]->sm_dpl_config = *dplp;
-		}
 		// save the common settings for this instance
 		configp->fm_instance_common->sm_dpl_config = *dplp;
 	} else if (configp->fm_instance[instance]) {
@@ -4959,24 +5210,6 @@ SmPreDefFieldEnfToText(FieldEnforcementLevel_t fieldEnfLevel) {
 	}
 }
 
-// FM releases 10.0-10.0.1 support modes 0,1,2 for cascade activation. In 10.1 only 
-// mode 0 is supported and any other values are ignored.
-void SmCascadeXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
-{
-	uint32_t value;
-	
-	if (xml_parse_debug)
-		fprintf(stdout, "SmCascadeXmlParserEnd %s instance %u common %u\n", field->tag, (unsigned int)instance, (unsigned int)common); 
-
-	if (IXmlParseUint32(state, content, len, &value)) {
-		if (value != 0) {
-			XmlParsePrintWarning("Only SwitchCascadeActivateEnable mode 0 (Disabled) supported. Forcing setting to zero.");
-		}
-		uint32_t *p = (uint32_t *)IXmlParserGetField(field, object);
-		*p = 0;
-	}
-}
-
 static void* SmPreDefTopoXmlParserStart(IXmlParserState_t *state, void *parent, const char **attr)
 {
 	return &((SMXmlConfig_t*)parent)->preDefTopo;
@@ -4999,6 +5232,19 @@ static void SmPreDefTopoFieldEnfParserEnd(IXmlParserState_t *state, const IXML_F
 	} else {
 		IXmlParserPrintError(state, "FieldEnforcementLevel(s) must be (Disabled, Warn, or Enabled)");
 		return;
+	}
+}
+
+static void SmPreDefTopoXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
+{
+	if ((configp->fm_instance_common->sm_config.preDefTopo.fieldEnforcement.undefinedLink == FIELD_ENF_LEVEL_DISABLED) &&
+		((configp->fm_instance_common->sm_config.preDefTopo.fieldEnforcement.nodeGuid > FIELD_ENF_LEVEL_DISABLED) ||
+		(configp->fm_instance_common->sm_config.preDefTopo.fieldEnforcement.portGuid > FIELD_ENF_LEVEL_DISABLED) ||
+		(configp->fm_instance_common->sm_config.preDefTopo.fieldEnforcement.nodeDesc > FIELD_ENF_LEVEL_DISABLED))){
+		IXmlParserPrintWarning(state, "UndefinedLink is disabled. Disabling NodeDesc/NodeGUID/PortGUID.");
+		configp->fm_instance_common->sm_config.preDefTopo.fieldEnforcement.nodeGuid = FIELD_ENF_LEVEL_DISABLED;
+		configp->fm_instance_common->sm_config.preDefTopo.fieldEnforcement.nodeDesc = FIELD_ENF_LEVEL_DISABLED;
+		configp->fm_instance_common->sm_config.preDefTopo.fieldEnforcement.portGuid  = FIELD_ENF_LEVEL_DISABLED;
 	}
 }
 
@@ -5025,10 +5271,10 @@ static void NormalizeGuidStringParserEnd(IXmlParserState_t *state, const IXML_FI
 	uint64_t mgid1, mgid2;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "NormalizeGuidStringParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "NormalizeGuidStringParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
-	if (!valid) {
-		fprintf(stderr, "Error processing XML %s tag\n", field->tag); 
+	if (!valid){
+		fprintf(stderr, "Error processing XML %s tag\n", field->tag);
 		return;
 	}
 
@@ -5036,17 +5282,37 @@ static void NormalizeGuidStringParserEnd(IXmlParserState_t *state, const IXML_FI
 		IXmlParserPrintError(state, "Error processing XML %s tag value, \"%s\"",field->tag,content);
 		return;
 	}
-	sprintf(p, "%16.16llx%16.16llx", 
+	sprintf(p, "%16.16llx%16.16llx",
 		(long long unsigned int)mgid1, (long long unsigned int)mgid2);
 }
-			
+
+static void MLIDShareMGidLimitParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
+{
+	uint32_t value;
+
+	if (xml_parse_debug)
+		fprintf(stdout, "%s instance %u common %u\n", __func__, (unsigned int)instance, (unsigned int)common);
+
+	if (!IXmlParseUint32(state, content, len, &value)) {
+		fprintf(stderr, "Error processing XML %s tag\n", field->tag);
+		return;
+	}
+
+	if (value == 0) {
+		IXmlParserPrintError(state, "Error processing XML %s tag: value (%u) must be greater than 0\n", field->tag, value);
+		return;
+	}
+
+	*(uint32_t *)IXmlParserGetField(field, object) = value;
+}
+
 // fields within Sm Multicast "MLIDShare" tag
 static IXML_FIELD SmMcastMlidShareFields[] = {
 	{ tag:"Enable", format:'h', IXML_FIELD_INFO(SmMcastMlidShared_t, enable) },
-	{ tag:"MGIDMask", format:'k', IXML_FIELD_INFO(SmMcastMlidShared_t, mcastGrpMGidLimitMaskConvert), end_func:NormalizeGuidStringParserEnd },
-	{ tag:"MGIDValue", format:'k', IXML_FIELD_INFO(SmMcastMlidShared_t, mcastGrpMGidLimitValueConvert), end_func:NormalizeGuidStringParserEnd },
-	{ tag:"MaxMLIDs", format:'u', IXML_FIELD_INFO(SmMcastMlidShared_t, mcastGrpMGidLimitMax) },
-    { NULL }
+	{ tag:"MGIDMask", format:'K', IXML_FIELD_INFO(SmMcastMlidShared_t, mcastGrpMGidLimitMaskConvert), end_func:NormalizeGuidStringParserEnd },
+	{ tag:"MGIDValue", format:'K', IXML_FIELD_INFO(SmMcastMlidShared_t, mcastGrpMGidLimitValueConvert), end_func:NormalizeGuidStringParserEnd },
+	{ tag:"MaxMLIDs", format:'U', IXML_FIELD_INFO(SmMcastMlidShared_t, mcastGrpMGidLimitMax), end_func:MLIDShareMGidLimitParserEnd },
+	{ NULL }
 };
 
 // Sm "MLIDShare" start tag
@@ -5055,14 +5321,14 @@ static void* SmMcastMlidShareXmlParserStart(IXmlParserState_t *state, void *pare
 	SmMcastMlidShared_t *dmsp = getXmlMemory(sizeof(SmMcastMlidShared_t), "SmMcastMlidShared_t SmMcastMlidShareXmlParserStart()");
 
 	if (xml_parse_debug)
-		fprintf(stdout, "SmMcastMlidShareXmlParserStart instance %u mlidSharedInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)mlidSharedInstance, (unsigned int)common); 
+		fprintf(stdout, "SmMcastMlidShareXmlParserStart instance %u mlidSharedInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)mlidSharedInstance, (unsigned int)common);
 
 	if (!dmsp) {
 		PRINT_MEMORY_ERROR;
 		return NULL;
-	}
-		
+}
+
 	// inherit the values of config items already set
 	if (!common && configp->fm_instance[instance])
 		*dmsp = configp->fm_instance[instance]->sm_mls_config.mcastMlid[mlidSharedInstance];
@@ -5075,13 +5341,13 @@ static void* SmMcastMlidShareXmlParserStart(IXmlParserState_t *state, void *pare
 // Sm "MLIDShare" end tag
 static void SmMcastMlidShareXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
-	SmMcastMlidShared_t *dmsp = (SmMcastMlidShared_t*)IXmlParserGetField(field, object);
+	SmMcastMlidShared_t *dmsp = (SmMcastMlidShared_t *)IXmlParserGetField(field, object);
 	uint32_t i;
 	char check[MAX_VFABRIC_NAME];
 
 	if (xml_parse_debug)
-		fprintf(stdout, "SmMcastMlidShareXmlParserEnd instance %u mlidSharedInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)mlidSharedInstance, (unsigned int)common); 
+		fprintf(stdout, "SmMcastMlidShareXmlParserEnd instance %u mlidSharedInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)mlidSharedInstance, (unsigned int)common);
 
 	// check next MLIDShare instance
 	if (mlidSharedInstance >= MAX_SUPPORTED_MCAST_GRP_CLASSES_XML) {
@@ -5091,16 +5357,16 @@ static void SmMcastMlidShareXmlParserEnd(IXmlParserState_t *state, const IXML_FI
 	}
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Sm MLIDShare tag\n"); 
+		fprintf(stderr, "Error processing XML Sm MLIDShare tag\n");
 	}
 
 	// if enabled then check for duplicate settings
 	if (dmsp->enable) {
 		for (i = 0; i < mlidSharedInstance; i++) {
 			if (common)
-				strcpy(check, configp->fm_instance_common->sm_mls_config.mcastMlid[i].mcastGrpMGidLimitValueConvert.value);
+				cs_strlcpy(check, configp->fm_instance_common->sm_mls_config.mcastMlid[i].mcastGrpMGidLimitValueConvert.value, sizeof(check));
 			else
-				strcpy(check, configp->fm_instance[instance]->sm_mls_config.mcastMlid[i].mcastGrpMGidLimitValueConvert.value);
+				cs_strlcpy(check, configp->fm_instance[instance]->sm_mls_config.mcastMlid[i].mcastGrpMGidLimitValueConvert.value, sizeof(check));
 			if (strcasecmp(dmsp->mcastGrpMGidLimitValueConvert.value, check) == 0) {
 				IXmlParserPrintError(state, "Duplicate MGID %s encountered in MLIDShare tag", dmsp->mcastGrpMGidLimitValueConvert.value);
 				freeXmlMemory(dmsp, sizeof(SmMcastMlidShared_t), "SmMcastMlidShared_t SmMcastMlidShareXmlParserEnd()");
@@ -5112,10 +5378,6 @@ static void SmMcastMlidShareXmlParserEnd(IXmlParserState_t *state, const IXML_FI
 	// only save if enabled
 	if (dmsp->enable) {
 		if (common) {
-			// since this is common place in all instance of Sm MLIDShare
-			for (i = fm_instance; i < end_instance; i++) {
-				configp->fm_instance[i]->sm_mls_config.mcastMlid[mlidSharedInstance] = *dmsp;
-			}
 			// save the common settings for this instance
 			configp->fm_instance_common->sm_mls_config.mcastMlid[mlidSharedInstance] = *dmsp;
 		} else if (configp->fm_instance[instance]) {
@@ -5134,9 +5396,9 @@ static void SmMcastMlidShareXmlParserEnd(IXmlParserState_t *state, const IXML_FI
 static void VfDgMGidEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "VfDgMGidEnd instance %u defaultGroupInstance %u dgMgidInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)defaultGroupInstance, (unsigned int)dgMgidInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfDgMGidEnd instance %u defaultGroupInstance %u dgMgidInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)defaultGroupInstance, (unsigned int)dgMgidInstance, (unsigned int)common);
+
 	// check for max
 	if (dgMgidInstance >= MAX_VFABRIC_DG_MGIDS) {
 		IXmlParserPrintError(state, "Maximum number of MulticastGroup MGID instances exceeded");
@@ -5144,14 +5406,14 @@ static void VfDgMGidEnd(IXmlParserState_t *state, const IXML_FIELD *field, void 
 	}
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML MGID tag\n"); 
+		fprintf(stderr, "Error processing XML MGID tag\n");
 	} else if (!content || !mdgp || strlen(content) > MAX_VFABRIC_NAME - 1) {
 		IXmlParserPrintError(state, "MGID is too long - ignoring");
 		return;
 	}
 
 	// save away the MGID to the parent structure
-	strcpy(mdgp->mgid[dgMgidInstance].mgid, content);
+	snprintf(mdgp->mgid[dgMgidInstance].mgid, sizeof(mdgp->mgid[dgMgidInstance].mgid), "%s", content);
 
 	// test conversion
 	VFAppMgid_t mgidMapping;
@@ -5163,77 +5425,6 @@ static void VfDgMGidEnd(IXmlParserState_t *state, const IXML_FIELD *field, void 
 	// index to next MGID instance
 	dgMgidInstance++;
 }
-
-/* may support in future
-
-// "DefaultGroup MGIDRange" end tag
-static void VfDgMGidRangeEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
-{
-	if (xml_parse_debug)
-		fprintf(stdout, "VfDgMGidRangeEnd instance %u defaultGroupInstance %u dgMgidRangeInstance %u common %u\n", 
-			instance, defaultGroupInstance, dgMgidRangeInstance, common); 
-		
-	// check for max
-	if (dgMgidRangeInstance >= MAX_VFABRIC_DG_MGIDS) {
-		IXmlParserPrintError(state, "Maximum number of MulticastGroup MGIDRange instances exceeded");
-		return;
-	}
-
-	if (!valid) {
-		fprintf(stderr, "Error processing XML MGIDRange tag\n"); 
-	} else if (!content || !mdgp || strlen(content) > MAX_VFABRIC_APP_ELEMENT - 1) {
-		IXmlParserPrintError(state, "MGIDRange is too long - ignoring");
-		return;
-	}
-
-	// save away the MGIDRange to the parent structure
-	strcpy(mdgp->mgid_range[dgMgidRangeInstance].range, content);
-
-	// test conversion
-	VFAppMgid_t mgidMapping;
-	if (verifyAndConvertMGidCompoundString(content, 1, &mgidMapping) < 0) {
-		IXmlParserPrintError(state, "Bad MGIDRange format %s", content);
-		return;
-	}
-
-	// index to next MGIDRange instance
-	dgMgidRangeInstance++;
-}
-
-// "DefaultGroup MGIDMasked" end tag
-static void VfDgMGidMaskedEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
-{
-	if (xml_parse_debug)
-		fprintf(stdout, "VfDgMGidMaskedEnd instance %u defaultGroupInstance %u dgMgidMaskedInstance %u common %u\n", 
-			instance, defaultGroupInstance, dgMgidMaskedInstance, common); 
-		
-	// check for max
-	if (dgMgidMaskedInstance >= MAX_VFABRIC_DG_MGIDS) {
-		IXmlParserPrintError(state, "Maximum number of MulticastGroup MGIDMasked instances exceeded");
-		return;
-	}
-
-	if (!valid) {
-		fprintf(stderr, "Error processing XML MGIDMasked tag\n"); 
-	} else if (!content || !mdgp || strlen(content) > MAX_VFABRIC_APP_ELEMENT - 1) {
-		IXmlParserPrintError(state, "MGIDMasked is too long - ignoring");
-		return;
-	}
-
-	// save away the MGIDMasked to the parent structure
-	strcpy(mdgp->mgid_masked[dgMgidMaskedInstance].masked, content);
-
-	// test conversion
-	VFAppMgid_t mgidMapping;
-	if (verifyAndConvertMGidCompoundString(content, 0,  &mgidMapping) < 0) {
-		IXmlParserPrintError(state, "Bad MGIDMasked format %s", content);
-		return;
-	}
-
-	// index to next MGIDMasked instance
-	dgMgidMaskedInstance++;
-}
-*/
 
 // fields within Sm Multicast "DefaultGroup" tag
 static IXML_FIELD SmMcastDgFields[] = {
@@ -5249,36 +5440,24 @@ static IXML_FIELD SmMcastDgFields[] = {
 	{ tag:"FlowLabel", format:'h', IXML_FIELD_INFO(SMMcastDefGrp_t, def_mc_fl) },
 	{ tag:"TClass", format:'h', IXML_FIELD_INFO(SMMcastDefGrp_t, def_mc_tc) },
 	{ tag:"MGID", format:'k', end_func:VfDgMGidEnd },
-//	{ tag:"MGIDRange", format:'k', end_func:VfDgMGidRangeEnd }, // May implement in future
-//	{ tag:"MGIDMasked", format:'k', end_func:VfDgMGidMaskedEnd }, // May implement in future
-    { NULL }
+	{ NULL }
 };
 
 // Sm "MulticastGroup" start tag
 static void* SmMcastDgXmlParserStart(IXmlParserState_t *state, void *parent, const char **attr)
 {
-	// check for max
-	if (defaultGroupInstance >= MAX_DEFAULT_GROUPS) {
-		PRINT_MEMORY_ERROR;
-		return NULL;
-	}
+	if (xml_parse_debug)
+		fprintf(stdout, "SmMcastDgXmlParserStart instance %u defaultGroupInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)defaultGroupInstance, (unsigned int)common);
 
 	mdgp = getXmlMemory(sizeof(SMMcastDefGrp_t), "SMMcastDefGrp_t SmMcastDgXmlParserStart()");
-
-	if (xml_parse_debug)
-		fprintf(stdout, "SmMcastDgXmlParserStart instance %u defaultGroupInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)defaultGroupInstance, (unsigned int)common); 
 
 	if (!mdgp) {
 		PRINT_MEMORY_ERROR;
 		return NULL;
 	}
-		
-	// inherit the values of config items already set
-	if (!common && configp->fm_instance[instance])
-		*mdgp = configp->fm_instance[instance]->sm_mdg_config.group[defaultGroupInstance];
-	else
-		*mdgp = configp->fm_instance_common->sm_mdg_config.group[defaultGroupInstance];
+
+	*mdgp = mdgEmpty;
 
 	// clear instances
 	dgMgidInstance = 0;
@@ -5291,35 +5470,52 @@ static void* SmMcastDgXmlParserStart(IXmlParserState_t *state, void *parent, con
 // Sm "MulticastGroup" end tag
 static void SmMcastDgXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
-	mdgp = (SMMcastDefGrp_t *)IXmlParserGetField(field, object);
-	uint32_t i;
-
 	if (xml_parse_debug)
-		fprintf(stdout, "SmMcastDgXmlParserEnd instance %u defaultGroupInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)defaultGroupInstance, (unsigned int)common); 
+		fprintf(stdout, "SmMcastDgXmlParserEnd instance %u defaultGroupInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)defaultGroupInstance, (unsigned int)common);
+
+	mdgp = (SMMcastDefGrp_t *)IXmlParserGetField(field, object);
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Sm MulticastGroup tag\n"); 
-	} else {
-		// see if this is a valid entry by checking all important fields - we need to do this
-		// to fix PR 114824 where an empty MulticastGroup is getting added to a VF since we allow
-		// the Create to be set if it is undefined.
-		if (mdgp->def_mc_create == UNDEFINED_XML32 &&
-			mdgp->def_mc_pkey == UNDEFINED_XML32 &&
-			mdgp->def_mc_mtu_int == UNDEFINED_XML8 &&
-			mdgp->def_mc_rate_int == UNDEFINED_XML8 &&
-			mdgp->def_mc_sl == UNDEFINED_XML8 &&
-			mdgp->def_mc_qkey == UNDEFINED_XML32 &&
-			mdgp->def_mc_fl == UNDEFINED_XML32 &&
-			mdgp->def_mc_tc == UNDEFINED_XML32 &&
-			dgMgidInstance == 0 &&
-			dgMgidRangeInstance == 0 &&
-			dgMgidMaskedInstance == 0) {
-			if (xml_parse_debug)
-				fprintf(stdout, "MulticastGroup ingnored since there are only empty tags with no substance\n"); 
-			freeXmlMemory(mdgp, sizeof(SMMcastDefGrp_t), "SMMcastDefGrp_t SmMcastDgXmlParserEnd()");
-			return;
-		}
+		fprintf(stderr, "Error processing XML Sm MulticastGroup tag\n");
+		goto cleanup;
+	}
+
+	// if the group is disabled; skip it
+	if (mdgp->def_mc_create == 0) {
+		if (xml_parse_debug)
+			fprintf(stdout, "MulticastGroup ingnored: Create == 0\n");
+		goto cleanup;
+	}
+
+	// see if this is a valid entry by checking all important fields - we need to do this
+	// to fix PR 114824 where an empty MulticastGroup is getting added to a VF since we allow
+	// the Create to be set if it is undefined.
+	if (mdgp->def_mc_create == UNDEFINED_XML32 &&
+		mdgp->def_mc_pkey == UNDEFINED_XML32 &&
+		mdgp->def_mc_mtu_int == UNDEFINED_XML8 &&
+		mdgp->def_mc_rate_int == UNDEFINED_XML8 &&
+		mdgp->def_mc_sl == UNDEFINED_XML8 &&
+		mdgp->def_mc_qkey == UNDEFINED_XML32 &&
+		mdgp->def_mc_fl == UNDEFINED_XML32 &&
+		mdgp->def_mc_tc == UNDEFINED_XML32 &&
+		dgMgidInstance == 0 &&
+		dgMgidRangeInstance == 0 &&
+		dgMgidMaskedInstance == 0) {
+		if (xml_parse_debug)
+			fprintf(stdout, "MulticastGroup ingnored since there are only empty tags with no substance\n");
+		goto cleanup;
+	}
+
+	// check for max (AFTER skipping uncreatable groups)
+	if (defaultGroupInstance >= MAX_DEFAULT_GROUPS) {
+		PRINT_MEMORY_ERROR;
+		goto cleanup;
+	}
+
+	if (mdgp->def_mc_sl != UNDEFINED_XML8 && mdgp->def_mc_sl >= MAX_SLS) {
+		IXmlParserPrintError(state, "MulticastGroup SL must be in range 0-15.");
+		goto cleanup;
 	}
 
 	// keep track of the number of elements
@@ -5328,10 +5524,6 @@ static void SmMcastDgXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *fi
 	mdgp->number_of_mgid_range_maskeds = dgMgidMaskedInstance;
 
 	if (common) {
-		// since this is common place in all instance of Sm DefaultGroup
-		for (i = fm_instance; i < end_instance; i++) {
-			configp->fm_instance[i]->sm_mdg_config.group[defaultGroupInstance] = *mdgp;
-		}
 		// save the common settings for this instance
 		configp->fm_instance_common->sm_mdg_config.group[defaultGroupInstance] = *mdgp;
 	} else if (configp->fm_instance[instance]) {
@@ -5342,6 +5534,7 @@ static void SmMcastDgXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *fi
 	// index to next DefaultGroup instance
 	defaultGroupInstance++;
 
+cleanup:
 	freeXmlMemory(mdgp, sizeof(SMMcastDefGrp_t), "SMMcastDefGrp_t SmMcastDgXmlParserEnd()");
 }
 
@@ -5362,13 +5555,13 @@ static void* SmMcastXmlParserStart(IXmlParserState_t *state, void *parent, const
 	SMMcastConfig_t *mcp = getXmlMemory(sizeof(SMMcastConfig_t), "SMMcastConfig_t SmMcastXmlParserStart()");
 
 	if (xml_parse_debug)
-		fprintf(stdout, "SmMcastXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "SmMcastXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
 	if (!mcp) {
 		PRINT_MEMORY_ERROR;
 		return NULL;
 	}
-		
+
 	// inherit the values of config items already set
 	if (!common && configp->fm_instance[instance])
 		*mcp = configp->fm_instance[instance]->sm_mc_config;
@@ -5386,30 +5579,25 @@ static void* SmMcastXmlParserStart(IXmlParserState_t *state, void *parent, const
 		defaultGroupInstance = 0;
 		mlidSharedInstance = 0;
 	}
-	
+
 	return mcp;			// will be passed to SmMcastXmlParserEnd as object
 }
 
 // Sm "Multicast" end tag
 static void SmMcastXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
-	SMMcastConfig_t *mcp = (SMMcastConfig_t*)IXmlParserGetField(field, object);
-	uint32_t i;
+	SMMcastConfig_t *mcp = (SMMcastConfig_t *)IXmlParserGetField(field, object);
 
 	if (xml_parse_debug)
-		fprintf(stdout, "SmMcastXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "SmMcastXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Sm Multicast tag\n"); 
+		fprintf(stderr, "Error processing XML Sm Multicast tag\n");
 	} else {
 		// as needed process or validate self consistency of config
 	}
 
 	if (common) {
-		// since this is common place in all instances
-		for (i = fm_instance; i < end_instance; i++) {
-			configp->fm_instance[i]->sm_mc_config = *mcp;
-		}
 		// save the common settings for this instance
 		configp->fm_instance_common->sm_mc_config = *mcp;
 	} else if (configp->fm_instance[instance]) {
@@ -5419,17 +5607,13 @@ static void SmMcastXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *fiel
 
 	// save the number of default groups and MLIDShared instances
 	if (common) {
-		for (i = fm_instance; i < end_instance; i++) {
-			configp->fm_instance[i]->sm_mdg_config.number_of_groups = defaultGroupInstance;
-			configp->fm_instance[i]->sm_mls_config.number_of_shared = mlidSharedInstance;
-		}
 		configp->fm_instance_common->sm_mdg_config.number_of_groups = defaultGroupInstance;
 		configp->fm_instance_common->sm_mls_config.number_of_shared = mlidSharedInstance;
 	} else if (configp->fm_instance[instance]) {
 		configp->fm_instance[instance]->sm_mdg_config.number_of_groups = defaultGroupInstance;
 		configp->fm_instance[instance]->sm_mls_config.number_of_shared = mlidSharedInstance;
 	}
-	
+
 	freeXmlMemory(mcp, sizeof(SMMcastConfig_t), "SMMcastConfig_t SmMcastXmlParserEnd()");
 }
 
@@ -5450,12 +5634,12 @@ static void SmLinkSpeedPolicyXmlParserEnd(IXmlParserState_t *state, const IXML_F
     uint16_t *p = (uint16_t *)IXmlParserGetField(field, object);
 
 	if (xml_parse_debug)
-		fprintf(stdout, "SmLinkSpeedQuarantineXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "SmLinkSpeedQuarantineXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
-	if (!valid){
+	if (!valid) {
         fprintf(stderr, "Error processing XML Sm %s tag\n", field->tag);
-        return;
-    }
+		return;
+	}
 	if (!content) {
 		IXmlParserPrintError(state, "Invalid Sm %s tag value, cannot be empty", field->tag);
 		return;
@@ -5463,13 +5647,13 @@ static void SmLinkSpeedPolicyXmlParserEnd(IXmlParserState_t *state, const IXML_F
 
 	//If content is not "Supported, it must be a valid number.
 	if (0 == strcasecmp(content, "Supported")) {
-        *p=0;	
+        *p=0;
 	} else if (0 == strcasecmp(content, "12.5G")) {
-        *p=STL_LINK_SPEED_12_5G;	
+        *p=STL_LINK_SPEED_12_5G;
 	} else if (0 == strcasecmp(content, "25G")) {
-        *p=STL_LINK_SPEED_25G;	
+        *p=STL_LINK_SPEED_25G;
 	} else {
-		IXmlParserPrintError(state, "Invalid Value for Speed Quarantine Policy: %s\n", content);
+		IXmlParserPrintError(state, "Invalid Value for Link Speed Policy: %s\n", content);
 		return;
 	}
 }
@@ -5479,7 +5663,7 @@ static void SmLinkWidthPolicyXmlParserEnd(IXmlParserState_t *state, const IXML_F
     uint16_t *p = (uint16_t *)IXmlParserGetField(field, object);
 
 	if (xml_parse_debug)
-		fprintf(stdout, "SmLinkWidthQuarantineXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "SmLinkWidthQuarantineXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
 	if (!valid){
         fprintf(stderr, "Error processing XML Sm %s tag\n", field->tag);
@@ -5492,14 +5676,14 @@ static void SmLinkWidthPolicyXmlParserEnd(IXmlParserState_t *state, const IXML_F
 
 	//If content is not "Supported, it must be a valid number.
 	if (0 == strcasecmp(content, "Supported")) {
-        *p=0;	
+        *p=0;
 	} else if (0 == strcasecmp(content, "4x")) {
-        *p=STL_LINK_WIDTH_4X;	
+        *p=STL_LINK_WIDTH_4X;
 	} else if (0 == strcasecmp(content, "2x")) {
-        *p=STL_LINK_WIDTH_2X;	
+        *p=STL_LINK_WIDTH_2X;
 	} else if (0 == strcasecmp(content, "3x")) {
-        *p=STL_LINK_WIDTH_3X;	
-    } else {
+        *p=STL_LINK_WIDTH_3X;
+	} else {
 		IXmlParserPrintError(state, "Invalid Value for width Quarantine Policy: %s\n", content);
 		return;
 	}
@@ -5520,8 +5704,8 @@ static IXML_FIELD SmLinkWidthPolicyFields[] = {
 
 static IXML_FIELD SmLinkPolicyFields[] = {
 	{ tag:"MaxDroppedLanes", format:'u', IXML_FIELD_INFO(SMLinkPolicyXmlConfig_t, link_max_downgrade)},
-	{ tag:"SpeedPolicy", format:'k', subfields:SmLinkSpeedPolicyFields, start_func:SmLinkSpeedPolicyXmlParserStart}, 
-	{ tag:"WidthPolicy", format:'k', subfields:SmLinkWidthPolicyFields, start_func:SmLinkWidthPolicyXmlParserStart}, 
+	{ tag:"SpeedPolicy", format:'k', subfields:SmLinkSpeedPolicyFields, start_func:SmLinkSpeedPolicyXmlParserStart},
+	{ tag:"WidthPolicy", format:'k', subfields:SmLinkWidthPolicyFields, start_func:SmLinkWidthPolicyXmlParserStart},
 	{ NULL }
 };
 
@@ -5536,26 +5720,35 @@ static void* SmISLLinkPolicyXmlParserStart(IXmlParserState_t *state, void *paren
 	return &((SMXmlConfig_t *)parent)->isl_link_policy;
 }
 
-static boolean minMaxNumString(uint32_t *p, char *str, uint32_t min, uint32_t max)
+static int minMaxNumString(IXmlParserState_t *state, const IXML_FIELD *field, char *str, uint32_t min, uint32_t max, uint32_t inc, boolean allowZero, uint32_t inf)
 {
+	int value;
 	char *c;
 
-	if (!strcasecmp(str,"MIN")) *p = min;
-	else if (!strcasecmp(str,"MAX")) *p = max;
-	else {
-		*p = strtol(str,&c,10);
-		if (*c) {
-			return 0;
-		}
-	}
-	return 1;
-}
+	if (!strcasecmp(str,"MIN")) return min;
+	else if (!strcasecmp(str,"MAX")) return max;
+	else if (inf > 0 && !strcasecmp(str,"INF")) return inf;
 
-static boolean minMaxInfNumString(uint32_t *p, char *str, uint32_t min, uint32_t max, uint32_t inf)
-{
-	if (!strcasecmp(str,"INF")) *p = inf;
-	else return minMaxNumString(p, str, min, max);
-	return 1;
+	value = strtol(str,&c,10);
+	if (*c) {
+		IXmlParserPrintError(state, "Invalid Sm %s tag value, \"%s\"", field->tag, str);
+		return -1;
+	}
+	if (value == 0 && allowZero) return 0;
+	if (value < min) {
+		IXmlParserPrintWarning(state, "%s tag value (%d) less than minimum (%d), using minimum",field->tag,value,min);
+		value = min;
+	}
+	if (value > max) {
+		IXmlParserPrintWarning(state, "%s tag value (%d) greater than maximum (%d), using maximum",field->tag,value,max);
+		value = max;
+	}
+	if (value % inc) {
+		int rounded = ROUNDUP(value, inc);
+		IXmlParserPrintWarning(state, "%s tag value (%d), rounding to multiple of %d, using (%d)",field->tag,value,inc,rounded);
+		value = rounded;
+	}
+	return value;
 }
 
 static void PreemptSmallPktParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
@@ -5563,18 +5756,17 @@ static void PreemptSmallPktParserEnd(IXmlParserState_t *state, const IXML_FIELD 
 	uint32_t *p = (uint32_t *)IXmlParserGetField(field, object);
 
 	if (xml_parse_debug)
-		fprintf(stdout, "PreemptSmallPktParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "PreemptSmallPktParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
 	if (!valid){
-        fprintf(stderr, "Error processing XML Sm %s tag\n", field->tag);
-        return;
-    }
+		fprintf(stderr, "Error processing XML Sm %s tag\n", field->tag);
+		return;
+	}
 	if (!content) {
 		IXmlParserPrintError(state, "Invalid Sm %s tag value, cannot be empty", field->tag);
 		return;
 	}
-	if (!minMaxNumString(p, content, SM_PREEMPT_SMALL_PACKET_MIN, SM_PREEMPT_SMALL_PACKET_MAX))
-		IXmlParserPrintError(state, "Invalid Sm %s tag value, \"%s\"", field->tag, content);
+	*p = minMaxNumString(state, field, content, SM_PREEMPT_SMALL_PACKET_MIN, SM_PREEMPT_SMALL_PACKET_MAX, SM_PREEMPT_SMALL_PACKET_INC, FALSE, 0);
 }
 
 static void PreemptLargePktParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
@@ -5582,18 +5774,17 @@ static void PreemptLargePktParserEnd(IXmlParserState_t *state, const IXML_FIELD 
 	uint32_t *p = (uint32_t *)IXmlParserGetField(field, object);
 
 	if (xml_parse_debug)
-		fprintf(stdout, "PreemptLargePktParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "PreemptLargePktParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
 	if (!valid){
-        fprintf(stderr, "Error processing XML Sm %s tag\n", field->tag);
-        return;
-    }
+		fprintf(stderr, "Error processing XML Sm %s tag\n", field->tag);
+		return;
+	}
 	if (!content) {
 		IXmlParserPrintError(state, "Invalid Sm %s tag value, cannot be empty", field->tag);
 		return;
 	}
-	if (!minMaxNumString(p, content, SM_PREEMPT_LARGE_PACKET_MIN, SM_PREEMPT_LARGE_PACKET_MAX))
-		IXmlParserPrintError(state, "Invalid Sm %s tag value, \"%s\"", field->tag, content);
+	*p = minMaxNumString(state, field, content, SM_PREEMPT_LARGE_PACKET_MIN, SM_PREEMPT_LARGE_PACKET_MAX, SM_PREEMPT_LARGE_PACKET_INC, FALSE, 0);
 }
 
 static void PreemptLimitParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
@@ -5601,18 +5792,17 @@ static void PreemptLimitParserEnd(IXmlParserState_t *state, const IXML_FIELD *fi
 	uint32_t *p = (uint32_t *)IXmlParserGetField(field, object);
 
 	if (xml_parse_debug)
-		fprintf(stdout, "PreemptLimitParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "PreemptLimitParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
 	if (!valid){
-        fprintf(stderr, "Error processing XML Sm %s tag\n", field->tag);
-        return;
-    }
+		fprintf(stderr, "Error processing XML Sm %s tag\n", field->tag);
+		return;
+	}
 	if (!content) {
 		IXmlParserPrintError(state, "Invalid Sm %s tag value, cannot be empty", field->tag);
 		return;
 	}
-	if (!minMaxInfNumString(p, content, SM_PREEMPT_LIMIT_MIN, SM_PREEMPT_LIMIT_MAX, SM_PREEMPT_LIMIT_INF))
-		IXmlParserPrintError(state, "Invalid Sm %s tag value, \"%s\"", field->tag, content);
+	*p = minMaxNumString(state, field, content, SM_PREEMPT_LIMIT_MIN, SM_PREEMPT_LIMIT_MAX, SM_PREEMPT_LIMIT_INC, TRUE, SM_PREEMPT_LIMIT_INF);
 }
 
 // fields within "Sm/Preemption" tag
@@ -5667,7 +5857,7 @@ static void* SmCaCongestionXmlParserStart(IXmlParserState_t *state, void *parent
 	return &((SmCongestionXmlConfig_t *)parent)->ca;
 }
 
-// fields within "Sm/Congestion" tag
+// fields within "Sm/CongestionControl" tag
 static IXML_FIELD SmCongestionFields[] = {
 	{ tag:"Enable", format:'u', IXML_FIELD_INFO(SmCongestionXmlConfig_t, enable) },
 	{ tag:"Debug", format:'u', IXML_FIELD_INFO(SmCongestionXmlConfig_t, debug) },
@@ -5682,7 +5872,6 @@ static void* SmCongestionXmlParserStart(IXmlParserState_t *state, void *parent, 
 	return &((SMXmlConfig_t *)parent)->congestion;
 }
 
-#ifdef CONFIG_INCLUDE_DOR
 // fields within "Sm/Mesh/Torus " tag
 static void SmPortPairEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
@@ -5690,11 +5879,11 @@ static void SmPortPairEnd(IXmlParserState_t *state, const IXML_FIELD *field, voi
 	SmDimension_t *dim = (SmDimension_t*)parent;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "SmPortPairEnd instance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "SmPortPairEnd instance %u common %u\n",
+			(unsigned int)instance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML PortPair tag\n"); 
+		fprintf(stderr, "Error processing XML PortPair tag\n");
 		return;
 	} else if (!content || !dim || strlen(content) > 8) {
 		IXmlParserPrintError(state, "PortPair is too long - ignoring");
@@ -5726,10 +5915,10 @@ static void* SmDimensionStart(IXmlParserState_t *state, void *parent, const char
 	SmDorRouting_t  *dor = (SmDorRouting_t*)parent;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "SmDimensionStart instance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "SmDimensionStart instance %u common %u\n",
+			(unsigned int)instance, (unsigned int)common);
 
-	if (!dor) 
+	if (!dor)
 		return NULL;
 
 	if (dor->dimensionCount >= MAX_DOR_DIMENSIONS) {
@@ -5741,13 +5930,26 @@ static void* SmDimensionStart(IXmlParserState_t *state, void *parent, const char
 	return &(dor->dimension[dor->dimensionCount-1]);
 }
 
+static void SmDorRouteLastEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
+{
+	SmDorRouting_t *dor = (SmDorRouting_t*)parent;
+
+	if (!valid) {
+		fprintf(stderr, "Error processing XML RouteLast tag\n");
+	} else if (!content || !dor || strlen(content) > MAX_VFABRIC_NAME) {
+		IXmlParserPrintError(state, "RouteLast group name is too long - ignoring");
+		return;
+	}
+  	strncpy(dor->routeLast.member, content, MAX_VFABRIC_NAME);
+}
+
 static void* SmDorRoutingXmlParserStart(IXmlParserState_t *state, void *parent, const char **attr)
 {
 	SmDorRouting_t *dor = getXmlMemory(sizeof(SmDorRouting_t), "SmDorRouting_t SmDorRoutingXmlParserStart()");
 
 	if (xml_parse_debug)
-		fprintf(stdout, "SmDorRoutingXmlParserStart instance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "SmDorRoutingXmlParserStart instance %u common %u\n",
+			(unsigned int)instance, (unsigned int)common);
 
 	if (!dor) {
 		PRINT_MEMORY_ERROR;
@@ -5757,13 +5959,10 @@ static void* SmDorRoutingXmlParserStart(IXmlParserState_t *state, void *parent, 
 	memset(dor, 0, sizeof(SmDorRouting_t));
 
 	dor->warn_threshold = DEFAULT_DOR_PORT_PAIR_WARN_THRESHOLD;
+	dor->escapeVLs = DEFAULT_ESCAPE_VLS_IN_USE;
+	dor->faultRegions = DEFAULT_FAULT_REGIONS_IN_USE;
 
-	dor->updn_mc_same_spanning_tree = DEFAULT_UPDN_MC_SAME_SPANNING_TREE;
-
-	// Set default for following.
-	dor->useUpDownOnDisruption = UNDEFINED_XML8;
-
-	return dor;	
+	return dor;
 }
 
 static void SmDorRoutingXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
@@ -5775,8 +5974,8 @@ static void SmDorRoutingXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD 
 	int	 port, dim;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "SmDorRoutingXmlParserEnd instance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "SmDorRoutingXmlParserEnd instance %u common %u\n",
+			(unsigned int)instance, (unsigned int)common);
 
 	SMXmlConfig_t	*smp = (SMXmlConfig_t*)parent;
 	SmDorRouting_t  *dor = (SmDorRouting_t*)IXmlParserGetField(field, object);
@@ -5788,7 +5987,6 @@ static void SmDorRoutingXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD 
 	}
 
 	memset (portsInUse, 0, sizeof(portsInUse));
-
 
 	for (dim=0; dim<dor->dimensionCount; dim++) {
 		if (dor->dimension[dim].portCount == 0) {
@@ -5802,26 +6000,38 @@ static void SmDorRoutingXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD 
 			nonToroidalEdges = 1;
 		}
 
+		if (dor->dimension[dim].length == 0)
+			IXmlParserPrintError(state, "The length of the dimension must be specified");
+
 		// Verify no overlap for port pairs
 		for (port=0; port<dor->dimension[dim].portCount; port++) {
-			if (dor->dimension[dim].toroidal && dor->dimension[dim].portPair[port].port1 == dor->dimension[dim].portPair[port].port2) {
-				IXmlParserPrintError(state, "Port %d is used in for both ports in dimension pair, hyperlink cannot be toroidal",
-									dor->dimension[dim].portPair[port].port1);
+			if (dor->dimension[dim].toroidal && dor->dimension[dim].portPair[port].port1 ==
+				dor->dimension[dim].portPair[port].port2) {
+				configFailed = 1;
+				IXmlParserPrintError(state, "Port %d is used for both ports in dimension pair, hyperlink cannot be toroidal",
+										dor->dimension[dim].portPair[port].port1);
+			}
+			if (!dor->dimension[dim].toroidal && dor->dimension[dim].length > 2
+				&& dor->dimension[dim].portPair[port].port1 ==
+				dor->dimension[dim].portPair[port].port2) {
+				configFailed = 1;
+				IXmlParserPrintError(state, "Port %d is used for both ports in"
+					" dimension pair, hyperlink cannot have a dimension length > 2",
+					dor->dimension[dim].portPair[port].port1);
 			}
 			if (portsInUse[dor->dimension[dim].portPair[port].port1] || portsInUse[dor->dimension[dim].portPair[port].port2]) {
 				configFailed = 1;
-				if (portsInUse[dor->dimension[dim].portPair[port].port1]) 
+				if (portsInUse[dor->dimension[dim].portPair[port].port1])
 					IXmlParserPrintError(state, "Port %d is used in multiple dimension pairs",
 											dor->dimension[dim].portPair[port].port1);
-				if (portsInUse[dor->dimension[dim].portPair[port].port2]) 
+				if (portsInUse[dor->dimension[dim].portPair[port].port2])
 					IXmlParserPrintError(state, "Port %d is used in multiple dimension pairs",
 											dor->dimension[dim].portPair[port].port2);
 		 		break;
-			} 
+			}
 			portsInUse[dor->dimension[dim].portPair[port].port1] = 1;
 			portsInUse[dor->dimension[dim].portPair[port].port2] = 1;
 		}
-
 		if (configFailed) break;
 	}
 
@@ -5837,13 +6047,10 @@ static void SmDorRoutingXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD 
 		dor->topology = DOR_MESH;
 	}
 
-	if (dor->useUpDownOnDisruption == 0xff) dor->useUpDownOnDisruption = 0;
-
 	if (dor->topology == DOR_MESH) {
-		dor->routingSCs = 1;
-
+		dor->routingSCs = dor->escapeVLs ? 2 : 1;
 	} else {
-		dor->routingSCs = 2;
+		dor->routingSCs = dor->escapeVLs ? 4 : 2;
 	}
 
 	smp->smDorRouting = *dor;
@@ -5853,19 +6060,21 @@ static void SmDorRoutingXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD 
 
 static IXML_FIELD SmDimensionFields[] = {
 	{ tag:"Toroidal", format:'u', IXML_FIELD_INFO(SmDimension_t, toroidal) },
+	{ tag:"Length", format:'u', IXML_FIELD_INFO(SmDimension_t, length) },
 	{ tag:"PortPair", format:'s', end_func:SmPortPairEnd },
 	{ NULL }
 };
 
 static IXML_FIELD SmDorRoutingFields[] = {
 	{ tag:"Debug", format:'u', IXML_FIELD_INFO(SmDorRouting_t, debug) },
-	{ tag:"UseUpDownOnDisruption", format:'u', IXML_FIELD_INFO(SmDorRouting_t, useUpDownOnDisruption) },
+	{ tag:"UseEscapeVLs", format:'u', IXML_FIELD_INFO(SmDorRouting_t, escapeVLs) },
+	{ tag:"UseFaultRegions", format:'u', IXML_FIELD_INFO(SmDorRouting_t, faultRegions) },
 	{ tag:"Dimension", format:'k', subfields:SmDimensionFields, start_func:SmDimensionStart },
+	{ tag:"RouteLast", format:'k', end_func:SmDorRouteLastEnd },
 	{ tag:"WarnThreshold", format:'u', IXML_FIELD_INFO(SmDorRouting_t, warn_threshold) },
-	{ tag:"UpDownMcastSameSpanningTree", format:'u', IXML_FIELD_INFO(SmDorRouting_t, updn_mc_same_spanning_tree) },
+	{ tag:"OverlayMulticast", format:'u', IXML_FIELD_INFO(SmDorRouting_t, overlayMCast) },
 	{ NULL }
 };
-#endif
 
 // fields within "Sm/Adaptive Routing" tag
 static IXML_FIELD SmAdaptiveRoutingFields[] = {
@@ -5889,7 +6098,7 @@ static void SmFtreeCoreSwitchEnd(IXmlParserState_t *state, const IXML_FIELD *fie
 	SmFtreeRouting_t *ftreeRouting = (SmFtreeRouting_t*)parent;
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML CoreSwitch tag\n"); 
+		fprintf(stderr, "Error processing XML CoreSwitch tag\n");
 	} else if (!content || !ftreeRouting || strlen(content) > MAX_VFABRIC_NAME) {
 		IXmlParserPrintError(state, "CoreSwitch group name is too long - ignoring");
 		return;
@@ -5903,7 +6112,7 @@ static void SmFtreeRouteLastEnd(IXmlParserState_t *state, const IXML_FIELD *fiel
 	SmFtreeRouting_t *ftreeRouting = (SmFtreeRouting_t*)parent;
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML RouteLast tag\n"); 
+		fprintf(stderr, "Error processing XML RouteLast tag\n");
 	} else if (!content || !ftreeRouting || strlen(content) > MAX_VFABRIC_NAME) {
 		IXmlParserPrintError(state, "RouteLast group name is too long - ignoring");
 		return;
@@ -5918,7 +6127,7 @@ static void SmFtreeRoutingXmlParserEnd(IXmlParserState_t *state, const IXML_FIEL
 		fprintf(stderr, "Error processing XML Sm FtreeRouting tag\n");
 	}
 }
-		
+
 static IXML_FIELD SmFtreeRoutingFields[] = {
 	{ tag:"Algorithm", format:'u', IXML_FIELD_INFO(SmFtreeRouting_t, systematic) },
 	{ tag:"Debug", format:'u', IXML_FIELD_INFO(SmFtreeRouting_t, debug) },
@@ -6144,7 +6353,7 @@ static void SmHyperRouteLastEnd(IXmlParserState_t *state, const IXML_FIELD *fiel
 	SmHypercubeRouting_t *p = &((SMXmlConfig_t *)parent)->hypercubeRouting;
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Hypercube RouteLast tag\n"); 
+		fprintf(stderr, "Error processing XML Hypercube RouteLast tag\n");
 	} else if (!content || !p || strlen(content) > MAX_VFABRIC_NAME) {
 		IXmlParserPrintError(state, "RouteLast group name is too long - ignoring");
 		return;
@@ -6173,14 +6382,6 @@ static void SmAdaptiveRoutingXmlParserEnd(IXmlParserState_t *state, const IXML_F
 	if (!valid) {
 		fprintf(stderr, "Error processing XML Sm AdaptiveRouting tag\n");
 		return;
-	} 
-	if (!af_licensed && p->enable) {
-		IB_LOG_WARN0("Adaptive Routing is enabled but requires installation of the Advanced Features license - it will be disabled");
-		if (!embedded_call)
-			IXmlParserPrintError(state, "Adaptive Routing is enabled but requires installation of the Advanced Features license");
-		    //fprintf(stdout, "Adaptive Routing is enabled but requires installation of the Advanced Features license\n");
-		p->enable = 0;
-		return; 
 	}
 	// Not sure we should validate the threshold here and only here
 	// since there may be other places AR can be enabled
@@ -6233,8 +6434,8 @@ static void SmCIPParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 }
 
 // Validate a LID against the range 0x0 - (0xC000-1). This will change for STL2.
-static void SmUnicastLidXmlParserEnd(IXmlParserState_t *state, 
-	const IXML_FIELD *field, void *object, void *parent, XML_Char *content, 
+static void SmUnicastLidXmlParserEnd(IXmlParserState_t *state,
+	const IXML_FIELD *field, void *object, void *parent, XML_Char *content,
 	unsigned len, boolean valid)
 {
 	uint64_t long_lid;
@@ -6321,8 +6522,6 @@ static IXML_FIELD SmFields[] = {
 	{ tag:"Lmc", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, lmc) },
 	{ tag:"LmcE0", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, lmc_e0) },
 	{ tag:"SubnetSize", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, subnet_size) },
-	{ tag:"CoreDumpDir", format:'s', IXML_FIELD_INFO(SMXmlConfig_t, CoreDumpDir) },
-	{ tag:"CoreDumpLimit", format:'s', IXML_FIELD_INFO(SMXmlConfig_t, CoreDumpLimit) },
 	{ tag:"Debug", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, debug) },
 	{ tag:"RmppDebug", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, debug_rmpp) },
 	{ tag:"Priority", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, priority) },
@@ -6382,10 +6581,9 @@ static IXML_FIELD SmFields[] = {
 	{ tag:"FatTreeTopology", format:'k', subfields:SmFtreeRoutingFields, start_func:SmFtreeRoutingXmlParserStart, end_func:SmFtreeRoutingXmlParserEnd },
 	{ tag:"DGShortestPathTopology", format:'k', subfields:SmDGRoutingFields, start_func:SmDGRoutingXmlParserStart, end_func:SmDGRoutingXmlParserEnd },
 	{ tag:"HypercubeTopology", format:'k', subfields:SmHypercubeRoutingFields, start_func:SmHypercubeRoutingXmlParserStart, end_func:SmHypercubeRoutingXmlParserEnd },
-#ifdef CONFIG_INCLUDE_DOR
 	{ tag:"MeshTorusTopology", format:'k', subfields:SmDorRoutingFields, start_func:SmDorRoutingXmlParserStart, end_func:SmDorRoutingXmlParserEnd },
-#endif
 	{ tag:"DebugVf", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, sm_debug_vf) },
+	{ tag:"DebugRouting", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, sm_debug_routing) },
 	{ tag:"DebugLidAssign", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, sm_debug_lid_assign) },
 	{ tag:"NoReplyIfBusy", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, NoReplyIfBusy) },
 	{ tag:"LftMultiblock", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, lft_multi_block) },
@@ -6403,14 +6601,14 @@ static IXML_FIELD SmFields[] = {
 	{ tag:"ForceAttributeRewrite", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, forceAttributeRewrite) },
 	{ tag:"SkipAttributeWrite", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, skipAttributeWrite) },
 	{ tag:"DefaultPortErrorAction", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, defaultPortErrorAction) },
-	{ tag:"SwitchCascadeActivateEnable", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, switchCascadeActivateEnable), end_func:SmCascadeXmlParserEnd },
+	{ tag:"SwitchCascadeActivateEnable", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, switchCascadeActivateEnable) },
 	{ tag:"NeighborNormalRetries", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, neighborNormalRetries) },
-	{ tag:"PreDefinedTopology", format:'k', subfields:SmPreDefTopoFields, start_func:SmPreDefTopoXmlParserStart },
+	{ tag:"PreDefinedTopology", format:'k', subfields:SmPreDefTopoFields, start_func:SmPreDefTopoXmlParserStart, end_func:SmPreDefTopoXmlParserEnd },
 	{ tag:"TerminateAfter", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, terminateAfter) },
 	{ tag:"DumpCounters", format:'s', IXML_FIELD_INFO(SMXmlConfig_t, dumpCounters) },
 	{ tag:"PortBounceLogLimit", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, portBounceLogLimit) },
 	{ tag:"NeighborFWAuthenEnable", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, neighborFWAuthenEnable) },
-	{ tag:"MinSupportedVLs", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, min_supported_vls) },
+	{ tag:"MinSupportedVLs", format:'u', IXML_FIELD_INFO(SMXmlConfig_t, min_supported_vls), end_func:MinSupportedVLsParserEnd },
 	{ NULL }
 };
 
@@ -6420,8 +6618,8 @@ static void* SmXmlParserStart(IXmlParserState_t *state, void *parent, const char
 	SMXmlConfig_t *smp = getXmlMemory(sizeof(SMXmlConfig_t), "SMXmlConfig_t SmXmlParserStart()");
 
 	if (xml_parse_debug)
-		fprintf(stdout, "SmXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "SmXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
+
 	if (!smp) {
 		PRINT_MEMORY_ERROR;
 		return NULL;
@@ -6439,17 +6637,16 @@ static void* SmXmlParserStart(IXmlParserState_t *state, void *parent, const char
 // "Sm" end tag
 static void SmXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
-	smp = (SMXmlConfig_t*)IXmlParserGetField(field, object);
-	uint32_t i;
+	smp = (SMXmlConfig_t *)IXmlParserGetField(field, object);
 #ifndef __VXWORKS__
 	char facility[256];
 #endif
 
 	if (xml_parse_debug)
-		fprintf(stdout, "SmXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "SmXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Sm tag\n"); 
+		fprintf(stderr, "Error processing XML Sm tag\n");
 	} else {
 		if (smp->priority != UNDEFINED_XML32 && smp->priority > MAX_PRIORITY) {
 			IXmlParserPrintError(state, "Sm Priority must be in the range of 0-15");
@@ -6466,13 +6663,8 @@ static void SmXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 			freeXmlMemory(smp, sizeof(SMXmlConfig_t), "SMXmlConfig_t SmXmlParserEnd()");
 			return;
 		}
-		if (strlen(smp->CoreDumpLimit) && vs_getCoreDumpLimit(smp->CoreDumpLimit, NULL) < 0) {
-			IXmlParserPrintError(state, "Invalid Sm CoreDumpLimit: '%s'", smp->CoreDumpLimit);
-			freeXmlMemory(smp, sizeof(SMXmlConfig_t), "SMXmlConfig_t SmXmlParserEnd()");
-			return;
-		}
-		if (smp->min_supported_vls != UNDEFINED_XML32 && (!smp->min_supported_vls || smp->min_supported_vls > 8)) {
-			IXmlParserPrintError(state, "Sm MinSupportedVLs must be in the range of 1-8");
+		if (smp->min_supported_vls != UNDEFINED_XML32 && smp->min_supported_vls != 8) {
+			IXmlParserPrintError(state, "Sm MinSupportedVLs value not equal to 8 is invalid");
 			freeXmlMemory(smp, sizeof(SMXmlConfig_t), "SMXmlConfig_t SmXmlParserEnd()");
 			return;
 		}
@@ -6484,8 +6676,6 @@ static void SmXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 			return;
 		}
 #endif
-
-#ifdef CONFIG_INCLUDE_DOR
 		if (strcasecmp(smp->routing_algorithm, "dor") == 0) {
 			if (smp->smDorRouting.dimensionCount == 0xff) {
 				IXmlParserPrintError(state, "Sm routing algorithm requires MeshTorusTopology configuration");
@@ -6493,7 +6683,6 @@ static void SmXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 				return;
 			}
 		}
-#endif
 
 		if (strcasecmp(smp->routing_algorithm, "fattree") == 0) {
 			if ((smp->ftreeRouting.tierCount == 0) ||
@@ -6512,12 +6701,7 @@ static void SmXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 	}
 
 	if (common) {
-		// since this is common place in all instance of Sm and the Common Sm
 		smCopyConfig(&configp->fm_instance_common->sm_config, smp);
-		for (i = fm_instance; i < end_instance; i++) {
-			if (configp->fm_instance[i] != configp->fm_instance_common)
-				smCopyConfig(&configp->fm_instance[i]->sm_config, smp);
-		}
 	} else if (configp->fm_instance[instance]) {
 		// save the Sm config for this instance
 		smCopyConfig(&configp->fm_instance[instance]->sm_config, smp);
@@ -6577,8 +6761,8 @@ static void* FeXmlParserStart(IXmlParserState_t *state, void *parent, const char
 	FEXmlConfig_t *fep = getXmlMemory(sizeof(FEXmlConfig_t), "FEXmlConfig_t FeXmlParserStart()");
 
 	if (xml_parse_debug)
-		fprintf(stdout, "FeXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "FeXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
+
 	if (!fep) {
 		PRINT_MEMORY_ERROR;
 		return NULL;
@@ -6596,17 +6780,16 @@ static void* FeXmlParserStart(IXmlParserState_t *state, void *parent, const char
 // "Fe" end tag
 static void FeXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
-	FEXmlConfig_t *fep = (FEXmlConfig_t*)IXmlParserGetField(field, object);
-	uint32_t i;
+	FEXmlConfig_t *fep = (FEXmlConfig_t *)IXmlParserGetField(field, object);
 #ifndef __VXWORKS__
 	char facility[256];
 #endif
 
 	if (xml_parse_debug)
-		fprintf(stdout, "FeXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "FeXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Fe tag\n"); 
+		fprintf(stderr, "Error processing XML Fe tag\n");
 	} else {
 		if (strlen(fep->CoreDumpLimit) && vs_getCoreDumpLimit(fep->CoreDumpLimit, NULL) < 0) {
 			IXmlParserPrintError(state, "Invalid Fe CoreDumpLimit: '%s'", fep->CoreDumpLimit);
@@ -6619,14 +6802,10 @@ static void FeXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 			freeXmlMemory(fep, sizeof(FEXmlConfig_t), "FEXmlConfig_t FeXmlParserEnd()");
 			return;
 		}
-#endif 
+#endif
 	}
 
 	if (common) {
-		// since this is common place in all instance of Fe and the Common Fe
-		for (i = fm_instance; i < end_instance; i++) {
-			configp->fm_instance[i]->fe_config = *fep;
-		}
 		configp->fm_instance_common->fe_config = *fep;
 	} else if (configp->fm_instance[instance]) {
 		// save the Fe config for this instance
@@ -6635,8 +6814,6 @@ static void FeXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 
 	freeXmlMemory(fep, sizeof(FEXmlConfig_t), "FEXmlConfig_t FeXmlParserEnd()");
 }
-
-// Validate the sweep interval against the range [1-43200]
 static void PmSweepIntervalParserEnd(IXmlParserState_t *state,
 	const IXML_FIELD *field, void *object, void *parent, XML_Char *content,
 	unsigned len, boolean valid)
@@ -6783,8 +6960,6 @@ static void PmShortTermHistoryXmlParserEnd(IXmlParserState_t *state, const IXML_
 static IXML_FIELD PmFields[] = {
 	{ tag:"Start", format:'u', IXML_FIELD_INFO(PMXmlConfig_t, start) },
 	{ tag:"SubnetSize", format:'u', IXML_FIELD_INFO(PMXmlConfig_t, subnet_size) },
-	{ tag:"CoreDumpDir", format:'s', IXML_FIELD_INFO(PMXmlConfig_t, CoreDumpDir) },
-	{ tag:"CoreDumpLimit", format:'s', IXML_FIELD_INFO(PMXmlConfig_t, CoreDumpLimit) },
 	{ tag:"SslSecurityEnabled", format:'u', IXML_FIELD_INFO(PMXmlConfig_t, SslSecurityEnabled) },
 	{ tag:"SslSecurityEnable", format:'u', IXML_FIELD_INFO(PMXmlConfig_t, SslSecurityEnabled) },
 #ifndef __VXWORKS__
@@ -6799,7 +6974,7 @@ static IXML_FIELD PmFields[] = {
 	{ tag:"SslSecurityFmCaCRLEnable", format:'u', IXML_FIELD_INFO(PMXmlConfig_t, SslSecurityFmCaCRLEnabled) },
 	{ tag:"SslSecurityFmCaCRL", format:'s', IXML_FIELD_INFO(PMXmlConfig_t, SslSecurityFmCaCRL) },
 	{ tag:"ServiceLease", format:'u', IXML_FIELD_INFO(PMXmlConfig_t, timer) },
-	{ tag:"SweepInterval", format:'k', IXML_FIELD_INFO(PMXmlConfig_t, sweep_interval), end_func:PmSweepIntervalParserEnd },
+	{ tag:"SweepInterval", format:'u', IXML_FIELD_INFO(PMXmlConfig_t, sweep_interval), end_func:PmSweepIntervalParserEnd },
 	{ tag:"ErrorClear", format:'u', IXML_FIELD_INFO(PMXmlConfig_t, ErrorClear) },
 	{ tag:"ClearDataXfer", format:'u', IXML_FIELD_INFO(PMXmlConfig_t, ClearDataXfer) },
 	{ tag:"Clear64bit", format:'u', IXML_FIELD_INFO(PMXmlConfig_t, Clear64bit) },
@@ -6853,8 +7028,8 @@ static void* PmXmlParserStart(IXmlParserState_t *state, void *parent, const char
 	PMXmlConfig_t *pmp = getXmlMemory(sizeof(PMXmlConfig_t), "PMXmlConfig_t PmXmlParserStart()");
 
 	if (xml_parse_debug)
-		fprintf(stdout, "PmXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "PmXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
+
 	if (!pmp) {
 		PRINT_MEMORY_ERROR;
 		return NULL;
@@ -6872,17 +7047,16 @@ static void* PmXmlParserStart(IXmlParserState_t *state, void *parent, const char
 // "Pm" end tag
 static void PmXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
-	PMXmlConfig_t *pmp = (PMXmlConfig_t*)IXmlParserGetField(field, object);
-	uint32_t i;
+	PMXmlConfig_t *pmp = (PMXmlConfig_t *)IXmlParserGetField(field, object);
 #ifndef __VXWORKS__
 	char facility[256];
 #endif
 
 	if (xml_parse_debug)
-		fprintf(stdout, "PmXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "PmXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Pm tag\n"); 
+		fprintf(stderr, "Error processing XML Pm tag\n");
 	} else {
 		if (pmp->priority != UNDEFINED_XML32 && pmp->priority > MAX_PRIORITY) {
 			IXmlParserPrintError(state, "Pm Priority must be in the range of 0-15");
@@ -6891,11 +7065,6 @@ static void PmXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 		}
 		if (pmp->elevated_priority != UNDEFINED_XML32 && pmp->elevated_priority > MAX_PRIORITY) {
 			IXmlParserPrintError(state, "Pm ElevatedPriority must be in the range of 0-15");
-			freeXmlMemory(pmp, sizeof(PMXmlConfig_t), "PMXmlConfig_t PmXmlParserEnd()");
-			return;
-		}
-		if (strlen(pmp->CoreDumpLimit) && vs_getCoreDumpLimit(pmp->CoreDumpLimit, NULL) < 0) {
-			IXmlParserPrintError(state, "Invalid Pm CoreDumpLimit: '%s'", pmp->CoreDumpLimit);
 			freeXmlMemory(pmp, sizeof(PMXmlConfig_t), "PMXmlConfig_t PmXmlParserEnd()");
 			return;
 		}
@@ -6909,10 +7078,6 @@ static void PmXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 	}
 
 	if (common) {
-		// since this is common place in all instance of Pm and the Common Pm
-		for (i = fm_instance; i < end_instance; i++) {
-			configp->fm_instance[i]->pm_config = *pmp;
-		}
 		configp->fm_instance_common->pm_config = *pmp;
 	} else if (configp->fm_instance[instance]) {
 		// save the Pm config for this instance
@@ -6922,81 +7087,163 @@ static void PmXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 	freeXmlMemory(pmp, sizeof(PMXmlConfig_t), "PMXmlConfig_t PmXmlParserEnd()");
 }
 
-// "ServiceId" end tag
-static void VfAppServiceIdEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
+#define SID_PARSE_SUCCESS 	0
+#define SID_PARSE_FAIL 		1
+#define SID_PARSE_DUP		2
+
+static int ServiceIdEnd(IXmlParserState_t *state, cl_qmap_t *dst,
+	XML_Char *content, unsigned len, boolean valid, boolean asString)
 {
 	uint64_t sid;
 
-	if (xml_parse_debug)
-		fprintf(stdout, "VfAppServiceIdEnd instance %u appInstance %u serviceIdInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)serviceIdInstance, (unsigned int)common); 
-		
-	// check for max
-	if (serviceIdInstance >= MAX_VFABRIC_APP_SIDS) {
-		PRINT_MEMORY_ERROR;
-		return;
-	}
-
 	if (!valid) {
-		fprintf(stderr, "Error processing XML ServiceId tag\n"); 
-		return;
-	} else if (!app) {
-		IXmlParserPrintError(state, "Parser internal error");
-		return;
+		fprintf(stderr, "Error processing XML ServiceId tag\n");
+		return SID_PARSE_FAIL;
 	} else if (!content) {
 		IXmlParserPrintError(state, "ServiceId cannot be null");
-		return;
+		return SID_PARSE_FAIL;
 	} else if (strlen(content) > MAX_VFABRIC_NAME - 1) {
 		IXmlParserPrintError(state, "ServiceId is too long");
-		return;
+		return SID_PARSE_FAIL;
 	}
 
-	// save away the ServiceId to the parent structure if it is a valid string
 	if (FSUCCESS != StringToUint64(&sid, content, NULL, 16, TRUE)) {
 		IXmlParserPrintError(state, "ServiceId %s is formatted incorrectly", content);
-		return;
+		return SID_PARSE_FAIL;
 	}
-	if (!addMap(&app->serviceIdMap, sid)) {
-		// Ignore duplicate
-		return;
+
+	if (dst) {
+		if (asString) {
+			char *sidStr = dupName(content);
+			if (!sidStr) {
+				PRINT_MEMORY_ERROR;
+				return SID_PARSE_FAIL;
+			}
+
+			if (!addMap(dst, XML_QMAP_U64_CAST sidStr)) {
+				freeName(sidStr);
+				return SID_PARSE_DUP;
+			}
+		} else if (!addMap(dst, sid)) {
+			return SID_PARSE_DUP;
+		}
 	}
-	app->serviceIdMapSize++;
-	serviceIdInstance++;
+
+	return SID_PARSE_SUCCESS;
 }
 
 // "ServiceIdRange" end tag
-static void VfAppServiceIdRangeEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
+static int ServiceIdRangeEnd(IXmlParserState_t *state, cl_qmap_t *dst,
+	XML_Char *content, unsigned len, boolean valid)
 {
-	if (xml_parse_debug)
-		fprintf(stdout, "VfAppServiceIdRangeEnd instance %u appInstance %u serviceIdRangeInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)serviceIdRangeInstance, (unsigned int)common); 
-		
-	// check for max
-	if (serviceIdRangeInstance >= MAX_VFABRIC_APP_SIDS) {
-		PRINT_MEMORY_ERROR;
-		return;
-	}
-
 	if (!valid) {
-		fprintf(stderr, "Error processing XML ServiceIdRange tag\n"); 
-	} else if (!content || !app || strlen(content) > MAX_VFABRIC_NAME - 1) {
-		IXmlParserPrintError(state, "ServiceIdRange is too long - ignoring");
-		return;
+		fprintf(stderr, "Error processing XML ServiceIdRange tag\n");
+	} else if (!content || strlen(content) > MAX_VFABRIC_NAME - 1) {
+		IXmlParserPrintError(state, "ServiceIdRange is too long");
+		return SID_PARSE_FAIL;
 	}
 
 	// test conversion
 	VFAppSid_t sidMapping;
 	if (verifyAndConvertSidCompoundString(content, 1, &sidMapping) < 0) {
 		IXmlParserPrintError(state, "Bad ServiceIdRange format, \"%s\"", content);
+		return SID_PARSE_FAIL;
+	}
+
+	if (dst) {
+		char *range = dupName(content);
+		if (!range) {
+			PRINT_MEMORY_ERROR;
+			return SID_PARSE_FAIL;
+		}
+
+		if (!addMap(dst, XML_QMAP_U64_CAST range)) {
+			freeName(range);
+			return SID_PARSE_DUP;
+		}
+	}
+
+	return SID_PARSE_SUCCESS;
+}
+
+// "ServiceIdMasked" end tag
+static int ServiceIdMaskedEnd(IXmlParserState_t *state, cl_qmap_t *dst,
+	XML_Char *content, unsigned len, boolean valid)
+{
+	if (!valid) {
+		fprintf(stderr, "Error processing XML ServiceIdMasked tag\n");
+	} else if (!content || strlen(content) > MAX_VFABRIC_NAME - 1) {
+		IXmlParserPrintError(state, "ServiceIdMasked is too long");
+		return SID_PARSE_FAIL;
+	}
+
+	// test conversion
+	VFAppSid_t sidMapping;
+	if (verifyAndConvertSidCompoundString(content, 0, &sidMapping) < 0) {
+		IXmlParserPrintError(state, "Bad ServiceIdMasked format, \"%s\"", content);
+		return SID_PARSE_FAIL;
+	}
+
+	if (dst) {
+		char *masked;
+		masked = dupName(content);
+		if (!masked) {
+			PRINT_MEMORY_ERROR;
+			return SID_PARSE_FAIL;
+		}
+
+		if (!addMap(dst, XML_QMAP_U64_CAST masked)) {
+			freeName(masked);
+			return SID_PARSE_DUP;
+		}
+	}
+
+	return SID_PARSE_SUCCESS;
+}
+
+// "ServiceId" end tag
+static void VfAppServiceIdEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
+{
+	if (!app) {
+		IXmlParserPrintError(state, "Parser internal error");
 		return;
 	}
 
-	// save away the ServiceIdRange to the parent structure
-	char *range;
-	range = dupName(content);
-	if (range) {
-		addMap(&app->serviceIdRangeMap, XML_QMAP_U64_CAST range);
+	if (xml_parse_debug)
+		fprintf(stdout, "VfAppServiceIdEnd instance %u appInstance %u serviceIdInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)serviceIdInstance, (unsigned int)common);
 
+	// check for max
+	if (serviceIdInstance >= MAX_VFABRIC_APP_SIDS) {
+		PRINT_MEMORY_ERROR;
+		return;
+	}
+
+	if (!ServiceIdEnd(state, &app->serviceIdMap, content, len, valid, 0)) {
+		app->serviceIdMapSize++;
+		serviceIdInstance++;
+	}
+}
+
+// "ServiceIdRange" end tag
+static void VfAppServiceIdRangeEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
+{
+	if (!app) {
+		IXmlParserPrintError(state, "Parser internal error");
+		return;
+	}
+
+	if (xml_parse_debug)
+		fprintf(stdout, "VfAppServiceIdRangeEnd instance %u appInstance %u serviceIdRangeInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)serviceIdRangeInstance, (unsigned int)common);
+
+	// check for max
+	if (serviceIdRangeInstance >= MAX_VFABRIC_APP_SIDS) {
+		PRINT_MEMORY_ERROR;
+		return;
+	}
+
+	if (!ServiceIdRangeEnd(state, &app->serviceIdRangeMap, content, len, valid)) {
 		app->serviceIdRangeMapSize++;
 		serviceIdRangeInstance++;
 	}
@@ -7005,35 +7252,24 @@ static void VfAppServiceIdRangeEnd(IXmlParserState_t *state, const IXML_FIELD *f
 // "ServiceIdMasked" end tag
 static void VfAppServiceIdMaskedEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
+	if (!app) {
+		IXmlParserPrintError(state, "Parser internal error");
+		return;
+	}
+
 	if (xml_parse_debug)
-		fprintf(stdout, "VfAppServiceIdMaskedEnd instance %u appInstance %u serviceIdMaskedInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)serviceIdMaskedInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfAppServiceIdMaskedEnd instance %u appInstance %u "
+			"serviceIdMaskedInstance %u common %u\n", (unsigned int)instance,
+			(unsigned int)appInstance, (unsigned int)serviceIdMaskedInstance,
+			(unsigned int)common);
+
 	// check for max
 	if (serviceIdMaskedInstance >= MAX_VFABRIC_APP_SIDS) {
 		PRINT_MEMORY_ERROR;
 		return;
 	}
 
-	if (!valid) {
-		fprintf(stderr, "Error processing XML ServiceIdMasked tag\n"); 
-	} else if (!content || !app || strlen(content) > MAX_VFABRIC_NAME - 1) {
-		IXmlParserPrintError(state, "ServiceIdMasked is too long - ignoring");
-		return;
-	}
-
-	// test conversion
-	VFAppSid_t sidMapping;
-	if (verifyAndConvertSidCompoundString(content, 0, &sidMapping) < 0) {
-		IXmlParserPrintError(state, "Bad ServiceIdMasked format, \"%s\"", content);
-		return;
-	}
-
-	char *masked;
-	masked = dupName(content);
-	if (masked) {
-		addMap(&app->serviceIdMaskedMap, XML_QMAP_U64_CAST masked);
-
+	if (!ServiceIdMaskedEnd(state, &app->serviceIdMaskedMap, content, len, valid)) {
 		app->serviceIdMaskedMapSize++;
 		serviceIdMaskedInstance++;
 	}
@@ -7043,9 +7279,9 @@ static void VfAppServiceIdMaskedEnd(IXmlParserState_t *state, const IXML_FIELD *
 static void VfAppMGidEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "VfAppMGidEnd instance %u appInstance %u mgidInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)mgidInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfAppMGidEnd instance %u appInstance %u mgidInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)mgidInstance, (unsigned int)common);
+
 	// check for max
 	if (mgidInstance >= MAX_VFABRIC_APP_MGIDS) {
 		PRINT_MEMORY_ERROR;
@@ -7053,14 +7289,14 @@ static void VfAppMGidEnd(IXmlParserState_t *state, const IXML_FIELD *field, void
 	}
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML MGID tag\n"); 
+		fprintf(stderr, "Error processing XML MGID tag\n");
 	} else if (!content || !app || strlen(content) > MAX_VFABRIC_NAME - 1) {
 		IXmlParserPrintError(state, "MGID is too long - ignoring");
 		return;
 	}
 
 	// save away the MGID to the parent structure
-	strcpy(app->mgid[mgidInstance].mgid, content);
+	snprintf(app->mgid[mgidInstance].mgid, sizeof(app->mgid[mgidInstance].mgid), "%s", content);
 
 	// test conversion
 	VFAppMgid_t mgidMapping;
@@ -7077,9 +7313,9 @@ static void VfAppMGidEnd(IXmlParserState_t *state, const IXML_FIELD *field, void
 static void VfAppMGidRangeEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "VfAppMGidRangeEnd instance %u appInstance %u mgidRangeInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)mgidRangeInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfAppMGidRangeEnd instance %u appInstance %u mgidRangeInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)mgidRangeInstance, (unsigned int)common);
+
 	// check for max
 	if (mgidRangeInstance >= MAX_VFABRIC_APP_MGIDS) {
 		PRINT_MEMORY_ERROR;
@@ -7087,14 +7323,14 @@ static void VfAppMGidRangeEnd(IXmlParserState_t *state, const IXML_FIELD *field,
 	}
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML MGIDRange tag\n"); 
+		fprintf(stderr, "Error processing XML MGIDRange tag\n");
 	} else if (!content || !app || strlen(content) > MAX_VFABRIC_APP_ELEMENT - 1) {
 		IXmlParserPrintError(state, "MGIDRange is too long - ignoring");
 		return;
 	}
 
 	// save away the MGIDRange to the parent structure
-	strcpy(app->mgid_range[mgidRangeInstance].range, content);
+	snprintf(app->mgid_range[mgidRangeInstance].range, sizeof(app->mgid_range[mgidRangeInstance].range), "%s", content);
 
 	// test conversion
 	VFAppMgid_t mgidMapping;
@@ -7111,9 +7347,9 @@ static void VfAppMGidRangeEnd(IXmlParserState_t *state, const IXML_FIELD *field,
 static void VfAppMGidMaskedEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "VfAppMGidMaskedEnd instance %u appInstance %u mgidMaskedInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)mgidMaskedInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfAppMGidMaskedEnd instance %u appInstance %u mgidMaskedInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)mgidMaskedInstance, (unsigned int)common);
+
 	// check for max
 	if (mgidMaskedInstance >= MAX_VFABRIC_APP_MGIDS) {
 		PRINT_MEMORY_ERROR;
@@ -7121,14 +7357,14 @@ static void VfAppMGidMaskedEnd(IXmlParserState_t *state, const IXML_FIELD *field
 	}
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML MGIDMasked tag\n"); 
+		fprintf(stderr, "Error processing XML MGIDMasked tag\n");
 	} else if (!content || !app || strlen(content) > MAX_VFABRIC_APP_ELEMENT - 1) {
 		IXmlParserPrintError(state, "MGIDMasked is too long - ignoring");
 		return;
 	}
 
 	// save away the MGIDMasked to the parent structure
-	strcpy(app->mgid_masked[mgidMaskedInstance].masked, content);
+	snprintf(app->mgid_masked[mgidMaskedInstance].masked, sizeof(app->mgid_masked[mgidMaskedInstance].masked), "%s", content);
 
 	// test conversion
 	VFAppMgid_t mgidMapping;
@@ -7145,9 +7381,9 @@ static void VfAppMGidMaskedEnd(IXmlParserState_t *state, const IXML_FIELD *field
 static void VfAppIncludedApplicationEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "VfAppIncludedApplicationEnd instance %u appInstance %u includedAppInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)includedAppInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfAppIncludedApplicationEnd instance %u appInstance %u includedAppInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)includedAppInstance, (unsigned int)common);
+
 	// check for max
 	if (includedAppInstance >= MAX_INCLUDED_APPS) {
 		PRINT_MEMORY_ERROR;
@@ -7155,14 +7391,16 @@ static void VfAppIncludedApplicationEnd(IXmlParserState_t *state, const IXML_FIE
 	}
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML IncludeApplication tag\n"); 
+		fprintf(stderr, "Error processing XML IncludeApplication tag\n");
 	} else if (!content || !app || strlen(content) > MAX_VFABRIC_NAME) {
 		IXmlParserPrintError(state, "IncludeApplication is too long - ignoring");
 		return;
 	}
 
 	// save away the IncludedApplication to the parent structure
-	strcpy(app->included_app[includedAppInstance].node, content);
+	snprintf(app->included_app[includedAppInstance].node, sizeof(app->included_app[includedAppInstance].node), "%s", content);
+	// Ensure NULL termination
+	app->included_app[includedAppInstance].node[MAX_VFABRIC_NAME]=0;
 
 	// index to next IncludedApplication instance
 	includedAppInstance++;
@@ -7172,11 +7410,11 @@ static void VfAppIncludedApplicationEnd(IXmlParserState_t *state, const IXML_FIE
 static void VfAppSelectEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "VfAppSelectEnd instance %u appInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfAppSelectEnd instance %u appInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)appInstance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Application Select tag\n"); 
+		fprintf(stderr, "Error processing XML Application Select tag\n");
 	} else if (!content || !app || strlen(content) > MAX_VFABRIC_NAME - 1) {
 		IXmlParserPrintError(state, "Application Select setting is too long - ignoring");
 		return;
@@ -7222,7 +7460,7 @@ static void* VfAppXmlParserStart(IXmlParserState_t *state, void *parent, const c
 	app = getApplicationObject();
 
 	if (xml_parse_debug)
-		fprintf(stdout, "VfAppXmlParserStart instance %u appInstance %u common %u\n", (unsigned int)instance, (unsigned int)appInstance, (unsigned int)common); 
+		fprintf(stdout, "VfAppXmlParserStart instance %u appInstance %u common %u\n", (unsigned int)instance, (unsigned int)appInstance, (unsigned int)common);
 
 	if (!app) {
 		PRINT_MEMORY_ERROR;
@@ -7248,17 +7486,29 @@ static void VfAppXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field,
 	uint32_t i;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "VfAppXmlParserEnd instance %u appInstance %u common %u\n", (unsigned int)instance, (unsigned int)appInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfAppXmlParserEnd instance %u appInstance %u common %u\n", (unsigned int)instance, (unsigned int)appInstance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Application tag\n"); 
-	} else {
-		// Verify that the application has a name
-		if (strlen(app->name) == 0) {
-			IXmlParserPrintError(state, "Virtual Fabric Application must have a name");
-			freeXmlMemory(app, sizeof(AppConfig_t), "AppConfig_t VfAppXmlParserEnd()");
-			return;
-		}
+		fprintf(stderr, "Error processing XML Application tag\n");
+		freeApplicationObject(app);
+		return;
+	}
+
+	FMXmlInstance_t *instancep;
+	if (common) instancep = configp->fm_instance_common;
+	else instancep = configp->fm_instance[instance];
+
+	if (!instancep) {
+		// We don't care about this instance
+		freeApplicationObject(app);
+		return;
+	}
+
+	// Verify that the application has a name
+	if (strlen(app->name) == 0) {
+		IXmlParserPrintError(state, "Virtual Fabric Application must have a name");
+		freeApplicationObject(app);
+		return;
 	}
 
 	// keep track of the number of elements
@@ -7267,66 +7517,27 @@ static void VfAppXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field,
 	app->number_of_mgid_range_maskeds = mgidMaskedInstance;
 	app->number_of_included_apps = includedAppInstance;
 
-	if (common) {
-		AppConfig_t *tmp_app;
-
-		tmp_app = dupApplicationObject(app);
-		if (!tmp_app) {
-			PRINT_MEMORY_ERROR;
-			freeXmlMemory(app, sizeof(AppConfig_t), "AppConfig_t VfAppXmlParserEnd()");
+	// Validate the includedApps exist
+	for (i = 0; i < app->number_of_included_apps; i++) {
+		if (cl_qmap_get(&instancep->app_config.appMap, XML_QMAP_U64_CAST app->included_app[i].node)
+		== cl_qmap_end(&instancep->app_config.appMap)) {
+			// Not Found
+			IXmlParserPrintError(state, "Included application (%s) is not defined", app->included_app[i].node);
+			freeApplicationObject(app);
 			return;
 		}
-		/* Add it to the common map */
-		if (!addMap(&configp->fm_instance_common->app_config.appMap, XML_QMAP_U64_CAST tmp_app)) {
-			// Couldn't add, must be a duplicate name
-			IXmlParserPrintError(state, "Duplicate Virtual Fabric Application (%s) encountered", app->name);
-			freeXmlMemory(app, sizeof(AppConfig_t), "AppConfig_t VfAppXmlParserEnd()");
-			freeXmlMemory(tmp_app, sizeof(AppConfig_t), "AppConfig_t VfAppXmlParserEnd()");
-			return;
-		}
-		configp->fm_instance_common->app_config.appMapSize++;
-		// since this is common place in all instances
-		for (i = fm_instance; i < end_instance; i++) {
-			if (configp->fm_instance[i] == configp->fm_instance_common) continue;
-			tmp_app = dupApplicationObject(app);
-			if (!tmp_app) {
-				PRINT_MEMORY_ERROR;
-				freeXmlMemory(app, sizeof(AppConfig_t), "AppConfig_t VfAppXmlParserEnd()");
-				return;
-			}
-			if (!addMap(&configp->fm_instance[i]->app_config.appMap, XML_QMAP_U64_CAST tmp_app)) {
-				// Couldn't add, that really shouldn't have happened
-				IXmlParserPrintError(state, "Duplicate Virtual Fabric Application (%s) encountered", app->name);
-				freeXmlMemory(app, sizeof(AppConfig_t), "AppConfig_t VfAppXmlParserEnd()");
-				freeXmlMemory(tmp_app, sizeof(AppConfig_t), "AppConfig_t VfAppXmlParserEnd()");
-				return;
-			}
-			configp->fm_instance[i]->app_config.appMapSize++;
-		}
-	} else if (configp->fm_instance[instance]) {
-		AppConfig_t *tmp_app;
-
-		tmp_app = dupApplicationObject(app);
-		if (!tmp_app) {
-			PRINT_MEMORY_ERROR;
-			freeXmlMemory(app, sizeof(AppConfig_t), "AppConfig_t VfAppXmlParserEnd()");
-			return;
-		}
-		/* Add it to the common map */
-		if (!addMap(&configp->fm_instance[instance]->app_config.appMap, XML_QMAP_U64_CAST tmp_app)) {
-			// Couldn't add, must be a duplicate name
-			IXmlParserPrintError(state, "Duplicate Virtual Fabric Application (%s) encountered", app->name);
-			freeXmlMemory(app, sizeof(AppConfig_t), "AppConfig_t VfAppXmlParserEnd()");
-			freeXmlMemory(tmp_app, sizeof(AppConfig_t), "AppConfig_t VfAppXmlParserEnd()");
-			return;
-		}
-		configp->fm_instance[instance]->app_config.appMapSize++;
 	}
+	/* Finally, add it to the common map */
+	if (!addMap(&instancep->app_config.appMap, XML_QMAP_U64_CAST app)) {
+		// Couldn't add, must be a duplicate name
+		IXmlParserPrintError(state, "Duplicate Virtual Fabric Application (%s) encountered", app->name);
+		freeApplicationObject(app);
+		return;
+	}
+	instancep->app_config.appMapSize++;
 
 	// index to next App instance
 	appInstance++;
-
-	freeApplicationObject(app);
 }
 
 // fields within "Applications" tag
@@ -7339,7 +7550,7 @@ static IXML_FIELD VfsAppFields[] = {
 static void* VfsAppXmlParserStart(IXmlParserState_t *state, void *parent, const char **attr)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "VfsAppXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "VfsAppXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
 	if (common) {
 		// reset App index
@@ -7359,10 +7570,10 @@ static void* VfsAppXmlParserStart(IXmlParserState_t *state, void *parent, const 
 static void VfsAppXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "VfsAppXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfsAppXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Applications tag\n"); 
+		fprintf(stderr, "Error processing XML Applications tag\n");
 	} else {
 		// as needed process or validate self consistency of config
 	}
@@ -7372,15 +7583,14 @@ static void VfsAppXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field
 static void VfGroupSystemImageGuidEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	uint64_t guid;
-	XmlGuid_t *temp_system_image_guid;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "VfGroupSystemImageGuidEnd instance %u groupInstance %u systemImageInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)groupInstance, (unsigned int)systemImageInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfGroupSystemImageGuidEnd instance %u groupInstance %u systemImageInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)groupInstance, (unsigned int)systemImageInstance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML SystemImageGUID tag\n"); 
-		return;
+		fprintf(stderr, "Error processing XML SystemImageGUID tag\n");
+			return;
 	} else if (!content || !dgp || strlen(content) > MAX_VFABRIC_NAME - 1) {
 		IXmlParserPrintError(state, "SystemImageGUID is too long - ignoring");
 		return;
@@ -7392,20 +7602,7 @@ static void VfGroupSystemImageGuidEnd(IXmlParserState_t *state, const IXML_FIELD
 		return;
 	}
 
-	temp_system_image_guid = getXmlMemory(sizeof(XmlGuid_t), "XmlGuid_t VfGroupSystemImageGuidEnd()");
-	if (!temp_system_image_guid) {
-		PRINT_MEMORY_ERROR;
-		return;
-	}
-	temp_system_image_guid->guid = guid;
-	temp_system_image_guid->next = NULL;
-
-	if (last_system_image_guid == NULL) 
-		dgp->system_image_guid = temp_system_image_guid;
- 	else  
-		last_system_image_guid->next = temp_system_image_guid;
-
-	last_system_image_guid = temp_system_image_guid;
+	addMap(&dgp->system_image_guid, guid);
 
 	// index to next SystemImageGUID instance
 	systemImageInstance++;
@@ -7415,14 +7612,13 @@ static void VfGroupSystemImageGuidEnd(IXmlParserState_t *state, const IXML_FIELD
 static void VfGroupNodeGuidEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	uint64_t guid;
-	XmlGuid_t *temp_node_guid;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "VfGroupNodeGuidEnd instance %u groupInstance %u nodeGuidInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)groupInstance, (unsigned int)nodeGuidInstance, (unsigned int)common); 
+		fprintf(stdout, "VfGroupNodeGuidEnd instance %u groupInstance %u nodeGuidInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)groupInstance, (unsigned int)nodeGuidInstance, (unsigned int)common);
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML NodeGUID tag\n"); 
+		fprintf(stderr, "Error processing XML NodeGUID tag\n");
 		return;
 	} else if (!content || !dgp || strlen(content) > MAX_VFABRIC_NAME - 1) {
 		IXmlParserPrintError(state, "NodeGUID is too long - ignoring");
@@ -7435,20 +7631,7 @@ static void VfGroupNodeGuidEnd(IXmlParserState_t *state, const IXML_FIELD *field
 		return;
 	}
 
-	temp_node_guid = getXmlMemory(sizeof(XmlGuid_t), "XmlGuid_t VfGroupNodeGuidEnd()");
-	if (!temp_node_guid) {
-		PRINT_MEMORY_ERROR;
-		return;
-	}
-	temp_node_guid->guid = guid;
-	temp_node_guid->next = NULL;
-
-	if (last_node_guid == NULL)
-		dgp->node_guid = temp_node_guid;
-	else
-		last_node_guid->next = temp_node_guid;
-
-	last_node_guid = temp_node_guid;
+	addMap(&dgp->node_guid, guid);
 
 	// index to next NodeGUID instance
 	nodeGuidInstance++;
@@ -7458,14 +7641,13 @@ static void VfGroupNodeGuidEnd(IXmlParserState_t *state, const IXML_FIELD *field
 static void VfGroupPortGuidEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	uint64_t guid;
-	XmlGuid_t *temp_port_guid;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "VfGroupPortGuidEnd instance %u groupInstance %u portGuidInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)groupInstance, (unsigned int)portGuidInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfGroupPortGuidEnd instance %u groupInstance %u portGuidInstance %u common %u\n",
+						(unsigned int)instance, (unsigned int)groupInstance, (unsigned int)portGuidInstance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML PortGUID tag\n"); 
+		fprintf(stderr, "Error processing XML PortGUID tag\n");
 		return;
 	} else if (!content || !dgp || strlen(content) > MAX_VFABRIC_NAME - 1) {
 		IXmlParserPrintError(state, "PortGUID is too long - ignoring");
@@ -7478,20 +7660,7 @@ static void VfGroupPortGuidEnd(IXmlParserState_t *state, const IXML_FIELD *field
 		return;
 	}
 
-	temp_port_guid = getXmlMemory(sizeof(XmlGuid_t), "XmlGuid_t VfGroupPortGuidEnd()");
-	if (!temp_port_guid) {
-		PRINT_MEMORY_ERROR;
-		return;
-	}
-	temp_port_guid->guid = guid;
-	temp_port_guid->next = NULL;
-
-	if (last_port_guid == NULL)
-		dgp->port_guid = temp_port_guid;
-	else
-		last_port_guid->next = temp_port_guid;
-
-	last_port_guid = temp_port_guid;
+	addMap(&dgp->port_guid, guid);
 
 	portGuidInstance++;
 }
@@ -7502,11 +7671,11 @@ static void VfGroupNodeDescEnd(IXmlParserState_t *state, const IXML_FIELD *field
 	XmlNode_t *temp_node_description;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "VfGroupNodeDescEnd instance %u groupInstance %u nodeDescInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)groupInstance, (unsigned int)nodeDescInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfGroupNodeDescEnd instance %u groupInstance %u nodeDescInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)groupInstance, (unsigned int)nodeDescInstance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML NodeDesc tag\n"); 
+		fprintf(stderr, "Error processing XML NodeDesc tag\n");
 	} else if (!content || !dgp || strlen(content) > MAX_VFABRIC_NAME) {
 		IXmlParserPrintError(state, "NodeDesc is too long - ignoring");
 		return;
@@ -7518,7 +7687,7 @@ static void VfGroupNodeDescEnd(IXmlParserState_t *state, const IXML_FIELD *field
 		PRINT_MEMORY_ERROR;
 		return;
 	}
-	strcpy(temp_node_description->node, content);
+	snprintf(temp_node_description->node, sizeof(temp_node_description->node), "%s", content);
 	temp_node_description->next = NULL;
 
 	if (last_node_description == NULL)
@@ -7558,17 +7727,17 @@ static void VfGroupIncludedGroupEnd(IXmlParserState_t *state, const IXML_FIELD *
 	XmlIncGroup_t *temp_included_group;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "VfGroupIncludedGroupEnd instance %u groupInstance %u includedGroupInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)groupInstance, (unsigned int)includedGroupInstance, (unsigned int)common); 
+		fprintf(stdout, "VfGroupIncludedGroupEnd instance %u groupInstance %u includedGroupInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)groupInstance, (unsigned int)includedGroupInstance, (unsigned int)common);
 
 	// check for max
 	if (includedGroupInstance >= MAX_INCLUDED_GROUPS) {
 		PRINT_MEMORY_ERROR;
 		return;
 	}
-	
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML IncludeGroup tag\n"); 
+		fprintf(stderr, "Error processing XML IncludeGroup tag\n");
 	} else if (!content || !dgp || strlen(content) > MAX_VFABRIC_NAME) {
 		IXmlParserPrintError(state, "IncludeGroup is too long - ignoring");
 		return;
@@ -7580,7 +7749,7 @@ static void VfGroupIncludedGroupEnd(IXmlParserState_t *state, const IXML_FIELD *
 		PRINT_MEMORY_ERROR;
 		return;
 	}
-	strcpy(temp_included_group->group, content);
+	snprintf(temp_included_group->group, sizeof(temp_included_group->group), "%s", content);
 	temp_included_group->next = NULL;
 
 	if (last_included_group == NULL)
@@ -7598,23 +7767,24 @@ static void VfGroupIncludedGroupEnd(IXmlParserState_t *state, const IXML_FIELD *
 static void VfGroupSelectEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "VfGroupSelectEnd instance %u groupInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)groupInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfGroupSelectEnd instance %u groupInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)groupInstance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML DeviceGroup Select tag\n"); 
+		fprintf(stderr, "Error processing XML DeviceGroup Select tag\n");
 	} else if (!content || !dgp || strlen(content) > MAX_VFABRIC_NAME - 1) {
 		IXmlParserPrintError(state, "DeviceGroup Select setting is too long - ignoring");
 		return;
-	}
+}
 
 	if (strcasecmp(content, "All") == 0)
 		dgp->select_all |= 1;
 	else if (strcasecmp(content, "Self") == 0)
 		dgp->select_self |= 1;
-	else if (strcasecmp(content, "AllSMs") == 0)
-		dgp->select_all_sm |= 1;
-	else if (strcasecmp(content, "HFIDirectConnect") == 0)
+	else if (strcasecmp(content, "AllSMs") == 0) {
+		fprintf(stderr, "Warning: AllSMs select tag is deprecated; selecting AllMgmtAllowed instead\n");
+		dgp->select_all_mgmt_allowed |= 1;
+	} else if (strcasecmp(content, "HFIDirectConnect") == 0)
 		dgp->select_hfi_direct_connect |= 1;
 	else if (strcasecmp(content, "SWE0") == 0)
 		dgp->select_swe0 |= 1;
@@ -7632,11 +7802,11 @@ static void VfGroupSelectEnd(IXmlParserState_t *state, const IXML_FIELD *field, 
 static void VfGroupNodeTypeEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "VfGroupNodeTypeEnd instance %u groupInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)groupInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfGroupNodeTypeEnd instance %u groupInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)groupInstance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML DeviceGroup NodeType tag\n"); 
+		fprintf(stderr, "Error processing XML DeviceGroup NodeType tag\n");
 	} else if (!content || !dgp || strlen(content) > MAX_VFABRIC_NAME - 1) {
 		IXmlParserPrintError(state, "DeviceGroup NodeType setting is too long - ignoring");
 		return;
@@ -7677,7 +7847,7 @@ static void* VfGroupXmlParserStart(IXmlParserState_t *state, void *parent, const
 	dgp = getGroupObject();
 
 	if (xml_parse_debug)
-		fprintf(stdout, "VfGroupXmlParserStart instance %u groupInstance %u common %u\n", (unsigned int)instance, (unsigned int)groupInstance, (unsigned int)common); 
+		fprintf(stdout, "VfGroupXmlParserStart instance %u groupInstance %u common %u\n", (unsigned int)instance, (unsigned int)groupInstance, (unsigned int)common);
 
 	if (!dgp) {
 		PRINT_MEMORY_ERROR;
@@ -7726,9 +7896,6 @@ static void* VfGroupXmlParserStart(IXmlParserState_t *state, void *parent, const
 	includedGroupInstance = 0;
 
 	// clear tail pointers
-	last_system_image_guid = NULL;
-	last_node_guid = NULL;
-	last_port_guid = NULL;
 	last_node_description = NULL;
 	last_reg_expr = NULL;
 	last_included_group = NULL;
@@ -7797,23 +7964,6 @@ static void VfGroupXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *fiel
 	dgp->number_of_included_groups = includedGroupInstance;
 
 	if (common) {
-		// since this is common place in all instances
-		for (i = fm_instance; i < end_instance; i++) {
-			if (configp->fm_instance[i]->dg_config.dg[groupInstance] == NULL) {
-				configp->fm_instance[i]->dg_config.dg[groupInstance] = getGroupObject();
-				if (configp->fm_instance[i]->dg_config.dg[groupInstance] == NULL) {
-					freeGroupObject(dgp, /* full */ 1);
-					PRINT_MEMORY_ERROR;
-					return;
-				}
-			}
-			// copy Group
-			if (cloneGroup(dgp, configp->fm_instance[i]->dg_config.dg[groupInstance], 1) < 0) {
-				freeGroupObject(dgp, /* full */ 1);
-				PRINT_MEMORY_ERROR;
-				return;
-			}
-		}
 		// save the common settings for this instance
 		if (instancep->dg_config.dg[groupInstance] == NULL) {
 			instancep->dg_config.dg[groupInstance] = getGroupObject();
@@ -7863,7 +8013,7 @@ static IXML_FIELD VfsGroupsFields[] = {
 static void* VfsGroupsXmlParserStart(IXmlParserState_t *state, void *parent, const char **attr)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "VfsGroupsXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "VfsGroupsXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
 	if (common) {
 		// reset Group index
@@ -7882,22 +8032,17 @@ static void* VfsGroupsXmlParserStart(IXmlParserState_t *state, void *parent, con
 // "DeviceGroups" end tag
 static void VfsGroupsXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
-	uint32_t i;
-
 	if (xml_parse_debug)
-		fprintf(stdout, "VfsGroupsXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfsGroupsXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML DeviceGroups tag\n"); 
+		fprintf(stderr, "Error processing XML DeviceGroups tag\n");
 	} else {
 		// as needed process or validate self consistency of config
 	}
 
 	// save the number of accumulated groups
 	if (common) {
-		for (i = fm_instance; i < end_instance; i++) {
-			configp->fm_instance[i]->dg_config.number_of_dgs = groupInstance;
-		}
 		configp->fm_instance_common->dg_config.number_of_dgs = groupInstance;
 	} else if (configp->fm_instance[instance]) {
 		configp->fm_instance[instance]->dg_config.number_of_dgs = groupInstance;
@@ -7908,9 +8053,9 @@ static void VfsGroupsXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *fi
 static void VfMemberEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "VfMemberEnd instance %u vfInstance %u fullMemInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)vfInstance, (unsigned int)fullMemInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfMemberEnd instance %u vfInstance %u fullMemInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)vfInstance, (unsigned int)fullMemInstance, (unsigned int)common);
+
 	// check for max
 	if (fullMemInstance >= MAX_VFABRIC_MEMBERS_PER_VF) {
 		PRINT_MEMORY_ERROR;
@@ -7918,14 +8063,14 @@ static void VfMemberEnd(IXmlParserState_t *state, const IXML_FIELD *field, void 
 	}
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Member tag\n"); 
+		fprintf(stderr, "Error processing XML Member tag\n");
 	} else if (!content || !vfp || strlen(content) > MAX_VFABRIC_NAME) {
 		IXmlParserPrintError(state, "Member is too long - ignoring");
 		return;
 	}
 
 	// save away the Member to the parent structure
-	strcpy(vfp->full_member[fullMemInstance].member, content);
+	snprintf(vfp->full_member[fullMemInstance].member, sizeof(vfp->full_member[fullMemInstance].member), "%s", content);
 
 	// index to next Member instance
 	fullMemInstance++;
@@ -7935,9 +8080,9 @@ static void VfMemberEnd(IXmlParserState_t *state, const IXML_FIELD *field, void 
 static void VfLimitedMemberEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "VfLimitedMemberEnd instance %u vfInstance %u limitedMemInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)vfInstance, (unsigned int)limitedMemInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfLimitedMemberEnd instance %u vfInstance %u limitedMemInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)vfInstance, (unsigned int)limitedMemInstance, (unsigned int)common);
+
 	// check for max
 	if (limitedMemInstance >= MAX_VFABRIC_MEMBERS_PER_VF) {
 		PRINT_MEMORY_ERROR;
@@ -7945,14 +8090,14 @@ static void VfLimitedMemberEnd(IXmlParserState_t *state, const IXML_FIELD *field
 	}
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML LimitedMember tag\n"); 
+		fprintf(stderr, "Error processing XML LimitedMember tag\n");
 	} else if (!content || !vfp || strlen(content) > MAX_VFABRIC_NAME) {
 		IXmlParserPrintError(state, "LimitedMember is too long - ignoring");
 		return;
 	}
 
 	// save away the Member to the parent structure
-	strcpy(vfp->limited_member[limitedMemInstance].member, content);
+	snprintf(vfp->limited_member[limitedMemInstance].member, sizeof(vfp->limited_member[limitedMemInstance].member), "%s", content);
 
 	// index to next LimitedMember instance
 	limitedMemInstance++;
@@ -7962,9 +8107,9 @@ static void VfLimitedMemberEnd(IXmlParserState_t *state, const IXML_FIELD *field
 static void VfApplicationsEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "VfApplicationsEnd instance %u vfInstance %u appInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)vfInstance, (unsigned int)appInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfApplicationsEnd instance %u vfInstance %u appInstance %u common %u\n",
+						(unsigned int)instance, (unsigned int)vfInstance, (unsigned int)appInstance, (unsigned int)common);
+
 	// check for max
 	if (appInstance >= MAX_VFABRIC_APPS_PER_VF) {
 		PRINT_MEMORY_ERROR;
@@ -7972,14 +8117,14 @@ static void VfApplicationsEnd(IXmlParserState_t *state, const IXML_FIELD *field,
 	}
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML VirtualFabric Application tag\n"); 
+		fprintf(stderr, "Error processing XML VirtualFabric Application tag\n");
 	} else if (!content || !vfp || strlen(content) > MAX_VFABRIC_NAME) {
 		IXmlParserPrintError(state, "Application is too long - ignoring");
 		return;
 	}
 
 	// save away the Application to the parent structure
-	strcpy(vfp->application[appInstance].application, content);
+	snprintf(vfp->application[appInstance].application, sizeof(vfp->application[appInstance].application), "%s", content);
 
 	// index to next Application instance
 	appInstance++;
@@ -7993,10 +8138,9 @@ static IXML_FIELD VfFields[] = {
 	{ tag:"PKey", format:'h', IXML_FIELD_INFO(VFConfig_t, pkey),  end_func:PKeyParserEnd},
 	{ tag:"Security", format:'u', IXML_FIELD_INFO(VFConfig_t, security) },
 	{ tag:"BaseSL", format:'u', IXML_FIELD_INFO(VFConfig_t, base_sl) },
+	/*{ tag:"RespSL", format:'u', IXML_FIELD_INFO(VFConfig_t, resp_sl) },*/
+	{ tag:"MulticastSL", format:'u', IXML_FIELD_INFO(VFConfig_t, mcast_sl) },
 	{ tag:"FlowControlDisable", format:'u', IXML_FIELD_INFO(VFConfig_t, flowControlDisable) },
-#ifdef CONFIG_INCLUDE_DOR
-	{ tag:"SecondaryRouteOnly", format:'u', IXML_FIELD_INFO(VFConfig_t, updown_only) },
-#endif
 	{ tag:"QOS", format:'u', IXML_FIELD_INFO(VFConfig_t, qos_enable) },
 	{ tag:"Bandwidth", format:'k', IXML_FIELD_INFO(VFConfig_t, percent_bandwidth), end_func:PercentU8XmlParserEnd },
 	{ tag:"HighPriority", format:'u', IXML_FIELD_INFO(VFConfig_t, priority) },
@@ -8024,7 +8168,7 @@ static void* VfXmlParserStart(IXmlParserState_t *state, void *parent, const char
 	vfp = getVfObject();
 
 	if (xml_parse_debug)
-		fprintf(stdout, "VfXmlParserStart instance %u vfInstance %u common %u\n", (unsigned int)instance, (unsigned int)vfInstance, (unsigned int)common); 
+		fprintf(stdout, "VfXmlParserStart instance %u vfInstance %u common %u\n", (unsigned int)instance, (unsigned int)vfInstance, (unsigned int)common);
 
 	if (!vfp) {
 		PRINT_MEMORY_ERROR;
@@ -8042,14 +8186,14 @@ static void* VfXmlParserStart(IXmlParserState_t *state, void *parent, const char
 // "VirtualFabric" end tag
 static void VfXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
-	vfp = (VFConfig_t*)IXmlParserGetField(field, object);
+	vfp = (VFConfig_t *)IXmlParserGetField(field, object);
 	uint32_t i;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "VfXmlParserEnd instance %u vfInstance %u common %u\n", (unsigned int)instance, (unsigned int)vfInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfXmlParserEnd instance %u vfInstance %u common %u\n", (unsigned int)instance, (unsigned int)vfInstance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML VirtualFabric tag\n"); 
+		fprintf(stderr, "Error processing XML VirtualFabric tag\n");
 		freeXmlMemory(vfp, sizeof(VFConfig_t), "VFConfig_t VfXmlParserEnd");
 		return;
 	}
@@ -8064,14 +8208,27 @@ static void VfXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 		freeXmlMemory(vfp, sizeof(VFConfig_t), "VFConfig_t VfXmlParserEnd");
 		return;
 	}
-	// If it has a name check for duplicates
-	for (i = 0; i < MAX_CONFIGURED_VFABRICS; i++) {
-		if (configp->fm_instance[instance] == NULL || configp->fm_instance[instance]->vf_config.vf[i] == NULL)
-			break;
-		if (strcmp(vfp->name, configp->fm_instance[instance]->vf_config.vf[i]->name) == 0) {
-			IXmlParserPrintError(state, "Duplicate VirtualFabric (%s) encountered", vfp->name);
-			freeXmlMemory(vfp, sizeof(VFConfig_t), "VFConfig_t VfXmlParserEnd");
-			return;
+	if (common) {
+		// If it has a name check for duplicates
+		for (i = 0; i < MAX_CONFIGURED_VFABRICS; i++) {
+			if (configp->fm_instance_common->vf_config.vf[i] == NULL)
+				break;
+			if (strcmp(vfp->name, configp->fm_instance_common->vf_config.vf[i]->name) == 0) {
+				IXmlParserPrintError(state, "Duplicate VirtualFabric (%s) encountered", vfp->name);
+				freeXmlMemory(vfp, sizeof(VFConfig_t), "VFConfig_t VfXmlParserEnd");
+				return;
+			}
+		}
+	} else if (configp->fm_instance[instance]) {
+		// If it has a name check for duplicates
+		for (i = 0; i < MAX_CONFIGURED_VFABRICS; i++) {
+			if (configp->fm_instance[instance]->vf_config.vf[i] == NULL)
+				break;
+			if (strcmp(vfp->name, configp->fm_instance[instance]->vf_config.vf[i]->name) == 0) {
+				IXmlParserPrintError(state, "Duplicate VirtualFabric (%s) encountered", vfp->name);
+				freeXmlMemory(vfp, sizeof(VFConfig_t), "VFConfig_t VfXmlParserEnd");
+				return;
+			}
 		}
 	}
 
@@ -8088,30 +8245,34 @@ static void VfXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 	}
 
 	// QOS Enable
-	if (vfp->qos_enable == UNDEFINED_XML8)
+	if (vfp->qos_enable == UNDEFINED_XML8) {
 		vfp->qos_enable = 0;
-	else if (vfp->qos_enable > 1) {
+	} else if (vfp->qos_enable > 1) {
 		IXmlParserPrintError(state, "QOS must be 0=disable 1=enable");
 		freeXmlMemory(vfp, sizeof(VFConfig_t), "VFConfig_t VfXmlParserEnd");
 		return;
 	}
+	//init security if needed
+	if (vfp->security == UNDEFINED_XML32) 
+		vfp->security = 0;
 
-#ifdef CONFIG_INCLUDE_DOR
-	// updown checks
-	if (vfp->updown_only == UNDEFINED_XML8)
-		vfp->updown_only = 0;
-	else if (vfp->updown_only > 1) {
-		IXmlParserPrintError(state, "SecondaryRouteOnly must be 0=no 1=yes");
+	// validate BaseSL
+	if (vfp->base_sl != UNDEFINED_XML8 && vfp->base_sl > (MAX_SLS - 1)) {
+		IXmlParserPrintError(state, "BaseSL must be 0-%u", (MAX_SLS - 1));
 		freeXmlMemory(vfp, sizeof(VFConfig_t), "VFConfig_t VfXmlParserEnd");
 		return;
 	}
 
-	vfp->updown_only = 0; //SecondaryRouteOnly for DOR; DOR currently not supported
-#endif
+	// validate RespSL
+	if (vfp->resp_sl != UNDEFINED_XML8 && vfp->resp_sl > (MAX_SLS - 1)) {
+		IXmlParserPrintError(state, "RespSL must be 0-%u", (MAX_SLS - 1));
+		freeXmlMemory(vfp, sizeof(VFConfig_t), "VFConfig_t VfXmlParserEnd");
+		return;
+	}
 
-	// validate BaseSL
-	if (vfp->base_sl != UNDEFINED_XML8 && vfp->base_sl > 15) {
-		IXmlParserPrintError(state, "BaseSL must be 0-15");
+	// validate MulticastSL
+	if (vfp->mcast_sl != UNDEFINED_XML8 && vfp->mcast_sl > (MAX_SLS - 1)) {
+		IXmlParserPrintError(state, "MulticastSL must be 0-%u", (MAX_SLS - 1));
 		freeXmlMemory(vfp, sizeof(VFConfig_t), "VFConfig_t VfXmlParserEnd");
 		return;
 	}
@@ -8151,19 +8312,9 @@ static void VfXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 		IXmlParserPrintError(state, "Preemption Rank must in the range of 0 .. 127");
 		freeXmlMemory(vfp, sizeof(VFConfig_t), "VFConfig_t VfXmlParserEnd");
 		return;
-    }
+	}
 
 	if (common) {
-		// since this is common place in all instances
-		for (i = fm_instance; i < end_instance; i++) {
-			configp->fm_instance[i]->vf_config.vf[vfInstance] = getVfObject();
-			if (configp->fm_instance[i]->vf_config.vf[vfInstance] == NULL) {
-				PRINT_MEMORY_ERROR;
-				freeXmlMemory(vfp, sizeof(VFConfig_t), "VFConfig_t VfXmlParserEnd");
-				return;
-			}	
-			*configp->fm_instance[i]->vf_config.vf[vfInstance] = *vfp;
-		}
 		// save the common settings for this instance
 		if (configp->fm_instance_common->vf_config.vf[vfInstance] == NULL) {
 			configp->fm_instance_common->vf_config.vf[vfInstance] = getVfObject();
@@ -8171,7 +8322,7 @@ static void VfXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 				PRINT_MEMORY_ERROR;
 				freeXmlMemory(vfp, sizeof(VFConfig_t), "VFConfig_t VfXmlParserEnd");
 				return;
-			}	
+			}
 			*configp->fm_instance_common->vf_config.vf[vfInstance] = *vfp;
 		} // else common and only doing one instance
 	} else if (configp->fm_instance[instance]) {
@@ -8181,7 +8332,7 @@ static void VfXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 			PRINT_MEMORY_ERROR;
 			freeXmlMemory(vfp, sizeof(VFConfig_t), "VFConfig_t VfXmlParserEnd");
 			return;
-		}	
+		}
 		*configp->fm_instance[instance]->vf_config.vf[vfInstance] = *vfp;
 	}
 
@@ -8200,42 +8351,41 @@ static IXML_FIELD VfsFields[] = {
 // "VirtualFabrics" start tag
 static void* VfsXmlParserStart(IXmlParserState_t *state, void *parent, const char **attr)
 {
+	VFXmlConfig_t *vf = NULL;
+
 	if (xml_parse_debug)
-		fprintf(stdout, "VfsXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "VfsXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
 	if (common) {
 		// reset VF index
 		vfInstance = 0;
+		vf = &configp->fm_instance_common->vf_config;
 	} else if (configp->fm_instance[instance]) {
 		// since virtual fabrics can be inherited from common see how many we have now so we
 		// can continue to grow the list
 		vfInstance = configp->fm_instance[instance]->vf_config.number_of_vfs;
+		vf = &configp->fm_instance[instance]->vf_config;
 	} else {
 		vfInstance = 0;
 	}
 
-	return NULL;
+	return vf;
 }
 
 // "VirtualFabrics" end tag
 static void VfsXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
-	uint32_t i;
-
 	if (xml_parse_debug)
-		fprintf(stdout, "VfsXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "VfsXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML VirtualFabrics tag\n"); 
+		fprintf(stderr, "Error processing XML VirtualFabrics tag\n");
 	} else {
 		// as needed process or validate self consistency of config
 	}
-	
+
 	// save the number of accumulated virtual fabrics
 	if (common) {
-		for (i = fm_instance; i < end_instance; i++) {
-			configp->fm_instance[i]->vf_config.number_of_vfs = vfInstance;
-		}
 		configp->fm_instance_common->vf_config.number_of_vfs = vfInstance;
 	} else if (configp->fm_instance[instance]) {
 		configp->fm_instance[instance]->vf_config.number_of_vfs = vfInstance;
@@ -8246,9 +8396,9 @@ static void VfsXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, v
 static void PmPgMonitorEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "PmPgMonitorEnd instance %u PmPgInstance %u PmPgMonitorInstance %u common %u\n", 
-			(unsigned int)instance, (unsigned int)vfInstance, (unsigned int)PmPgMonitorInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "PmPgMonitorEnd instance %u PmPgInstance %u PmPgMonitorInstance %u common %u\n",
+			(unsigned int)instance, (unsigned int)vfInstance, (unsigned int)PmPgMonitorInstance, (unsigned int)common);
+
 	// check for max
 	if (PmPgMonitorInstance >= STL_PM_MAX_DG_PER_PMPG) {
 		PRINT_MEMORY_ERROR;
@@ -8256,14 +8406,14 @@ static void PmPgMonitorEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 	}
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML PM PortGroup Monitor tag\n"); 
+		fprintf(stderr, "Error processing XML PM PortGroup Monitor tag\n");
 	} else if (!content || !pgp || strlen(content) > STL_PM_GROUPNAMELEN) {
 		IXmlParserPrintError(state, "Monitor is too long - ignoring");
 		return;
 	}
 
 	// save away the Application to the parent structure
-	strcpy(pgp->Monitors[PmPgMonitorInstance].monitor, content);
+	snprintf(pgp->Monitors[PmPgMonitorInstance].monitor, sizeof(pgp->Monitors[PmPgMonitorInstance].monitor), "%s", content);
 
 	// index to next Application instance
 	PmPgMonitorInstance++;
@@ -8277,6 +8427,7 @@ static IXML_FIELD PmPgFields[] = {
 	{ tag:"Monitor", format:'k', end_func:PmPgMonitorEnd },
 	{ NULL }
 };
+
 // "PmPortGroup" start tag
 static void* PmPgXmlParserStart(IXmlParserState_t *state, void *parent, const char **attr)
 {
@@ -8289,7 +8440,7 @@ static void* PmPgXmlParserStart(IXmlParserState_t *state, void *parent, const ch
 	pgp = getPmPgObject();
 
 	if (xml_parse_debug)
-		fprintf(stdout, "PmPgXmlParserStart instance %u PmPgInstance %u common %u\n", (unsigned int)instance, (unsigned int)PmPgInstance, (unsigned int)common); 
+		fprintf(stdout, "PmPgXmlParserStart instance %u PmPgInstance %u common %u\n", (unsigned int)instance, (unsigned int)PmPgInstance, (unsigned int)common);
 
 	if (!pgp) {
 		PRINT_MEMORY_ERROR;
@@ -8313,14 +8464,14 @@ static void* PmPgXmlParserStart(IXmlParserState_t *state, void *parent, const ch
 // "PmPortGroup" end tag
 static void PmPgXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
-	pgp = (PmPortGroupXmlConfig_t*)IXmlParserGetField(field, object);
+	pgp = (PmPortGroupXmlConfig_t *)IXmlParserGetField(field, object);
 	uint32_t i;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "PmPgXmlParserEnd instance %u PmPgInstance %u common %u\n", (unsigned int)instance, (unsigned int)PmPgInstance, (unsigned int)common); 
-		
+		fprintf(stdout, "PmPgXmlParserEnd instance %u PmPgInstance %u common %u\n", (unsigned int)instance, (unsigned int)PmPgInstance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML PmPortGroup tag\n"); 
+		fprintf(stderr, "Error processing XML PmPortGroup tag\n");
 	} else {
 		// Verify that the port group has a name
 		if (strlen(pgp->Name) == 0) {
@@ -8357,10 +8508,6 @@ static void PmPgXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, 
 
 
 	if (common) {
-		// since this is common place in all instances
-		for (i = fm_instance; i < end_instance; i++) {
-			configp->fm_instance[i]->pm_config.pm_portgroups[PmPgInstance] = *pgp;
-		}
 		configp->fm_instance_common->pm_config.pm_portgroups[PmPgInstance] = *pgp;
 	} else if (configp->fm_instance[instance]) {
 		// inherit the values of PmPortGroup for this instance
@@ -8378,11 +8525,12 @@ static IXML_FIELD PmPgsFields[] = {
 	{ tag:"PmPortGroup", format:'k', subfields:PmPgFields, start_func:PmPgXmlParserStart, end_func:PmPgXmlParserEnd },
 	{ NULL }
 };
+
 // "PmPortGroups" start tag
 static void* PmPgsXmlParserStart(IXmlParserState_t *state, void *parent, const char **attr)
 {
 	if (xml_parse_debug)
-		fprintf(stdout, "PmPgsXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
+		fprintf(stdout, "PmPgsXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
 
 	if (common) {
 		// reset PmPg index
@@ -8401,22 +8549,17 @@ static void* PmPgsXmlParserStart(IXmlParserState_t *state, void *parent, const c
 // "PmPortGroups" end tag
 static void PmPgsXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
-	uint32_t i;
-
 	if (xml_parse_debug)
-		fprintf(stdout, "PmPgsXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "PmPgsXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML PmPortGroups tag\n"); 
+		fprintf(stderr, "Error processing XML PmPortGroups tag\n");
 	} else {
 		// as needed process or validate self consistency of config
 	}
-	
+
 	// save the number of accumulated pm port groups
 	if (common) {
-		for (i = fm_instance; i < end_instance; i++) {
-			configp->fm_instance[i]->pm_config.number_of_pm_groups = PmPgInstance;
-		}
 		configp->fm_instance_common->pm_config.number_of_pm_groups = PmPgInstance;
 	} else if (configp->fm_instance[instance]) {
 		configp->fm_instance[instance]->pm_config.number_of_pm_groups = PmPgInstance;
@@ -8479,8 +8622,8 @@ static void* FmSharedXmlParserStart(IXmlParserState_t *state, void *parent, cons
 	FMXmlConfig_t *fmp = getXmlMemory(sizeof(FMXmlConfig_t), "FMXmlConfig_t FmSharedXmlParserStart()");
 
 	if (xml_parse_debug)
-		fprintf(stdout, "FmSharedXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "FmSharedXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
+
 	if (!fmp) {
 		PRINT_MEMORY_ERROR;
 		return NULL;
@@ -8533,10 +8676,10 @@ static void FmSharedXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *fie
 	uint32_t modid;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "FmSharedXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "FmSharedXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Fm Shared tag\n"); 
+		fprintf(stderr, "Error processing XML Fm Shared tag\n");
 	} else {
 		if (fmp->priority != UNDEFINED_XML32 && fmp->priority > MAX_PRIORITY) {
 			IXmlParserPrintError(state, "Fm Shared Priority must be in the range of 0-15");
@@ -8564,13 +8707,12 @@ static void FmSharedXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *fie
 			if (fmp->config_consistency_check_level == NO_CHECK_CCC_LEVEL){
 				XmlParsePrintWarning("Fm ConfigConsistencyCheckLevel = 0 is deprecated. Switched to 1");
 				fmp->config_consistency_check_level = CHECK_NO_ACTION_CCC_LEVEL;
+			} else if(fmp->config_consistency_check_level > CHECK_ACTION_CCC_LEVEL)  {
+			        IXmlParserPrintError(state, "Fm ConfigConsistencyCheckLevel must be set to  1 or 2");
+			        freeXmlMemory(fmp, sizeof(FMXmlConfig_t), "FMXmlConfig_t FmSharedXmlParserEnd()");
+			        return;
 			}
-			else if(fmp->config_consistency_check_level > CHECK_ACTION_CCC_LEVEL)  {
-			    IXmlParserPrintError(state, "Fm ConfigConsistencyCheckLevel must be set to  1 or 2");
-			    freeXmlMemory(fmp, sizeof(FMXmlConfig_t), "FMXmlConfig_t FmSharedXmlParserEnd()");
-			    return;
-            }  
-        }
+		}
 	}
 
 	// save Fm config data for this instance
@@ -8579,7 +8721,7 @@ static void FmSharedXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *fie
 		configp->fm_instance[instance]->fm_config = *fmp;
 
 		if (xml_parse_debug)
-			fprintf(stdout, "FM start = %u instance %u\n", (unsigned int)configp->fm_instance[instance]->fm_config.start, (unsigned int)instance); 
+			fprintf(stdout, "FM start = %u instance %u\n", (unsigned int)configp->fm_instance[instance]->fm_config.start, (unsigned int)instance);
 
 		// get pointers to each applications shared config data
 		smp = &configp->fm_instance[instance]->sm_config;
@@ -8658,27 +8800,23 @@ static void FmSharedXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *fie
 		}
 
 		if (strlen(fmp->CoreDumpLimit)) {
-			strcpy(smp->CoreDumpLimit, fmp->CoreDumpLimit);
-			strcpy(pmp->CoreDumpLimit, fmp->CoreDumpLimit);
-			strcpy(fep->CoreDumpLimit, fmp->CoreDumpLimit);
+			cs_strlcpy(smp->CoreDumpLimit, fmp->CoreDumpLimit, STRING_SIZE);
 		}
 
 		if (strlen(fmp->CoreDumpDir)) {
-			strcpy(smp->CoreDumpDir, fmp->CoreDumpDir);
-			strcpy(pmp->CoreDumpDir, fmp->CoreDumpDir);
-			strcpy(fep->CoreDumpDir, fmp->CoreDumpDir);
+			cs_strlcpy(smp->CoreDumpDir, fmp->CoreDumpDir, FILENAME_SIZE);
 		}
 
 		if (strlen(fmp->log_file)) {
-			strcpy(smp->log_file, fmp->log_file);
-			strcpy(pmp->log_file, fmp->log_file);
-			strcpy(fep->log_file, fmp->log_file);
+			cs_strlcpy(smp->log_file, fmp->log_file, LOGFILE_SIZE);
+			cs_strlcpy(pmp->log_file, fmp->log_file, LOGFILE_SIZE);
+			cs_strlcpy(fep->log_file, fmp->log_file, LOGFILE_SIZE);
 		}
 
 		if (strlen(fmp->syslog_facility)) {
-			strcpy(smp->syslog_facility, fmp->syslog_facility);
-			strcpy(pmp->syslog_facility, fmp->syslog_facility);
-			strcpy(fep->syslog_facility, fmp->syslog_facility);
+			cs_strlcpy(smp->syslog_facility, fmp->syslog_facility, STRING_SIZE);
+			cs_strlcpy(pmp->syslog_facility, fmp->syslog_facility, STRING_SIZE);
+			cs_strlcpy(fep->syslog_facility, fmp->syslog_facility, STRING_SIZE);
 		}
 
 		if (fmp->syslog_mode != UNDEFINED_XML32) {
@@ -8774,10 +8912,60 @@ static void* FmXmlParserStart(IXmlParserState_t *state, void *parent, const char
 	if (xml_parse_debug)
 		fprintf(stdout, "FmXmlParserStart instance %u\n", (unsigned int)instance);
 
+	// Only allocate if doing a full_parse
+	if (full_parse) {
+		// Allocate new instance
+		configp->fm_instance[instance] = getXmlMemory(sizeof(FMXmlInstance_t), "FMXmlInstance_t FmXmlParserStart()");
+		if (!configp->fm_instance[instance]) {
+			PRINT_MEMORY_ERROR;
+			return NULL;
+		}
+
+		// Init new instance with clone from Common
+		if (!cloneFmInstance(configp->fm_instance[instance], configp->fm_instance_common)) {
+			freeXmlMemory(configp->fm_instance[instance], sizeof(FMXmlInstance_t), "FMXmlInstance_t FmXmlParserStart()");
+			configp->fm_instance[instance] = NULL;
+			return NULL;
+		}
+	}
 	common = 0;			// all parsing is for FM now
-	return NULL;		// no need for parent tag
+	return configp->fm_instance[instance];
 }
 
+static FSTATUS assign_pkey( uint32 *pkeys, int *numpk, uint32 *candidate)
+{
+	uint32 pk=0;
+
+	while ( pk < *numpk && pk < MAX_ENABLED_VFABRICS){
+		if ((*candidate) == pkeys[pk]) {
+			(*candidate)++;
+			pk=0;
+		}
+		else pk++;
+	}
+	if (pk >= MAX_ENABLED_VFABRICS)
+		return FERROR;
+
+	pkeys[pk]=(*candidate);
+	(*numpk)++;
+	return FSUCCESS;
+}
+static FSTATUS CheckAllVFsSecurity (VFXmlConfig_t *vf_c)
+{
+//find if there are any VF with security enabled
+	boolean VF_security = FALSE;
+	int i;
+
+	for(i=0; i< vf_c->number_of_vfs && i < MAX_CONFIGURED_VFABRICS
+			&& !VF_security; i++) {
+		if (!vf_c->vf[i]->enable)
+			continue;
+		if (vf_c->vf[i]->security)
+			VF_security = TRUE;
+	}
+	vf_c->securityEnabled = VF_security;
+	return FSUCCESS;
+}
 // FM end tag
 static void FmXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
@@ -8794,29 +8982,133 @@ static void FmXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, vo
 	}
 
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Fm tag\n"); 
-	} else {
+		fprintf(stderr, "Error processing XML Fm tag\n");
+	} else if (full_parse || instance == fm_instance) {
 		// verify the Virtual Fabrics Configuration if this is an instance we care about
-		if (full_parse || instance == fm_instance) {
-			memset(error, 0, sizeof(error));
+		FMXmlInstance_t *instancep = configp->fm_instance[instance];
 
-			if (validateDefaultVirtualFabric(instance, configp, &configp->fm_instance[instance]->vf_config, error)) {
-   				vf_config = renderVirtualFabricsConfig(instance, configp, &configp->fm_instance[instance]->sm_config, error);
+		// fill in configuration parameters that have not been read from the configuration and also
+		// calculate the checksums for each component
+
+		if (!fmInitConfig(&instancep->fm_config, instance)) {
+			IXmlParserPrintError(state, "Virtual Fabrics XML parse error.");
+			return;
+		}
+
+		// If startup_retries or startup_stable_wait is not set for a component
+		// use the value set for the Fm instance. If the value is also not
+		// set for the Fm instance, it will be set to the default value
+		// when the component InitConfig routine is called below.
+		if (instancep->sm_config.startup_retries == UNDEFINED_XML32)
+			instancep->sm_config.startup_retries = instancep->fm_config.startup_retries;
+		if (instancep->fe_config.startup_retries == UNDEFINED_XML32)
+			instancep->fe_config.startup_retries = instancep->fm_config.startup_retries;
+		if (instancep->sm_config.startup_stable_wait == UNDEFINED_XML32)
+			instancep->sm_config.startup_stable_wait = instancep->fm_config.startup_stable_wait;
+		if (instancep->fe_config.startup_stable_wait == UNDEFINED_XML32)
+			instancep->fe_config.startup_stable_wait = instancep->fm_config.startup_stable_wait;
+
+#ifndef __VXWORKS__
+		// If an instance is disabled, disable all of the components in the instance
+		if (!instancep->fm_config.start) {
+			instancep->sm_config.start = 0;
+			instancep->pm_config.start = 0;
+			instancep->fe_config.start = 0;
+		}
+#else
+		// ESM ignores the start parameter values from the XML.
+		instancep->fm_config.start = 1;
+		instancep->sm_config.start = 1;
+		instancep->pm_config.start = 1;
+		instancep->fe_config.start = 1;
+#endif
+
+       	if (!smInitConfig(&instancep->sm_config, &instancep->sm_dpl_config,
+			&instancep->sm_mc_config, &instancep->sm_mls_config,
+			&instancep->dg_config, instance, instancep->fm_config.config_consistency_check_method)
+		|| !pmInitConfig(&instancep->pm_config, instance, instancep->fm_config.config_consistency_check_method)
+		|| !feInitConfig(&instancep->fe_config, instance, instancep->fm_config.config_consistency_check_method)) {
+			IXmlParserPrintError(state, "Virtual Fabrics XML parse error.");
+			return;
+		}
+
+		//assign pkeys to VFs
+		uint32	vfs_pkeys[MAX_ENABLED_VFABRICS];
+		int	i, default_Pkey=0;
+		uint32 candidate_Pkey=1; // 1 is for Default fabric
+		int num_pkey=0;
+
+		if (instancep->vf_config.number_of_vfs > MAX_ENABLED_VFABRICS) {
+			IXmlParserPrintError(state, "No more than 32 Virtual Fabrics can be enabled in the configuration.");
+			return;
+		}
+		CheckAllVFsSecurity(&instancep->vf_config);
+		//32 in total: 31 VFs at max + Admin: 32
+		//save all already known pkeys
+		for(i=0; i< instancep->vf_config.number_of_vfs && i < MAX_CONFIGURED_VFABRICS; i++) {
+			if (!instancep->vf_config.vf[i]->enable)
+				continue;
+			if ((instancep->vf_config.vf[i]->pkey != UNDEFINED_XML32) &&
+				(instancep->vf_config.vf[i]->pkey <= 0x7fff)){// 0x7FFF is STL_DEFAULT_PKEY
+				if (num_pkey >= MAX_ENABLED_VFABRICS){
+					IXmlParserPrintError(state, "Unable to allocate PKey to VF. Pkey table full.");
+					return;
+				}
+				vfs_pkeys[num_pkey++]= instancep->vf_config.vf[i]->pkey;
 			}
-			if (strlen(error)) {
-				IXmlParserPrintError(state, "Virtual Fabrics XML parse error - %s", error);
+		} // for end
+		// before doing anything else assign missing pkeys here... except disabled VFs
+		for(i=0; i< instancep->vf_config.number_of_vfs && i < MAX_CONFIGURED_VFABRICS; i++) {
+			if (!instancep->vf_config.vf[i]->enable)
+				continue;
+			if ((instancep->vf_config.vf[i]->pkey == UNDEFINED_XML32) ||
+					(instancep->vf_config.vf[i]->pkey > 0x7fff)) {
+				if (instancep->vf_config.vf[i]->security){
+					// assign unique pkey
+					if (num_pkey >= MAX_ENABLED_VFABRICS){
+						IXmlParserPrintError(state, "Unable to allocate Pkey to VF. Pkey table full.");
+						return;
+					}
+					if (assign_pkey(vfs_pkeys, &num_pkey, &candidate_Pkey) != FSUCCESS) {
+						IXmlParserPrintError(state, "Unable to allocate Pkey to VF. Pkey table full.");
+						return;
+					}
+					instancep->vf_config.vf[i]->pkey=candidate_Pkey;
+				} // end if current VF has security set
+				else { // find a pkey and use it as default pkey for all VF that do not have security set
+					if (default_Pkey ==0) {
+						if (num_pkey >= MAX_ENABLED_VFABRICS){
+							IXmlParserPrintError(state, "Unable to allocate Pkey to VF. Pkey table full.");
+							return;
+						}
+						if (assign_pkey(vfs_pkeys, &num_pkey, &candidate_Pkey) != FSUCCESS) {
+							IXmlParserPrintError(state, "Unable to allocate Pkey to VF. Pkey table full.");
+							return;
+						}
+						default_Pkey=candidate_Pkey;
+					}
+					instancep->vf_config.vf[i]->pkey=default_Pkey;
+				} // end else
 			}
+		} // finished assigning pkeys to all VF in config file.
+
+		memset(error, 0, sizeof(error));
+		if (instancep->sm_config.start && validateDefaultVirtualFabric(instance, configp, &instancep->vf_config, error)) {
+			vf_config = renderVirtualFabricsConfig(instance, configp, &instancep->sm_config, error);
+		}
+		if (strlen(error)) {
+			IXmlParserPrintError(state, "Virtual Fabrics XML parse error - %s", error);
 		}
 
 		// free memory from test
    		if (vf_config != NULL) {
 			releaseVirtualFabricsConfig(vf_config);
-       		vf_config = NULL;
+      			vf_config = NULL;
 		}
 	}
-
 	// index to next instance
 	instance++;
+	return;
 }
 
 // fields within Common "Shared"
@@ -8870,13 +9162,13 @@ static void* CommonSharedXmlParserStart(IXmlParserState_t *state, void *parent, 
 	FMXmlConfig_t *fmp = getXmlMemory(sizeof(FMXmlConfig_t), "FMXmlConfig_t CommonSharedXmlParserStart()");
 
 	if (xml_parse_debug)
-		fprintf(stdout, "CommonSharedXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "CommonSharedXmlParserStart instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
+
 	if (!fmp) {
 		PRINT_MEMORY_ERROR;
 		return NULL;
 	}
-		
+
 	// inherit the values of the common Fm
 	*fmp = configp->fm_instance_common->fm_config;
 
@@ -8890,17 +9182,16 @@ static void CommonSharedXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD 
 	SMXmlConfig_t *smp;
 	PMXmlConfig_t *pmp;
 	FEXmlConfig_t *fep;
-	uint32_t i;
 #ifndef __VXWORKS__
 	char facility[256];
 #endif
 	uint32_t modid;
 
 	if (xml_parse_debug)
-		fprintf(stdout, "CommonSharedXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common); 
-		
+		fprintf(stdout, "CommonSharedXmlParserEnd instance %u common %u\n", (unsigned int)instance, (unsigned int)common);
+
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Common Shared tag\n"); 
+		fprintf(stderr, "Error processing XML Common Shared tag\n");
 	} else {
 		if (fmp->priority != UNDEFINED_XML32 && fmp->priority > MAX_PRIORITY) {
 			IXmlParserPrintError(state, "Common Shared Priority must be in the range of 0-15");
@@ -8924,22 +9215,17 @@ static void CommonSharedXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD 
 			return;
 		}
 #endif
-		if (fmp->config_consistency_check_level != UNDEFINED_XML32 ) {
+		if (fmp->config_consistency_check_level != UNDEFINED_XML32) {
 			if (fmp->config_consistency_check_level == NO_CHECK_CCC_LEVEL) {
-               XmlParsePrintWarning("SM ConfigConsistencyCheckLevel = 0 is deprecated. Switched to 1");
-               fmp->config_consistency_check_level = CHECK_NO_ACTION_CCC_LEVEL;
+				XmlParsePrintWarning("SM ConfigConsistencyCheckLevel = 0 is deprecated. Switched to 1");
+				fmp->config_consistency_check_level = CHECK_NO_ACTION_CCC_LEVEL;
+			} else if (fmp->config_consistency_check_level > CHECK_ACTION_CCC_LEVEL) {
+			        IXmlParserPrintError(state, "Sm ConfigConsistencyCheckLevel must be set to 1 or 2");
+			        freeXmlMemory(fmp, sizeof(FMXmlConfig_t), "FMXmlConfig_t CommonSharedXmlParserEnd()");
+			        return;
 			}
-			else if (fmp->config_consistency_check_level > CHECK_ACTION_CCC_LEVEL ) {
-			   IXmlParserPrintError(state, "Sm ConfigConsistencyCheckLevel must be set to 1 or 2");
-			   freeXmlMemory(fmp, sizeof(FMXmlConfig_t), "FMXmlConfig_t CommonSharedXmlParserEnd()");
-			   return;
-			}
-		}
-	}
 
-	// since this is common, place in all instances of Fm and the Common Fm instance
-	for (i = fm_instance; i < end_instance; i++) {
-		configp->fm_instance[i]->fm_config = *fmp;
+		}
 	}
 
 	// save in common config
@@ -8953,13 +9239,13 @@ static void CommonSharedXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD 
 	smp->priority = fmp->priority;
 	smp->elevated_priority = fmp->elevated_priority;
 	smp->log_level = fmp->log_level;
-	strcpy(smp->CoreDumpLimit, fmp->CoreDumpLimit);
-	strcpy(smp->CoreDumpDir, fmp->CoreDumpDir);
-	strcpy(smp->log_file, fmp->log_file);
+	cs_strlcpy(smp->CoreDumpLimit, fmp->CoreDumpLimit, STRING_SIZE);
+	cs_strlcpy(smp->CoreDumpDir, fmp->CoreDumpDir, FILENAME_SIZE);
+	cs_strlcpy(smp->log_file, fmp->log_file, LOGFILE_SIZE);
 	smp->syslog_mode = fmp->syslog_mode;
 	for (modid=0; modid <= VIEO_LAST_MOD_ID; ++modid)
 		smp->log_masks[modid] = fmp->log_masks[modid];
-	strcpy(smp->syslog_facility, fmp->syslog_facility);
+	cs_strlcpy(smp->syslog_facility, fmp->syslog_facility, STRING_SIZE);
 	smp->config_consistency_check_level = fmp->config_consistency_check_level;
 	smp->config_consistency_check_method = fmp->config_consistency_check_method;
 	smp->SslSecurityEnabled = fmp->SslSecurityEnabled;
@@ -8980,13 +9266,11 @@ static void CommonSharedXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD 
 	pmp->priority = fmp->priority;
 	pmp->elevated_priority = fmp->elevated_priority;
 	pmp->log_level = fmp->log_level;
-	strcpy(pmp->CoreDumpLimit, fmp->CoreDumpLimit);
-	strcpy(pmp->CoreDumpDir, fmp->CoreDumpDir);
-	strcpy(pmp->log_file, fmp->log_file);
+	cs_strlcpy(pmp->log_file, fmp->log_file, LOGFILE_SIZE);
 	pmp->syslog_mode = fmp->syslog_mode;
 	for (modid=0; modid <= VIEO_LAST_MOD_ID; ++modid)
 		pmp->log_masks[modid] = fmp->log_masks[modid];
-	strcpy(pmp->syslog_facility, fmp->syslog_facility);
+	cs_strlcpy(pmp->syslog_facility, fmp->syslog_facility, STRING_SIZE);
 	pmp->SslSecurityEnabled = fmp->SslSecurityEnabled;
 	strncpy(pmp->SslSecurityDir, fmp->SslSecurityDir, sizeof(pmp->SslSecurityDir) - 1);
 	strncpy(pmp->SslSecurityFmCertificate, fmp->SslSecurityFmCertificate, sizeof(pmp->SslSecurityFmCertificate) -1);
@@ -9003,13 +9287,13 @@ static void CommonSharedXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD 
 	fep->debug = fmp->debug;
 	fep->debug_rmpp = fmp->debug_rmpp;
 	fep->log_level = fmp->log_level;
-	strcpy(fep->CoreDumpLimit, fmp->CoreDumpLimit);
-	strcpy(fep->CoreDumpDir, fmp->CoreDumpDir);
-	strcpy(fep->log_file, fmp->log_file);
+	cs_strlcpy(fep->CoreDumpLimit, fmp->CoreDumpLimit, STRING_SIZE);
+	cs_strlcpy(fep->CoreDumpDir, fmp->CoreDumpDir, FILENAME_SIZE);
+	cs_strlcpy(fep->log_file, fmp->log_file, LOGFILE_SIZE);
 	fep->syslog_mode = fmp->syslog_mode;
 	for (modid=0; modid <= VIEO_LAST_MOD_ID; ++modid)
 		fep->log_masks[modid] = fmp->log_masks[modid];
-	strcpy(fep->syslog_facility, fmp->syslog_facility);
+	cs_strlcpy(fep->syslog_facility, fmp->syslog_facility, STRING_SIZE);
 	fep->config_consistency_check_method = fmp->config_consistency_check_method;
 	fep->SslSecurityEnabled = fmp->SslSecurityEnabled;
 	strncpy(fep->SslSecurityDir, fmp->SslSecurityDir, sizeof(fep->SslSecurityDir) - 1);
@@ -9041,16 +9325,14 @@ static IXML_FIELD CommonFields[] = {
 static void* CommonXmlParserStart(IXmlParserState_t *state, void *parent, const char **attr)
 {
 	common = 1;			// all parsing is for Common now
-	return NULL;		// no need for parent tag	
+	return configp->fm_instance_common;
 }
 
 // Common Shared end tag
 static void CommonXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Common tag\n"); 
-	} else {
-		// as needed process or validate self consistency of config
+		fprintf(stderr, "Error processing XML Common tag\n");
 	}
 }
 
@@ -9120,10 +9402,11 @@ static void *ConfigXmlParserStart(IXmlParserState_t *state, void *parent, const 
 static void ConfigXmlParserEnd(IXmlParserState_t *state, const IXML_FIELD *field, void *object, void *parent, XML_Char *content, unsigned len, boolean valid)
 {
 	if (!valid) {
-		fprintf(stderr, "Error processing XML Config tag\n"); 
+		fprintf(stderr, "Error processing XML Config tag\n");
 	} else {
 		// as needed process or validate self consistency of config
 	}
+
 }
 
 // top level tag
@@ -9157,9 +9440,9 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 		fprintf(stdout, "VF %u qos_enable %u\n", i, test->v_fabric[i].qos_enable);
 		fprintf(stdout, "VF %u flowControlDisable %u\n", i, test->v_fabric[i].flowControlDisable);
 		fprintf(stdout, "VF %u base_sl %u\n", i, test->v_fabric[i].base_sl);
-#ifdef CONFIG_INCLUDE_DOR
-		fprintf(stdout, "VF %u updown_only %u\n", i, test->v_fabric[i].updown_only);
-#endif
+		fprintf(stdout, "VF %u requires_resp_sl %u\n", i, test->v_fabric[i].requires_resp_sl);
+		fprintf(stdout, "VF %u resp_sl %u\n", i, test->v_fabric[i].resp_sl);
+		fprintf(stdout, "VF %u mcast_sl %u\n", i, test->v_fabric[i].mcast_sl);
 		fprintf(stdout, "VF %u percent_bandwidth %u\n", i, test->v_fabric[i].percent_bandwidth);
 		fprintf(stdout, "VF %u priority %u\n", i, test->v_fabric[i].priority);
 		fprintf(stdout, "VF %u pkt_lifetime_mult %u\n", i, test->v_fabric[i].pkt_lifetime_mult);
@@ -9177,11 +9460,11 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 		fprintf(stdout, "VF %u app sidMapSize %u\n", i, (unsigned int)test->v_fabric[i].apps.sidMapSize);
 		VFAppSid_t *sid;
 		for_all_qmap_ptr(&test->v_fabric[i].apps.sidMap, cl_map_item, sid) {
-			fprintf(stdout, "VF %u app service_id 0x%16.16llx\n", i, 
+			fprintf(stdout, "VF %u app service_id 0x%16.16llx\n", i,
 				(long long unsigned int)sid->service_id);
-			fprintf(stdout, "VF %u app service_id_last 0x%16.16llx\n", i, 
+			fprintf(stdout, "VF %u app service_id_last 0x%16.16llx\n", i,
 				(long long unsigned int)sid->service_id_last);
-			fprintf(stdout, "VF %u app service_id_mask 0x%16.16llx\n", i, 
+			fprintf(stdout, "VF %u app service_id_mask 0x%16.16llx\n", i,
 				(long long unsigned int)sid->service_id_mask);
 		}
 
@@ -9189,18 +9472,17 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 		VFAppMgid_t *mgid;
 		for_all_qmap_ptr(&test->v_fabric[i].apps.mgidMap, cl_map_item, mgid) {
 			mgid = XML_QMAP_VOID_CAST cl_qmap_key(cl_map_item);
-			fprintf(stdout, "VF %u app mgid 0x%16.16llx:0x%16.16llx\n", i, 
+			fprintf(stdout, "VF %u app mgid 0x%16.16llx:0x%16.16llx\n", i,
 				(long long unsigned int)mgid->mgid[0], (long long unsigned int)mgid->mgid[1]);
-			fprintf(stdout, "VF %u app mgid_last 0x%16.16llx:0x%16.16llx\n", i, 
+			fprintf(stdout, "VF %u app mgid_last 0x%16.16llx:0x%16.16llx\n", i,
 				(long long unsigned int)mgid->mgid_last[0], (long long unsigned int)mgid->mgid_last[1]);
-			fprintf(stdout, "VF %u app mgid_mask 0x%16.16llx:0x%16.16llx\n", i, 
+			fprintf(stdout, "VF %u app mgid_mask 0x%16.16llx:0x%16.16llx\n", i,
 				(long long unsigned int)mgid->mgid_mask[0], (long long unsigned int)mgid->mgid_mask[1]);
 		}
 
-		
+
 		fprintf(stdout, "VF %u full_member select_all %u\n", i, test->v_fabric[i].full_members.select_all);
 		fprintf(stdout, "VF %u full_member select_self %u\n", i, test->v_fabric[i].full_members.select_self);
-		fprintf(stdout, "VF %u full_member select_all_sm %u\n", i, test->v_fabric[i].full_members.select_all_sm);
 		fprintf(stdout, "VF %u full_member select_hfi_direct_connect %u\n", i, test->v_fabric[i].full_members.select_hfi_direct_connect);
 		fprintf(stdout, "VF %u full_member select_swe0 %u\n", i, test->v_fabric[i].full_members.select_swe0);
 		fprintf(stdout, "VF %u full_member select_all_mgmt_allowed %u\n", i, test->v_fabric[i].full_members.select_all_mgmt_allowed);
@@ -9208,7 +9490,7 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 		fprintf(stdout, "VF %u full_member node_type_fi %u\n", i, test->v_fabric[i].full_members.node_type_fi);
 		fprintf(stdout, "VF %u full_member node_type_sw %u\n", i, test->v_fabric[i].full_members.node_type_sw);
 
-		fprintf(stdout, "VF %u full_member sysGuidMapSize %u\n", i, 
+		fprintf(stdout, "VF %u full_member sysGuidMapSize %u\n", i,
 			(unsigned int)test->v_fabric[i].full_members.sysGuidMapSize);
 		{
 			long long unsigned int guid;
@@ -9217,7 +9499,7 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 			}
 		}
 
-		fprintf(stdout, "VF %u full_member nodeGuidMapSize %u\n", i, 
+		fprintf(stdout, "VF %u full_member nodeGuidMapSize %u\n", i,
 			(unsigned int)test->v_fabric[i].full_members.nodeGuidMapSize);
 		{
 			long long unsigned int guid;
@@ -9226,7 +9508,7 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 			}
 		}
 
-		fprintf(stdout, "VF %u full_member portGuidMapSize %u\n", i, 
+		fprintf(stdout, "VF %u full_member portGuidMapSize %u\n", i,
 			(unsigned int)test->v_fabric[i].full_members.portGuidMapSize);
 		{
 			long long unsigned int guid;
@@ -9235,7 +9517,7 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 			}
 		}
 
-		fprintf(stdout, "VF %u full_member nodeDescMapSize %u\n", i, 
+		fprintf(stdout, "VF %u full_member nodeDescMapSize %u\n", i,
 			(unsigned int)test->v_fabric[i].full_members.nodeDescMapSize);
 		{
 			char *name;
@@ -9246,7 +9528,6 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 
 		fprintf(stdout, "VF %u limited_member select_all %u\n", i, test->v_fabric[i].limited_members.select_all);
 		fprintf(stdout, "VF %u limited_member select_self %u\n", i, test->v_fabric[i].limited_members.select_self);
-		fprintf(stdout, "VF %u limited_member select_all_sm %u\n", i, test->v_fabric[i].limited_members.select_all_sm);
 		fprintf(stdout, "VF %u limited_member select_hfi_direct_connect %u\n", i, test->v_fabric[i].limited_members.select_hfi_direct_connect);
 		fprintf(stdout, "VF %u limited_member select_all_mgmt_allowed %u\n", i, test->v_fabric[i].limited_members.select_all_mgmt_allowed);
 		fprintf(stdout, "VF %u limited_member select_all_tfis %u\n", i, test->v_fabric[i].limited_members.select_all_tfis);
@@ -9254,7 +9535,7 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 		fprintf(stdout, "VF %u limited_member node_type_fi %u\n", i, test->v_fabric[i].limited_members.node_type_fi);
 		fprintf(stdout, "VF %u limited_member node_type_sw %u\n", i, test->v_fabric[i].limited_members.node_type_sw);
 
-		fprintf(stdout, "VF %u limited_member sysGuidMapSize %u\n", i, 
+		fprintf(stdout, "VF %u limited_member sysGuidMapSize %u\n", i,
 			(unsigned int)test->v_fabric[i].limited_members.sysGuidMapSize);
 		{
 			long long unsigned int guid;
@@ -9263,7 +9544,7 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 			}
 		}
 
-		fprintf(stdout, "VF %u limited_member nodeGuidMapSize %u\n", i, 
+		fprintf(stdout, "VF %u limited_member nodeGuidMapSize %u\n", i,
 			(unsigned int)test->v_fabric[i].limited_members.nodeGuidMapSize);
 		{
 			long long unsigned int guid;
@@ -9272,7 +9553,7 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 			}
 		}
 
-		fprintf(stdout, "VF %u limited_member portGuidMapSize %u\n", i, 
+		fprintf(stdout, "VF %u limited_member portGuidMapSize %u\n", i,
 			(unsigned int)test->v_fabric[i].limited_members.portGuidMapSize);
 		{
 			long long unsigned int guid;
@@ -9281,7 +9562,7 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 			}
 		}
 
-		fprintf(stdout, "VF %u limited_member nodeDescMapSize %u\n", i, 
+		fprintf(stdout, "VF %u limited_member nodeDescMapSize %u\n", i,
 			(unsigned int)test->v_fabric[i].limited_members.nodeDescMapSize);
 		{
 			char *name;
@@ -9289,8 +9570,8 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 				fprintf(stdout, "VF %u limited_member node_descr %s\n", i, name);
 			}
 		}
-	
-		fprintf(stdout, "VF %u number of mulitcast_groups %u\n", i, 
+
+		fprintf(stdout, "VF %u number of mulitcast_groups %u\n", i,
 			(unsigned int)test->v_fabric[i].number_of_default_groups);
 		VFDg_t *default_group = test->v_fabric[i].default_group;
 		uint32_t index = 0;
@@ -9307,11 +9588,11 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 			fprintf(stdout, "VF %u mulitcast_group %u mgidMapSize %u\n", i, (unsigned int)index, (unsigned int)default_group->mgidMapSize);
 			VFAppMgid_t *mgid;
 			for_all_qmap_ptr(&default_group->mgidMap, cl_map_item, mgid) {
-				fprintf(stdout, "VF %u mulitcast_group %u mgid 0x%16.16llx:0x%16.16llx\n", i, (unsigned int)index, 
+				fprintf(stdout, "VF %u mulitcast_group %u mgid 0x%16.16llx:0x%16.16llx\n", i, (unsigned int)index,
 					(long long unsigned int)mgid->mgid[0], (long long unsigned int)mgid->mgid[1]);
-				fprintf(stdout, "VF %u mulitcast_group %u mgid_last 0x%16.16llx:0x%16.16llx\n", i, (unsigned int)index, 
+				fprintf(stdout, "VF %u mulitcast_group %u mgid_last 0x%16.16llx:0x%16.16llx\n", i, (unsigned int)index,
 					(long long unsigned int)mgid->mgid_last[0], (long long unsigned int)mgid->mgid_last[1]);
-				fprintf(stdout, "VF %u mulitcast_group %u mgid_mask 0x%16.16llx:0x%16.16llx\n", i, (unsigned int)index, 
+				fprintf(stdout, "VF %u mulitcast_group %u mgid_mask 0x%16.16llx:0x%16.16llx\n", i, (unsigned int)index,
 					(long long unsigned int)mgid->mgid_mask[0], (long long unsigned int)mgid->mgid_mask[1]);
 			}
 			default_group = default_group->next_default_group;
@@ -9321,7 +9602,7 @@ void printXmlDebug(FMXmlCompositeConfig_t *config, uint32_t fm)
 	}
 
 	fprintf(stdout, "VF database Checksum %u\n", (unsigned int)test->consistency_checksum);
-	
+
 	// free memory from test
     if (test != NULL) {
 		releaseVirtualFabricsConfig(test);
@@ -9439,71 +9720,12 @@ int generateDefaultXmlConfig(uint8_t cli)
 
 #endif
 
-#ifndef __VXWORKS__
-// check for the Advanced Features License for HSM
-int checkAdvancedFeaturesLicense(void) 
-{
-	char license[8][40];
-	uint32_t entries;
-	FILE  *aFile;
-	uint32_t found = 0;
-	uint32_t i;
-
-#ifndef AF_LICENSE
-	// if the Advanced Features License is not supported then just happily return that it is supported
-	// in code so all features work
-	return 1;
-#endif
-
-	// if there is no licensing file for HSM then create one
-	if (access("/etc/sysconfig/opa/license_keys", F_OK) != 0) {
-		fprintf(stdout, "The file /etc/sysconfig/opa/license_keys does not exist - creating a default one\n");
-		FILE  *aFile;
-		aFile = fopen("/etc/sysconfig/opa/license_keys", "w");
-		if (aFile == NULL) 
-			fprintf(stdout, "Cannot create /etc/sysconfig/opa/license_keys\n");
-		else
-			fclose(aFile);
-	}
-	aFile = fopen("/etc/sysconfig/opa/license_keys", "r");
-	if (aFile == NULL) {
-		fprintf(stdout, "Cannot open /etc/sysconfig/opa/license_keys\n");
-		return 0;
-	}
-	memset(license, 0, sizeof(license));
-	for (i = 0; i < 8; i++) {
-		entries = fread(&license[i][0], 37, 1, aFile);
-		if (!entries)
-			break;
-		license[i][36] = 0;
-#ifdef XML_DEBUG
-		fprintf(stdout, "entry %u entries %u Key %s\n", i, entries, &license[i][0]);
-#endif
-			
-		// see if any of the keys enable the Advanced Features license
-		if (kmAdvancedFeatureVerification(&license[i][0]) == 0) {
-#ifdef XML_DEBUG
-			fprintf(stdout, "Found valid Advanced Features License Key\n");
-#endif
-			found = 1;
-		} else {
-#ifdef XML_DEBUG
-			fprintf(stdout, "Did not find valid Advanced Features License Key\n");
-#endif
-			found = 0;
-		}
-	}
-	fclose(aFile);
-	return found;
-}
-#endif
-
 // call entry point for parsing the opafm.xml configuration file - will
 // return data in FMXmlCompositeConfig_t struct
 FMXmlCompositeConfig_t* parseFmConfig(char *filename, uint32_t flags, uint32_t fm, uint32_t full, uint32_t embedded)
 {
 	uint32_t i;
- 
+
 	if (!filename || strlen(filename) == 0)
        filename = IFS_FM_CFG_NAME;
 
@@ -9530,20 +9752,12 @@ FMXmlCompositeConfig_t* parseFmConfig(char *filename, uint32_t flags, uint32_t f
 			break;
 		}
 	}
-		
+
 	// generate a default if need be
 	if (generateDefaultXmlConfig( /* not a cli command */ 0)) {
 		fprintf(stdout, "Unable to parse XML file since a default file cannot be generated\n");
 		return NULL;
 	}
-#endif
-
-#ifndef __VXWORKS__
-	// check to see if were are licensed for the Advanced Feature
-	if (checkAdvancedFeaturesLicense())
-		af_licensed = 1;
-	else
-		af_licensed = 0;
 #endif
 
 	// clear the memory counter
@@ -9565,15 +9779,10 @@ FMXmlCompositeConfig_t* parseFmConfig(char *filename, uint32_t flags, uint32_t f
 	}
 
 	// get memory for common Fm instance if we are doing a full parse
-	if (full) {
-		configp->fm_instance_common = getXmlMemory(sizeof(FMXmlInstance_t), "FMXmlInstance_t parseFmConfig()");
-		if (!configp->fm_instance_common) {
-			fprintf(stdout, "Memory limit has been exceeded parsing the XML configuration");
-			releaseXmlConfig(configp, /* full */ 1);
-			configp = NULL;
-			parsingInProcess = 0;
-			return NULL;
-		}
+	configp->fm_instance_common = getXmlMemory(sizeof(FMXmlInstance_t), "FMXmlInstance_t parseFmConfig()");
+	if (!configp->fm_instance_common) {
+		fprintf(stdout, "Memory limit has been exceeded parsing the XML configuration");
+		goto failure;
 	}
 
 	// set instance info - if called with full then data for all FM instances will be
@@ -9590,22 +9799,10 @@ FMXmlCompositeConfig_t* parseFmConfig(char *filename, uint32_t flags, uint32_t f
 	for (i = 0; i < MAX_INSTANCES; i++)
 		configp->fm_instance[i] = NULL;
 
-	// get memory for the instance of Fm we need
-	for (i = fm_instance; i < end_instance; i++) {
-		configp->fm_instance[i] = getXmlMemory(sizeof(FMXmlInstance_t), "FMXmlInstance_t parseFmConfig()");
-		if (!configp->fm_instance[i]) {
-			fprintf(stdout, "Memory limit has been exceeded parsing the XML configuration");
-			releaseXmlConfig(configp, /* full */ 1);
-			configp = NULL;
-			parsingInProcess = 0;
-			return NULL;
-		}
-	}
-
 	// if we are not doing a full parse then the common instance can become the same as the single instance
 	// we are parsing
 	if (!full)
-		configp->fm_instance_common = configp->fm_instance[fm];
+		configp->fm_instance[fm] = configp->fm_instance_common;
 
 	// init config
 	xmlInitConfig();
@@ -9617,44 +9814,9 @@ FMXmlCompositeConfig_t* parseFmConfig(char *filename, uint32_t flags, uint32_t f
 	if (FSUCCESS != XmlParseFmConfig(filename, (IXmlParserFlags_t)flags)) {
 		if (xml_parse_debug)
 			fprintf(stdout, "\nParsing %s failed\n", filename);
-		releaseXmlConfig(configp, /* full */ 1);
-		configp = NULL;
-		parsingInProcess = 0;
-		return NULL;
+		goto failure;
 	}
-
-	// fill in configuration parameters that have not been read from the configuration and also
-	// calculate the checksums for each component
-	for (i = fm_instance; i < end_instance; i++) {
-		FMXmlInstance_t *instance = configp->fm_instance[i];
-
-		// If startup_retries or startup_stable_wait is not set for a component
-		// use the value set for the Fm instance. If the value is also not
-		// set for the Fm instance, it will be set to the default value
-		// when the component InitConfig routine is called below.
-		if (instance->sm_config.startup_retries == UNDEFINED_XML32)
-			instance->sm_config.startup_retries = instance->fm_config.startup_retries;
-		if (instance->fe_config.startup_retries == UNDEFINED_XML32)
-			instance->fe_config.startup_retries = instance->fm_config.startup_retries;
-		if (instance->sm_config.startup_stable_wait == UNDEFINED_XML32)
-			instance->sm_config.startup_stable_wait = instance->fm_config.startup_stable_wait;
-		if (instance->fe_config.startup_stable_wait == UNDEFINED_XML32)
-			instance->fe_config.startup_stable_wait = instance->fm_config.startup_stable_wait;
-
-		// If an instance is disabled, disable all of the components in the instance
-		if (!instance->fm_config.start) {
-			instance->sm_config.start = 0;
-			instance->pm_config.start = 0;
-			instance->fe_config.start = 0;
-		}
-
-		fmInitConfig(&instance->fm_config, i);
-        smInitConfig(&instance->sm_config, &instance->sm_dpl_config, 
-                     &instance->sm_mc_config, &instance->sm_mls_config,
-					 &instance->dg_config, i, instance->fm_config.config_consistency_check_method);
-		pmInitConfig(&instance->pm_config, i, instance->fm_config.config_consistency_check_method);
-		feInitConfig(&instance->fe_config, i, instance->fm_config.config_consistency_check_method);
-	}
+	configp->num_instances = instance;
 
 	// print out some debug info
 	if (xml_parse_debug || xml_vf_debug)
@@ -9665,15 +9827,20 @@ FMXmlCompositeConfig_t* parseFmConfig(char *filename, uint32_t flags, uint32_t f
 
 	parsingInProcess = 0;
 	return configp;
+failure:
+	releaseXmlConfig(configp, /* full */ 1);
+	configp = NULL;
+	parsingInProcess = 0;
+	return NULL;
 }
 
 #ifdef __VXWORKS__
 // call from CLI to verify XML config file
-// return codes 
+// return codes
 // 0 Ok
 // 1 Parse error - do a logShow to see error
 // 2 SM is busy doing a sweep
-// 3 File does not exist 
+// 3 File does not exist
 // 4 Cannot get memory to parse
 // 5 Bad pointer to filename
 uint8_t
@@ -9690,7 +9857,7 @@ verifyFmConfig(char* filename, uint32_t flags)
 			fprintf(stdout, "Cannot verify configuration file %s when the parser is busy parsing another file\n", filename);
 		return 2;
 	}
-		
+
 	// verify existance of filename if backup
 	cFile = fopen(filename, "r");
 	if (cFile == NULL) {
@@ -9727,7 +9894,7 @@ int copyPEMFile(char *src, char *pem_filename) {
 	snprintf(fn,  sizeof(fn),"%s/%s.pem", DIR_BASE_NAME, pem_filename);
 	if (vcopy(src, fn, FALSE) != OK) {
 		sysPrintf("%s %d vcopy %s to %s failed\n", __FUNCTION__, __LINE__, src, fn);
-		updateLastScpRetCode(SCP_FF_ERR_XML_UPDATE); 
+		updateLastScpRetCode(SCP_FF_ERR_XML_UPDATE);
 		rm(src);
 		return 0;
 	}
@@ -9739,18 +9906,18 @@ int copyPEMFile(char *src, char *pem_filename) {
 #endif
 
 	rm(src);
-	updateLastScpRetCode(SCP_FF_ERR_OK); 
+	updateLastScpRetCode(SCP_FF_ERR_OK);
 	SCP_LOG( "Copy file %s to %s successful.", src, fn);
 	return 1;
 }
 
 /***********************************
- 
+
 This function will:
-	1 - copy (src) [/firmware/opafm.xml] file to compressed file 
+	1 - copy (src) [/firmware/opafm.xml] file to compressed file
 			[/firmware/temp.xml.z]
 	2 - check max compressed file size limit
-		2a - If file size too big, reove both files 
+		2a - If file size too big, reove both files
 	3 - verify XML config file. If invalid remove both files
 	4 - if ok, copy file to flash [/<flashdir>/opafm.xml.z].
 	5 - remove src file
@@ -9771,7 +9938,7 @@ int copyCompressXMLConfigFile(char *src, char *dst_unused_param) {
 
     if (copyFile(src, IFS_FM_CFG_NAME_TEMP,-1,&fileSize)) {
 		XmlParsePrintError("scp: unable to compress XML config file");
-		updateLastScpRetCode(SCP_FF_ERR_XML_UPDATE); 
+		updateLastScpRetCode(SCP_FF_ERR_XML_UPDATE);
         sysPrintf ("scp:Unable to compress into %s\n", IFS_FM_CFG_NAME_TEMP);
 		rm(src);
 		scpInProcess = 0;
@@ -9779,7 +9946,7 @@ int copyCompressXMLConfigFile(char *src, char *dst_unused_param) {
     }
     if (fileSize>MAX_XML_COMPRESSED_FILE_SIZE) {
 		XmlParsePrintError("scp: compressed XML config file exceeds max size");
-		updateLastScpRetCode(SCP_FF_ERR_XML_UPDATE); 
+		updateLastScpRetCode(SCP_FF_ERR_XML_UPDATE);
         sysPrintf ("scp:Compressed file size exceeds limit of %ld\n",MAX_XML_COMPRESSED_FILE_SIZE);
         rm(src);
 		rm(IFS_FM_CFG_NAME_TEMP);
@@ -9792,7 +9959,7 @@ int copyCompressXMLConfigFile(char *src, char *dst_unused_param) {
         SCP_LOG( "XML parsed ok!");
     } else {
 		XmlParsePrintError("scp: Invalid XML config file!");
-		updateLastScpRetCode(SCP_FF_ERR_XML_UPDATE); 
+		updateLastScpRetCode(SCP_FF_ERR_XML_UPDATE);
         sysPrintf("scp: Invalid XML config file!\n");
         rm(src);
 		rm(IFS_FM_CFG_NAME_TEMP);
@@ -9802,11 +9969,11 @@ int copyCompressXMLConfigFile(char *src, char *dst_unused_param) {
 
 	SCP_LOG( "Removing old config file %s.",IFS_FM_CFG_NAME);
 	rm(IFS_FM_CFG_NAME);
-		
+
 	SCP_LOG( "copying over %s to %s.",IFS_FM_CFG_NAME_TEMP, IFS_FM_CFG_NAME);
     if (copyFile( IFS_FM_CFG_NAME_TEMP, IFS_FM_CFG_NAME, 0,NULL)) {
 		XmlParsePrintError("scp: unable to copy compressed XML config file to destination");
-		updateLastScpRetCode(SCP_FF_ERR_XML_UPDATE); 
+		updateLastScpRetCode(SCP_FF_ERR_XML_UPDATE);
         sysPrintf("scp:Unable to copy %s to %s\n", IFS_FM_CFG_NAME_TEMP, IFS_FM_CFG_NAME);
 		rm(src);
 		rm(IFS_FM_CFG_NAME_TEMP);
@@ -9819,7 +9986,7 @@ int copyCompressXMLConfigFile(char *src, char *dst_unused_param) {
 		SCP_LOG( "XML parsed ok on second pass!");
 	} else {
 		XmlParsePrintError("scp: Invalid XML new config file on second pass!");
-		updateLastScpRetCode(SCP_FF_ERR_XML_UPDATE); 
+		updateLastScpRetCode(SCP_FF_ERR_XML_UPDATE);
         sysPrintf("scp: Invalid XML new config file in second pass!\n");
 		rm(src);
 		rm(IFS_FM_CFG_NAME_TEMP);
@@ -9837,7 +10004,7 @@ int copyCompressXMLConfigFile(char *src, char *dst_unused_param) {
     cmuRed_cfgIfMasterSyncSlave(NULL);
 #endif
 
-	updateLastScpRetCode(SCP_FF_ERR_OK); 
+	updateLastScpRetCode(SCP_FF_ERR_OK);
 
 	scpInProcess = 0;
 

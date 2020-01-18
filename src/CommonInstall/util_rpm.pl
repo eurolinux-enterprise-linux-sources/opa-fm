@@ -406,13 +406,51 @@ sub rpm_check_os_prereqs_internal($$@)
 	return $err;
 }
 
-sub rpm_check_os_prereqs($$@)
+sub rpm_check_os_prereqs($$)
 {
-	my $comp = shift();
-	my $mode = shift();
-	my(@package_list) = @_;	# package names
-	return rpm_check_os_prereqs_internal($mode, " by $ComponentInfo{$comp}{'Name'}", @package_list);
+        no strict 'refs';
+        my $comp = shift();
+        my $mode = shift();
+        my $list_name;
+        my $array_ref;
+        my @rpm_list = {};
+        my $prereq_check = 0;
+
+        if ( ! $rpm_check_dependencies ) {
+                return 0;
+        }
+
+        $list_name=$comp."_prereq";
+        $array_ref = $comp_prereq_hash{$list_name};
+	#checking if prereq array exists
+	#it assumed that it has no prereqs it array does not exist
+        if ( $array_ref ) {
+                @rpm_list = @{ $array_ref };
+        }
+        else{
+                return 0;
+        }
+
+	#checking whether each entry in rpm_list is installed
+        DebugPrint "Checking prereqs for $comp\n";
+        foreach (@rpm_list){
+                DebugPrint "Checking installation of $_\n";
+		#Don't check dependencies for kernel RPMS if their installation is skipped
+		if($skip_kernel == 1){
+                	if( "$_" =~ /kernel/ || "$_" =~ /kmod/ || "$_" eq "pciutils" ) {
+				DebugPrint("Skipping check for $_ \n");
+				next;
+			}
+		}
+                if(!rpm_is_installed($_, $mode)){
+                        NormalPrint("--> $comp requires $_ \n");
+                        $prereq_check = 1;
+                }
+        }
+
+        return $prereq_check;
 }
+
 
 sub rpm_check_build_os_prereqs($$@)
 {

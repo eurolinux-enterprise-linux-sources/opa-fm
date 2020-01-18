@@ -47,7 +47,7 @@ my $State_DoNotAutoInstall = 4;	# valid only in DefaultInstall, must explicitly 
 
 sub component_start_prompts();
 sub disable_components(@);
-
+my %comp_prereq_hash;
 # indicate if given state reflects a component which will be on the system
 # after processing the present menu selections
 # states:
@@ -1937,7 +1937,7 @@ sub show_autostart_menu($%)
 	# at components and include all their subcomponents in the prompts
 	foreach $comp ( @Components )
 	{
-		if ( $selections{$comp} && $ComponentInfo{$comp}{'HasStart'} )
+		if ( comp_is_installed("$comp") && $ComponentInfo{$comp}{'HasStart'} )
 		{
 			# StartComponents will list Components and SubComponents which
 			# have start capability

@@ -220,8 +220,17 @@ char * smGetNodeString(uint8_t *path, uint16_t lid, Node_t *node, Port_t *port,
 				buffLen -= strlen(buffptr);
 				buffptr += strlen(buffptr);
 			}
-			if (!node && sm_topop)
-				node = sm_find_node_by_path(sm_topop, path);
+			if (!node && sm_topop) {
+				if (lid == 0 || lid == PERMISSIVE_LID) {
+					// pure DR: resolve path normally
+					node = sm_find_node_by_path(sm_topop, NULL, path);
+				} else {
+					// mixed LR-DR: find node at beginning of DR path via LID
+					sm_find_node_and_port_lid(sm_topop, lid, &node);
+					if (node)
+						node = sm_find_node_by_path(sm_topop, node, path);
+				}
+			}
 		}
 		snprintf(buffptr, buffLen, "]");
 		buffLen -= strlen(buffptr);
@@ -1019,25 +1028,19 @@ sm_send_stl_request_impl(IBhandle_t fd, uint32_t method, uint32_t aid,
 		// If status is OK, then we need to check the status field in the MAD
 		if (in_mad.base.status & MAD_STATUS_MASK) {
 			smGetNodeString(path, dlid, node, port, nodeString, NODE_STRING_MAX_LEN);	
-			//PR: 128885 - Lower message severity to 'Info' when 'Bad MAD Status' occurs due to criteria below.	
-                        if (aid == STL_MCLASS_ATTRIB_ID_PORT_INFO)
-                        {
-                                STL_PORT_STATES portStates = ((STL_PORT_INFO *)buffer)->PortStates;
-                                portStates.AsReg32 = ntoh32(portStates.AsReg32);
-                                if ((portStates.s.PortState == IB_PORT_ARMED) && (portStates.s.NeighborNormal == 0))
-                                {
-                                        IB_LOG_INFO_FMT(__func__, "Bad MAD status received from %s. TID:[" FMT_U64 "] MAD Status:[%s](0x%08x) AID:%s(0x%x) Method:%02d", nodeString, tid,
-                                                        sm_getMadStatusText(in_mad.base.status), in_mad.base.status, sm_getAttributeIdText(aid), aid, method);
-                                        IB_EXIT(__func__, in_mad.base.status);
-                                        return VSTATUS_BAD;
-                                }
-                        }
-                        IB_LOG_WARN_FMT(__func__, "Bad MAD status received from %s. TID:[" FMT_U64
-                                        "] MAD Status:[%s](0x%08x) AID:%s(0x%x) Method:%02d", nodeString, tid,
-                                        sm_getMadStatusText(in_mad.base.status), in_mad.base.status, sm_getAttributeIdText(aid), aid, method);
-
-                        IB_EXIT(__func__, in_mad.base.status);
-                        return VSTATUS_BAD;
+			uint32_t sev = VS_LOG_WARN;
+			if (aid == STL_MCLASS_ATTRIB_ID_PORT_INFO) {
+				//PR: 128885 - Lower message severity to 'Info' when 'Bad MAD Status' occurs due to criteria below.	
+				STL_PORT_STATES portStates = ((STL_PORT_INFO *)buffer)->PortStates;
+				portStates.AsReg32 = ntoh32(portStates.AsReg32);
+				if ((portStates.s.PortState == IB_PORT_ARMED) && (portStates.s.NeighborNormal == 0))
+					sev = VS_LOG_INFO;
+			}
+			cs_log(sev, __func__,
+				"Bad MAD status received from %s. TID:[" FMT_U64"] MAD Status:[%s](0x%08x) AID:%s(0x%x) Method:%02d",
+				nodeString, tid, sm_getMadStatusText(in_mad.base.status), in_mad.base.status, sm_getAttributeIdText(aid), aid, method);
+			IB_EXIT(__func__, in_mad.base.status);
+			return VSTATUS_BAD;
 		}
 		IB_EXIT(__func__, status);
 		return status;
@@ -1847,9 +1850,10 @@ sm_Node_get_pgft_size(const Node_t * node)
 size_t
 sm_Node_compute_pgft_size(const Node_t * node)
 {
-	// The PGFT is the same length as the LFT, up to 8192.
-	// (This is a limitation of early gen 1 firmware)
-	uint32 pgftCap = DEFAULT_MAX_PGFT_BLOCK_NUM * NUM_PGFT_ELEMENTS_BLOCK;
+	// The PGFT is generally the same length as the LFT, but
+	// capped at PortGroupFDBCap (earlier gen1 FM hardcoded at 8K).
+	uint32 pgftCap = node->switchInfo.PortGroupFDBCap ? node->switchInfo.PortGroupFDBCap :
+						DEFAULT_MAX_PGFT_BLOCK_NUM * NUM_PGFT_ELEMENTS_BLOCK;
 	
 	if (node->switchInfo.LinearFDBTop < pgftCap) pgftCap = node->switchInfo.LinearFDBTop+1;
 	return ROUNDUP(pgftCap, NUM_PGFT_ELEMENTS_BLOCK);
@@ -1936,108 +1940,112 @@ sm_Node_invalidate_pgs(Node_t * node)
 }
 
 void
-sm_log_predef_field_violation(Topology_t* topop, uint32_t logQuarantineReasons,
-							char* baseNodeDesc, const char* baseNodeType, uint64_t baseNodeGuid, uint64_t basePortGuid, uint8_t basePortNum,
-							char* foundNodeDesc, const char* foundNodeType, uint64_t foundNodeGuid, uint64_t foundPortGuid, uint8_t foundPortNum,
-							char* expectedNodeDesc, uint64_t expectedNodeGuid, uint64_t expectedPortGuid) {
+sm_log_predef_field_violation(Topology_t* topop, uint32_t logQuarantineReasons, boolean forceLogAsWarn,
+	Node_t *cnp, Port_t *cpp, STL_NODE_INFO* nodeInfo, STL_NODE_DESCRIPTION* nodeDesc, PortSelector* validationPort)
+{
 	int nodeDescViolation = logQuarantineReasons & STL_QUARANTINE_REASON_TOPO_NODE_DESC;
 	int nodeGuidViolation = logQuarantineReasons & STL_QUARANTINE_REASON_TOPO_NODE_GUID;
 	int portGuidViolation = logQuarantineReasons & STL_QUARANTINE_REASON_TOPO_PORT_GUID;
 	int undefinedLinkViolation = logQuarantineReasons & STL_QUARANTINE_REASON_TOPO_UNDEFINED_LINK;
-	int logError = (nodeDescViolation && (sm_config.preDefTopo.fieldEnforcement.nodeDesc == FIELD_ENF_LEVEL_ENABLED)) ||
-					(nodeGuidViolation && (sm_config.preDefTopo.fieldEnforcement.nodeGuid == FIELD_ENF_LEVEL_ENABLED)) ||
-					(portGuidViolation && (sm_config.preDefTopo.fieldEnforcement.portGuid == FIELD_ENF_LEVEL_ENABLED)) ||
-					(undefinedLinkViolation && (sm_config.preDefTopo.fieldEnforcement.undefinedLink == FIELD_ENF_LEVEL_ENABLED));
-	
-	char expectedNodeDescPrint[128];
-	char expectedNodeGuidPrint[64];
-	char expectedPortGuidPrint[64];
-	char undefinedLinkPrint[64];
-	char foundPortGuidPrint[64];
-	char basePortGuidPrint[64];
+	boolean logError = !forceLogAsWarn && // Override and Force to only Log as a Warn as the port will be bounced
+		((nodeDescViolation && (sm_config.preDefTopo.fieldEnforcement.nodeDesc == FIELD_ENF_LEVEL_ENABLED)) ||
+		(nodeGuidViolation && (sm_config.preDefTopo.fieldEnforcement.nodeGuid == FIELD_ENF_LEVEL_ENABLED)) ||
+		(portGuidViolation && (sm_config.preDefTopo.fieldEnforcement.portGuid == FIELD_ENF_LEVEL_ENABLED)) ||
+		(undefinedLinkViolation && (sm_config.preDefTopo.fieldEnforcement.undefinedLink == FIELD_ENF_LEVEL_ENABLED)));
 
-	memset(&expectedNodeDescPrint, 0, sizeof(expectedNodeDescPrint));
-	memset(&expectedNodeGuidPrint, 0, sizeof(expectedNodeGuidPrint));
-	memset(&expectedPortGuidPrint, 0, sizeof(expectedPortGuidPrint));
-	memset(&undefinedLinkPrint, 0, sizeof(undefinedLinkPrint));
-	memset(&foundPortGuidPrint, 0, sizeof(foundPortGuidPrint));
-	memset(&basePortGuidPrint, 0, sizeof(basePortGuidPrint));
-
-	sprintf(foundPortGuidPrint, " PortGUID: "FMT_U64", ", foundPortGuid);
-	sprintf(basePortGuidPrint, " PortGUID: "FMT_U64", ", basePortGuid);
+	char expectedNodeDescPrint[128] = {0};
+	char expectedNodeGuidPrint[64] = {0};
+	char expectedPortGuidPrint[64] = {0};
+	char undefinedLinkPrint[64] = {0};
+	char foundPortGuidPrint[64] = {0};
+	char basePortGuidPrint[64] = {0};
 
 	// We shouldn't log if we don't have any of these
-	if(baseNodeDesc == NULL || foundNodeDesc == NULL || 
-			(expectedNodeDesc == NULL && !undefinedLinkViolation))
+	if (cnp == NULL || cpp == NULL || nodeInfo == NULL || nodeDesc == NULL ||
+		(validationPort == NULL && !undefinedLinkViolation)) {
 		return;
-	
+	}
+
+	snprintf(basePortGuidPrint, sizeof(basePortGuidPrint), " PortGUID: "FMT_U64", ", cpp->portData->guid);
+	snprintf(foundPortGuidPrint, sizeof(foundPortGuidPrint), " PortGUID: "FMT_U64", ", nodeInfo->PortGUID);
+
+
 	// If we have hit our log threshold, spit out a final message but then stop logging
 	if(sm_config.preDefTopo.logMessageThreshold != 0 && 
 			topop->preDefLogCounts.totalLogCount == sm_config.preDefTopo.logMessageThreshold) {
-		IB_LOG_WARN_FMT(__func__, "Pre-Defined Topology: Log message threshold of %d messages per sweep has been reached. Suppressing further topology mismatch information.", 
-							sm_config.preDefTopo.logMessageThreshold);
+		IB_LOG_WARN_FMT(__func__,
+			"Pre-Defined Topology: Log message threshold of %d messages per sweep has been reached. "
+			"Suppressing further topology mismatch information.",
+			sm_config.preDefTopo.logMessageThreshold);
 		topop->preDefLogCounts.totalLogCount++;
 	}
 
 	// If we have an undefined link violation, don't log any of the other fields as they would be invalid anyways.
-	if(undefinedLinkViolation) {
+	if (undefinedLinkViolation) {
 		nodeDescViolation = 0;
 		nodeGuidViolation = 0;
 		portGuidViolation = 0;
 
-		if(sm_config.preDefTopo.fieldEnforcement.undefinedLink == FIELD_ENF_LEVEL_WARN) {
-			sprintf(undefinedLinkPrint, " No Link (Warn)");
+		if (forceLogAsWarn || sm_config.preDefTopo.fieldEnforcement.undefinedLink == FIELD_ENF_LEVEL_WARN) {
+			snprintf(undefinedLinkPrint, sizeof(undefinedLinkPrint), " No Link (Warn)");
 			topop->preDefLogCounts.undefinedLinkWarn++;
 		} else if (sm_config.preDefTopo.fieldEnforcement.undefinedLink == FIELD_ENF_LEVEL_ENABLED) {
-			sprintf(undefinedLinkPrint, " No Link (Quarantined)");
+			snprintf(undefinedLinkPrint, sizeof(undefinedLinkPrint), " No Link (Quarantined)");
 			topop->preDefLogCounts.undefinedLinkQuarantined++;
 		}
 	}
 
 	// NodeDesc Violation Logging
-	if(nodeDescViolation && (expectedNodeDesc != NULL)) {
-		if(sm_config.preDefTopo.fieldEnforcement.nodeDesc == FIELD_ENF_LEVEL_WARN) {
-			sprintf(expectedNodeDescPrint, " NodeDesc: %s (Warn)", expectedNodeDesc);
+	if (nodeDescViolation && (validationPort != NULL)) {
+		if (forceLogAsWarn || sm_config.preDefTopo.fieldEnforcement.nodeDesc == FIELD_ENF_LEVEL_WARN) {
+			snprintf(expectedNodeDescPrint, sizeof(expectedNodeDescPrint), " NodeDesc: %s (Warn)", validationPort->NodeDesc);
 			topop->preDefLogCounts.nodeDescWarn++;
 		} else if (sm_config.preDefTopo.fieldEnforcement.nodeDesc == FIELD_ENF_LEVEL_ENABLED) {
-			sprintf(expectedNodeDescPrint, " NodeDesc: %s (Quarantined)", expectedNodeDesc);
+			snprintf(expectedNodeDescPrint, sizeof(expectedNodeDescPrint), " NodeDesc: %s (Quarantined)", validationPort->NodeDesc);
 			topop->preDefLogCounts.nodeDescQuarantined++;
 		}
 	}
 
 	// NodeGUID Violation Logging
-	if(nodeGuidViolation) {
-		if(sm_config.preDefTopo.fieldEnforcement.nodeGuid == FIELD_ENF_LEVEL_WARN) {
-			sprintf(expectedNodeGuidPrint, " NodeGUID: "FMT_U64" (Warn)", expectedNodeGuid);
+	if (nodeGuidViolation) {
+		if (forceLogAsWarn || sm_config.preDefTopo.fieldEnforcement.nodeGuid == FIELD_ENF_LEVEL_WARN) {
+			snprintf(expectedNodeGuidPrint, sizeof(expectedNodeGuidPrint),
+				" NodeGUID: "FMT_U64" (Warn)", (validationPort ? validationPort->NodeGUID : 0));
 			topop->preDefLogCounts.nodeGuidWarn++;
 		} else if (sm_config.preDefTopo.fieldEnforcement.nodeGuid == FIELD_ENF_LEVEL_ENABLED) {
-			sprintf(expectedNodeGuidPrint, " NodeGUID: "FMT_U64" (Quarantined)", expectedNodeGuid);
+			snprintf(expectedNodeGuidPrint, sizeof(expectedNodeGuidPrint),
+				" NodeGUID: "FMT_U64" (Quarantined)", (validationPort ? validationPort->NodeGUID : 0));
 			topop->preDefLogCounts.nodeGuidQuarantined++;
 		}
 	}
 
 	// PortGUID Violation Logging
-	if(portGuidViolation) {
-		if(sm_config.preDefTopo.fieldEnforcement.portGuid == FIELD_ENF_LEVEL_WARN) {
-			sprintf(expectedPortGuidPrint, " PortGUID: "FMT_U64" (Warn)", expectedPortGuid);
+	if (portGuidViolation) {
+		if (forceLogAsWarn || sm_config.preDefTopo.fieldEnforcement.portGuid == FIELD_ENF_LEVEL_WARN) {
+			snprintf(expectedPortGuidPrint, sizeof(expectedPortGuidPrint),
+				" PortGUID: "FMT_U64" (Warn)", (validationPort ? validationPort->PortGUID : 0));
 			topop->preDefLogCounts.portGuidWarn++;
 		} else if (sm_config.preDefTopo.fieldEnforcement.portGuid == FIELD_ENF_LEVEL_ENABLED) {
-			sprintf(expectedPortGuidPrint, " PortGUID: "FMT_U64" (Quarantined)", expectedPortGuid);
+			snprintf(expectedPortGuidPrint, sizeof(expectedPortGuidPrint),
+				" PortGUID: "FMT_U64" (Quarantined)", (validationPort ? validationPort->PortGUID : 0));
 			topop->preDefLogCounts.portGuidQuarantined++;
 		}
 	}
 
-	if(sm_config.preDefTopo.logMessageThreshold != 0 &&
-			topop->preDefLogCounts.totalLogCount > sm_config.preDefTopo.logMessageThreshold)
+	if (sm_config.preDefTopo.logMessageThreshold != 0 &&
+		topop->preDefLogCounts.totalLogCount > sm_config.preDefTopo.logMessageThreshold) {
 		return;
+	}
 
 	// If something is getting quarantined, log it as an error, otherwise log it as a warning.
-	if(logError) {
+	if (logError) {
 		IB_LOG_ERROR_FMT(__func__, "Pre-Defined Topology: Found %s (NodeGUID: "FMT_U64", NodeType: %s,%sPortNum: %d)"
 			" connected to %s (NodeGUID: "FMT_U64", NodeType: %s,%sPortNum: %d)"
 			", but expected:%s%s"/* */"%s%s"/* */"%s%s",
-			foundNodeDesc, foundNodeGuid, foundNodeType, foundPortGuid ? foundPortGuidPrint : " ", foundPortNum,
-			baseNodeDesc, baseNodeGuid, baseNodeType, basePortGuid ? basePortGuidPrint : " ", basePortNum,
+			nodeDesc->NodeString, nodeInfo->NodeGUID, StlNodeTypeToText(nodeInfo->NodeType),
+				nodeInfo->PortGUID ? foundPortGuidPrint : " ", nodeInfo->u1.s.LocalPortNum,
+			sm_nodeDescString(cnp), cnp->nodeInfo.NodeGUID, StlNodeTypeToText(cnp->nodeInfo.NodeType),
+				cpp->portData->guid ? basePortGuidPrint : " ", cpp->index,
 			expectedNodeDescPrint, nodeDescViolation && (nodeGuidViolation || portGuidViolation) ? "," : "",
 			expectedNodeGuidPrint, nodeGuidViolation && portGuidViolation ? "," : "",
 			expectedPortGuidPrint, undefinedLinkPrint);
@@ -2045,8 +2053,10 @@ sm_log_predef_field_violation(Topology_t* topop, uint32_t logQuarantineReasons,
 		IB_LOG_WARN_FMT(__func__, "Pre-Defined Topology: Found %s (NodeGUID: "FMT_U64", NodeType: %s,%sPortNum: %d)"
 			" connected to %s (NodeGUID: "FMT_U64", NodeType: %s,%sPortNum: %d)"
 			", but expected:%s%s"/* */"%s%s"/* */"%s%s",
-			foundNodeDesc, foundNodeGuid, foundNodeType, foundPortGuid ? foundPortGuidPrint : " ", foundPortNum,
-			baseNodeDesc, baseNodeGuid, baseNodeType, basePortGuid ? basePortGuidPrint : " ", basePortNum,
+			nodeDesc->NodeString, nodeInfo->NodeGUID, StlNodeTypeToText(nodeInfo->NodeType),
+				nodeInfo->PortGUID ? foundPortGuidPrint : " ", nodeInfo->u1.s.LocalPortNum,
+			sm_nodeDescString(cnp), cnp->nodeInfo.NodeGUID, StlNodeTypeToText(cnp->nodeInfo.NodeType),
+				cpp->portData->guid ? basePortGuidPrint : " ", cpp->index,
 			expectedNodeDescPrint, nodeDescViolation && (nodeGuidViolation || portGuidViolation) ? "," : "",
 			expectedNodeGuidPrint, nodeGuidViolation && portGuidViolation ? "," : "",
 			expectedPortGuidPrint, undefinedLinkPrint);
@@ -2127,12 +2137,85 @@ find_exp_links_by_desc_and_port(FabricData_t * fdp,
 	return hits;
 }
 
+/*
+* Validates the SM NodeGuid and PortGuid.
+*
+* Checks the ExpectedSM link for matching NodeGuid and PortGuid
+*
+* @returns if the SM is authentic or not
+*/
+int sm_validate_predef_sm_field(Topology_t* topop, FabricData_t* pdtop, STL_NODE_INFO* nodeInfo, STL_NODE_DESCRIPTION* nodeDesc)
+{
+	FSTATUS status;
+	SmPreDefTopoXmlConfig_t *pdtCfg = &sm_config.preDefTopo;
+	int authentic = 1;
+
+	status = FindExpectedSMByNodeGuid(pdtop, nodeInfo->NodeGUID);
+	if(status != FSUCCESS) {
+		if(pdtCfg->fieldEnforcement.nodeGuid == FIELD_ENF_LEVEL_WARN) {
+			if(topop->preDefLogCounts.totalLogCount < pdtCfg->logMessageThreshold) {
+				IB_LOG_WARN_FMT(__func__, "Pre-Defined Topology: %s (NodeGUID: " FMT_U64") was not found in input file (Warn).",
+							(char*) nodeDesc->NodeString, nodeInfo->NodeGUID);
+				topop->preDefLogCounts.totalLogCount++;
+			}
+			topop->preDefLogCounts.nodeGuidWarn++;
+		}
+		else if(pdtCfg->fieldEnforcement.nodeGuid == FIELD_ENF_LEVEL_ENABLED) {
+			if(topop->preDefLogCounts.totalLogCount < pdtCfg->logMessageThreshold) {
+				IB_LOG_ERROR_FMT(__func__, "Pre-Defined Topology: %s (NodeGUID: " FMT_U64") was not found in input file (Quarantined).",
+							(char*) nodeDesc->NodeString, nodeInfo->NodeGUID);
+				topop->preDefLogCounts.totalLogCount++;
+			}
+			topop->preDefLogCounts.nodeGuidQuarantined++;
+			authentic = 0;
+		}
+		// If we have hit our log threshold, spit out a final message but then stop logging
+		if(topop->preDefLogCounts.totalLogCount == pdtCfg->logMessageThreshold) {
+			IB_LOG_WARN_FMT(__func__, "Pre-Defined Topology: Log message threshold of %d messages per sweep has been reached. Suppressing further topology mismatch information.", 
+							pdtCfg->logMessageThreshold);
+			topop->preDefLogCounts.totalLogCount++;
+		}
+	}
+
+	status = FindExpectedSMByPortGuid(pdtop, nodeInfo->PortGUID);
+	if(status != FSUCCESS) {
+		if(pdtCfg->fieldEnforcement.portGuid == FIELD_ENF_LEVEL_WARN) {
+			if(topop->preDefLogCounts.totalLogCount < pdtCfg->logMessageThreshold) {
+				IB_LOG_WARN_FMT(__func__, "Pre-Defined Topology: %s (PortGUID: "FMT_U64") was not found in input file (Warn).",
+							(char*) nodeDesc->NodeString, nodeInfo->PortGUID);
+				topop->preDefLogCounts.totalLogCount++;
+			}
+			topop->preDefLogCounts.portGuidWarn++;
+		}
+		else if(pdtCfg->fieldEnforcement.portGuid == FIELD_ENF_LEVEL_ENABLED) {
+			if(topop->preDefLogCounts.totalLogCount < pdtCfg->logMessageThreshold) {
+				IB_LOG_ERROR_FMT(__func__, "Pre-Defined Topology: %s (PortGUID: "FMT_U64") was not found in input file (Quarantined).",
+							(char*) nodeDesc->NodeString, nodeInfo->PortGUID);
+				topop->preDefLogCounts.totalLogCount++;
+			}
+			topop->preDefLogCounts.portGuidQuarantined++;
+			authentic = 0;
+		}
+		// If we have hit our log threshold, spit out a final message but then stop logging
+		if(topop->preDefLogCounts.totalLogCount == pdtCfg->logMessageThreshold) {
+			IB_LOG_WARN_FMT(__func__, "Pre-Defined Topology: Log message threshold of %d messages per sweep has been reached. Suppressing further topology mismatch information.", 
+							pdtCfg->logMessageThreshold);
+			topop->preDefLogCounts.totalLogCount++;
+		}
+	}
+
+	return authentic;
+}
+
+
 int
-sm_validate_predef_fields(Topology_t* topop, FabricData_t* pdtop, Node_t * cnp, Port_t * cpp, STL_NODE_INFO* nodeInfo, 
-							STL_NODE_DESCRIPTION* nodeDesc, uint32_t* quarantineReasons, STL_EXPECTED_NODE_INFO* expNodeInfo)
+sm_validate_predef_fields(Topology_t* topop, FabricData_t* pdtop, Node_t * cnp, Port_t * cpp,
+	STL_NODE_INFO* nodeInfo, STL_NODE_DESCRIPTION* nodeDesc, uint32_t* quarantineReasons,
+	STL_EXPECTED_NODE_INFO* expNodeInfo, boolean forceLogAsWarn)
 {
 	int authentic = 1;
 	ExpectedLink* validationLink;
+	PortSelector* validationPort;
 	uint8_t linkSide;
 	uint32_t logQuarantineReasons = 0x00000000;
 	SmPreDefTopoXmlConfig_t *pdtCfg = &sm_config.preDefTopo;
@@ -2145,41 +2228,7 @@ sm_validate_predef_fields(Topology_t* topop, FabricData_t* pdtop, Node_t * cnp, 
 	// If either of these are null, we're on the SM node looking at our self at the start of a sweep, so just make sure that we show up in the topology.
 	// The logging for this is done separately from sm_log_predef_violation as this is a weird edge case
 	if(cnp == NULL || cpp == NULL) {
-		ExpectedNode* currentNode = FindExpectedNodeByNodeGuid(pdtop, nodeInfo->NodeGUID);
-		if(currentNode == NULL) {
-			if(pdtCfg->fieldEnforcement.nodeGuid == FIELD_ENF_LEVEL_WARN) {
-				if(pdtCfg->logMessageThreshold != 0 && 
-						topop->preDefLogCounts.totalLogCount < pdtCfg->logMessageThreshold) {
-					IB_LOG_WARN_FMT(__func__, "Pre-Defined Topology: %s (NodeGUID: " FMT_U64 ", PortGUID: "FMT_U64") was not found in input file (Warn).",
-									(char*) nodeDesc->NodeString, nodeInfo->NodeGUID, nodeInfo->PortGUID);
-
-					topop->preDefLogCounts.totalLogCount++;
-				}
-
-				topop->preDefLogCounts.nodeGuidWarn++;
-			}
-			else if(pdtCfg->fieldEnforcement.nodeGuid == FIELD_ENF_LEVEL_ENABLED) {
-				if(pdtCfg->logMessageThreshold != 0 && 
-						topop->preDefLogCounts.totalLogCount < pdtCfg->logMessageThreshold) {
-					IB_LOG_ERROR_FMT(__func__, "Pre-Defined Topology: %s (NodeGUID: " FMT_U64 ", PortGUID: "FMT_U64") was not found in input file (Quarantined).",
-									(char*) nodeDesc->NodeString, nodeInfo->NodeGUID, nodeInfo->PortGUID);
-
-					topop->preDefLogCounts.totalLogCount++;
-				}
-
-				topop->preDefLogCounts.nodeGuidQuarantined++;
-				authentic = 0;
-			}
-
-			// If we have hit our log threshold, spit out a final message but then stop logging
-			if(pdtCfg->logMessageThreshold != 0 &&
-					topop->preDefLogCounts.totalLogCount == pdtCfg->logMessageThreshold) {
-				IB_LOG_WARN_FMT(__func__, "Pre-Defined Topology: Log message threshold of %d messages per sweep has been reached. Suppressing further topology mismatch information.", 
-									pdtCfg->logMessageThreshold);
-				topop->preDefLogCounts.totalLogCount++;
-			}
-		}
-
+		authentic = sm_validate_predef_sm_field(topop, pdtop, nodeInfo, nodeDesc);
 		return authentic;
 	}
 
@@ -2226,6 +2275,13 @@ sm_validate_predef_fields(Topology_t* topop, FabricData_t* pdtop, Node_t * cnp, 
 		}
 	}
 
+	//Found a potential match, now verify it is connected to correct PortNum on other side
+	if(validationLink) {
+		validationPort = linkSide == 1 ? validationLink->portselp2 : validationLink->portselp1;
+		if(validationPort->PortNum != nodeInfo->u1.s.LocalPortNum)
+			validationLink = NULL;
+	}
+
 	if (validationLink == NULL) {
 		if(pdtCfg->fieldEnforcement.undefinedLink == FIELD_ENF_LEVEL_DISABLED)
 			return authentic;
@@ -2236,13 +2292,12 @@ sm_validate_predef_fields(Topology_t* topop, FabricData_t* pdtop, Node_t * cnp, 
 			authentic = 0;
 		}
 			
-		sm_log_predef_field_violation(topop, logQuarantineReasons, sm_nodeDescString(cnp), StlNodeTypeToText(cnp->nodeInfo.NodeType), cnp->nodeInfo.NodeGUID, cpp->portData->guid, cpp->index,
-										(char*) nodeDesc->NodeString, StlNodeTypeToText(nodeInfo->NodeType), nodeInfo->NodeGUID, nodeInfo->PortGUID, nodeInfo->u1.s.LocalPortNum, NULL, 0, 0);
+		sm_log_predef_field_violation(topop, logQuarantineReasons, forceLogAsWarn,
+			cnp, cpp, nodeInfo, nodeDesc, NULL);
 
 		return authentic;
 	}
 
-	PortSelector* validationPort = linkSide == 1 ? validationLink->portselp2 : validationLink->portselp1;
 
 	// NodeGUID Validation
 	if(pdtCfg->fieldEnforcement.nodeGuid != FIELD_ENF_LEVEL_DISABLED && nodeInfo->NodeGUID != validationPort->NodeGUID) {
@@ -2289,12 +2344,187 @@ sm_validate_predef_fields(Topology_t* topop, FabricData_t* pdtop, Node_t * cnp, 
 		logQuarantineReasons |= STL_QUARANTINE_REASON_TOPO_PORT_GUID;
 	}
 
-	if(logQuarantineReasons)
-		sm_log_predef_field_violation(topop, logQuarantineReasons, sm_nodeDescString(cnp),  StlNodeTypeToText(cnp->nodeInfo.NodeType), cnp->nodeInfo.NodeGUID, cpp->portData->guid, cpp->index,
-									(char*) nodeDesc->NodeString,  StlNodeTypeToText(nodeInfo->NodeType), nodeInfo->NodeGUID, nodeInfo->PortGUID, nodeInfo->u1.s.LocalPortNum,
-									validationPort->NodeDesc, validationPort->NodeGUID, validationPort->PortGUID);
+	if(logQuarantineReasons) {
+		sm_log_predef_field_violation(topop, logQuarantineReasons, forceLogAsWarn,
+			cnp, cpp, nodeInfo, nodeDesc, validationPort);
+	}
 
 	return authentic;
+}
+
+//Authenticates node described by neighborInfo and neighborPI, which is being discovered 
+//through cnp and cpp. cnp and cpp should always be a trusted node. As called by sm_setup_node,
+//cnp and cpp will always be either a switch or our SM node.
+static int sm_stl_authentic_node(Topology_t *tp, Node_t *cnp, Port_t *cpp,
+                                            STL_NODE_INFO *neighborInfo, STL_PORT_INFO *neighborPI,
+											uint32* quarantineReasons) {
+    int authentic = 1;
+	uint64 expectedPortGuid;
+
+	if(quarantineReasons == NULL){
+		return 0;
+	}
+
+	//Verify node MTU not less than 2048
+	if(neighborPI) {
+		if (neighborPI->MTU.Cap < IB_MTU_2048) {
+			*quarantineReasons |= STL_QUARANTINE_REASON_SMALL_MTU_SIZE;
+			authentic = 0;
+			return (authentic);
+		}
+#ifdef USE_FIXED_SCVL_MAPS
+		// Verify port supports min number required VLs
+		// This test against LocalPortNum should likely be against NeighborPortNum instead, but as this code is
+		// only called when communicating directly across the LocalPortNum link to this node, the point is moot
+		if ((neighborInfo->NodeType != NI_TYPE_SWITCH) ||
+			 ((neighborInfo->NodeType == NI_TYPE_SWITCH) && (neighborPI->LocalPortNum!=0)) ) {
+			if (neighborPI->VL.s2.Cap < sm_config.min_supported_vls) {
+				*quarantineReasons |= STL_QUARANTINE_REASON_VL_COUNT;
+				authentic = 0;
+				return (authentic);
+			}
+		}
+#endif
+	}
+
+    if (!sm_config.sma_spoofing_check) 
+		return authentic;
+
+	//if cnp and cpp are null, then we are at the first node (our own sm)
+	//in discovery and have nothing to verify
+	if(!(cnp && cpp)) 
+		return authentic;
+
+	//If device is appliance as configued in opafm.xml, we bypass security checks
+	if(sm_stl_appliance(cpp->portData->portInfo.NeighborNodeGUID))
+		return authentic;
+
+	if(!sm_stl_port(cpp))
+		return authentic;
+
+
+	//This should never happen, but if cpp is unenhanced SWP0, then it doesn't support these checks
+	//so we can bail out.
+	if(cnp->nodeInfo.NodeType == NI_TYPE_SWITCH && cpp->index == 0 && !cnp->switchInfo.u2.s.EnhancedPort0)
+		return authentic;
+
+	if(cpp->portData->portInfo.NeighborNodeGUID != neighborInfo->NodeGUID ||
+		StlNeighNodeTypeToNodeType(cpp->portData->portInfo.PortNeighborMode.NeighborNodeType) != neighborInfo->NodeType ||
+		(neighborPI && cpp->portData->portInfo.NeighborPortNum != neighborPI->LocalPortNum) || 
+		cpp->portData->portInfo.NeighborPortNum != neighborInfo->u1.s.LocalPortNum) {
+
+		authentic = 0;
+		*quarantineReasons |= STL_QUARANTINE_REASON_SPOOF_GENERIC;
+	}
+	
+	switch (neighborInfo->NodeType) {
+	case NI_TYPE_SWITCH:
+		if (sm_config.neighborFWAuthenEnable && cpp->portData->portInfo.PortNeighborMode.NeighborFWAuthenBypass != 0) {
+			authentic = 0;
+			*quarantineReasons |= STL_QUARANTINE_REASON_SPOOF_GENERIC;
+		}
+		break;
+
+	case NI_TYPE_CA:
+		expectedPortGuid = NodeGUIDtoPortGUID(cpp->portData->portInfo.NeighborNodeGUID, cpp->portData->portInfo.NeighborPortNum);
+		// for Gen-1 the HFI is never trusted, no need to check the
+		// portInfo.PortNeighborMode.NeighborFWAuthenBypass field 
+		if (expectedPortGuid != neighborInfo->PortGUID)	 {
+			authentic = 0;
+			*quarantineReasons |= STL_QUARANTINE_REASON_SPOOF_GENERIC;
+		}
+		// During discovery, if spoof check security is enabled, and we discover a HFI node with a LID that doesn't match
+		// the LID the switch thinks the HFI node has, it indicates that HFI has manually tinkered with its LID.
+		//
+		// The node should be quarantined because it appears the user is trying to spoof the fabric.
+		//
+		// This is only possible when the port is active, and security is enabled so the switch knows the neighbor LID.
+		// If the port is down, the switch forgets the neighbor LID.
+		//
+		// Exception when switchport LID is permissive, and this switchport is not doing SLID checks.
+		if (cnp->nodeInfo.NodeType == NI_TYPE_SWITCH && cpp->portData->portInfo.PortStates.s.PortState == IB_PORT_ACTIVE) {
+			if (cpp->portData->portInfo.LID != STL_LID_PERMISSIVE
+				&& neighborPI != NULL && cpp->portData->portInfo.LID != neighborPI->LID) {
+				authentic = 0;
+				*quarantineReasons |= STL_QUARANTINE_REASON_SPOOF_GENERIC;
+			}
+		}
+		break;
+
+	default:
+		authentic = 0;
+		*quarantineReasons |= STL_QUARANTINE_REASON_SPOOF_GENERIC;
+		break;
+	}	
+
+	return (authentic);
+}
+
+
+static void sm_stl_quarantine_node(Topology_t *tp, Node_t *cnp, Port_t *cpp, Node_t *qnp, uint32 quarantineReasons, STL_EXPECTED_NODE_INFO* expNodeInfo, const STL_PORT_INFO *pQPI) {
+    QuarantinedNode_t * qnodep;
+
+    // allocate memory for quarantined node list entry
+    if (vs_pool_alloc(&sm_pool, sizeof(QuarantinedNode_t), (void *)&qnodep)) {
+        IB_LOG_WARN0("sm_setup_node: No memory for quarantined node entry"); 
+    } else {
+        // add to SM/SA repository quarantined link list used by the SA
+        memset(qnodep, 0, sizeof(QuarantinedNode_t));
+        qnodep->authenticNode = cnp;
+        qnodep->authenticNodePort = cpp;
+        qnodep->quarantinedNode = qnp;
+		qnodep->quarantineReasons = quarantineReasons;
+		memcpy(&qnodep->expNodeInfo, expNodeInfo, sizeof(STL_EXPECTED_NODE_INFO));
+        Node_Enqueue(tp, qnodep, quarantined_node_head, quarantined_node_tail);
+    }
+
+	if (cpp)	
+		cpp->portData->neighborQuarantined = 1;
+
+    // add to SM/SA repository quarantined map used by the SM
+    qnp->index = tp->num_quarantined_nodes++;
+    if (cpp && cl_qmap_insert(tp->quarantinedNodeMap,
+                       cpp->portData->portInfo.NeighborNodeGUID, // nodeGUID may be falsified, check with neighbor.
+                       &qnp->mapQuarantinedObj.item) == &qnp->mapQuarantinedObj.item) {
+        cl_qmap_set_obj(&qnp->mapQuarantinedObj, qnp);
+    }
+
+	if (pQPI) {
+		// Temporarily log an error until users become familar with this limitation (VL or MTU).
+		if (quarantineReasons & STL_QUARANTINE_REASON_VL_COUNT) {
+			IB_LOG_ERROR_FMT(__func__, "Node:%s guid:"FMT_U64" type:%s port:%d. Supported VLs(%d) too small(needs => %d). Quarantined.",
+			sm_nodeDescString(qnp), qnp->nodeInfo.NodeGUID, StlNodeTypeToText(qnp->nodeInfo.NodeType), pQPI->LocalPortNum,
+			pQPI->VL.s2.Cap, sm_config.min_supported_vls);
+			return;
+		}
+		if (quarantineReasons & STL_QUARANTINE_REASON_SMALL_MTU_SIZE) {
+			IB_LOG_ERROR_FMT(__func__, "Node:%s guid:"FMT_U64" type:%s port:%d. Supported MTU(%s) too small(needs => 2048). Quarantined.",
+			sm_nodeDescString(qnp), qnp->nodeInfo.NodeGUID, StlNodeTypeToText(qnp->nodeInfo.NodeType), pQPI->LocalPortNum,
+			IbMTUToText(pQPI->MTU.Cap));
+			return;
+		}
+	}
+
+	if (cpp) {
+		IB_LOG_ERROR_FMT(__func__, "Neighbor of %s %s NodeGUID "FMT_U64" port %d could not be authenticated. Reports: "
+						"%s %s Guid "FMT_U64" Port %d: Actual: %s Guid "FMT_U64", Port %d)",
+						StlNodeTypeToText(cnp->nodeInfo.NodeType),
+						sm_nodeDescString(cnp), cnp->nodeInfo.NodeGUID, cpp->index,
+						//reports
+						StlNodeTypeToText(qnp->nodeInfo.NodeType),
+						sm_nodeDescString(qnp), qnp->nodeInfo.NodeGUID,
+						qnp->nodeInfo.u1.s.LocalPortNum,
+						//actual
+						OpaNeighborNodeTypeToText(cpp->portData->portInfo.PortNeighborMode.NeighborNodeType),
+						cpp->portData->portInfo.NeighborNodeGUID,
+						cpp->portData->portInfo.NeighborPortNum);
+		IB_LOG_ERROR_FMT(__func__, "Authentication expected from the neighbor guid "FMT_U64" neighbor node type %s",
+						cpp->portData->portInfo.NeighborNodeGUID,
+						OpaNeighborNodeTypeToText(cpp->portData->portInfo.PortNeighborMode.NeighborNodeType));
+	} else {
+		// Yes, the SM can fail authentication. (Failure in validation of pre-defined topology).
+		IB_LOG_ERROR_FMT(__func__, "SM's port failed authentication.");
+	}
 }
 
 
@@ -2307,7 +2537,7 @@ sm_validate_predef_fields(Topology_t* topop, FabricData_t* pdtop, Node_t * cnp, 
 // cpp = current port.
 // path = DR path to current node
 Status_t
-sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * cpp, uint8_t * path, uint8_t * bufp)
+sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * cpp, uint8_t * path)
 {
 	int i, portBytes;
 	int new_node;
@@ -2484,7 +2714,10 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 		// If the node is authentic and pre-defined topology is enabled, verify the node against the
 		// input topology.
 		if(authenticNode && sm_config.preDefTopo.enabled) {
-			authenticNode = sm_validate_predef_fields(topop, pdtop, cnp, cpp, &nodeInfo, &nodeDesc, &quarantineReasons, &expNodeInfo);
+			// If the Connected Port is Armed or Active, the port is going to be bounced so, force log only as Warn.
+			boolean forceLogAsWarn = (conPIp->PortStates.s.PortState > IB_PORT_INIT) ? TRUE : FALSE;
+			authenticNode = sm_validate_predef_fields(topop, pdtop, cnp, cpp,
+				&nodeInfo, &nodeDesc, &quarantineReasons, &expNodeInfo, forceLogAsWarn);
 		}
 		Node_Create(topop, nodep, nodeInfo, nodeInfo.NodeType, nodeInfo.NumPorts + 1, nodeDesc,
 					authenticNode);
@@ -2497,7 +2730,8 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 
 		memcpy((void *) nodep->path, (void *) path, 64);
 		// if node fails authentication, then quarantine the attacker node.
-		if (!authenticNode) {		
+		if (!authenticNode) {
+			status = VSTATUS_BAD;
 			if(cpp && cnp) {
 				// Bounce any ports on node which are Armed or Active
 				if(cpp->portData->portInfo.PortNeighborMode.NeighborNodeType == STL_NEIGH_NODE_TYPE_SW) {
@@ -2512,12 +2746,35 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 				} else { // HFI
 					//node type may be spoofed so set it to correct value:
 					nodep->nodeInfo.NodeType = NI_TYPE_CA;
+					// if it is a HFI, the max num of ports is 1
+					nodep->nodeInfo.NumPorts = 1;
 					if(conPIp->PortStates.s.PortState > IB_PORT_INIT) {
-						sm_bounce_link(topop, cnp, cpp);
+						status = sm_bounce_link(topop, cnp, cpp);
 					}
 				}
 			}
-			(void) sm_stl_quarantine_node(topop, cnp, cpp, nodep, quarantineReasons, &expNodeInfo, conPIp);
+			if (status != VSTATUS_OK) {
+				// Quarantine Node only if the bounce did not happen, as the bounce
+				//  should set the port to DOWN and should be picked up and rechecked
+				//  for quarantine Next sweep when it is back in INIT
+				(void)sm_stl_quarantine_node(topop, cnp, cpp, nodep, quarantineReasons, &expNodeInfo, conPIp);
+			} else {
+				if (cpp && cnp) {
+					IB_LOG_WARN_FMT(__func__, "Neighbor of %s %s NodeGUID "FMT_U64" port %d could not be authenticated. Reports: "
+						"%s %s Guid "FMT_U64" Port %d: Actual: %s Guid "FMT_U64", Port %d)",
+						StlNodeTypeToText(cnp->nodeInfo.NodeType),
+						sm_nodeDescString(cnp), cnp->nodeInfo.NodeGUID, cpp->index,
+						//reports
+						StlNodeTypeToText(nodep->nodeInfo.NodeType),
+						sm_nodeDescString(nodep), nodep->nodeInfo.NodeGUID,
+						nodep->nodeInfo.u1.s.LocalPortNum,
+						//actual
+						OpaNeighborNodeTypeToText(cpp->portData->portInfo.PortNeighborMode.NeighborNodeType),
+						cpp->portData->portInfo.NeighborNodeGUID,
+						cpp->portData->portInfo.NeighborPortNum);
+					IB_LOG_WARN_FMT(__func__, "Link was bounced instead of quarantined to disable potentially unsecure traffic.");
+				}
+			}
 			IB_EXIT(__func__, VSTATUS_BAD);
 			return (VSTATUS_BAD);
 		}
@@ -2572,6 +2829,7 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 				}
 			}
 			topop->num_sws++;
+			topop->max_sws = MAX(topop->max_sws, nodep->swIdx + 1);
 			bitset_set(&new_switchesInUse, nodep->swIdx);
 
 		}
@@ -2619,7 +2877,8 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 		// If the node is authentic and pre-defined topology is enabled, verify the node against the
 		// input topology.
 		if(authenticNode && sm_config.preDefTopo.enabled) {
-			authenticNode = sm_validate_predef_fields(topop, pdtop, cnp, cpp, &nodeInfo, &nodeDesc, &quarantineReasons, &expNodeInfo);
+			authenticNode = sm_validate_predef_fields(topop, pdtop, cnp, cpp,
+				&nodeInfo, &nodeDesc, &quarantineReasons, &expNodeInfo, FALSE);
 		}
 
 		if (!authenticNode) {
@@ -2628,7 +2887,7 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 			// get the node description from this attacker node, for it too may
 			// have been spoofed
 			if (SM_Get_NodeDesc(fd_topology, 0, path, &nodeDesc) != VSTATUS_OK)
-				strcpy((char *) nodeDesc.NodeString, "Not Available");
+				cs_strlcpy((char *) nodeDesc.NodeString, "Not Available", STL_NODE_DESCRIPTION_ARRAY_SIZE);
 
 			// create new node as a placeholder for the attacker node
 			Node_Create(topop, attackerNodep, nodeInfo, nodeInfo.NodeType,
@@ -2700,6 +2959,42 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 			IB_EXIT(__func__, VSTATUS_BAD);
 			return (VSTATUS_BAD);
 		}
+	}
+
+	if (!new_node) {
+		// This port may have failed to discover for various reasons (e.g.
+		// a failed Get(PortInfo)), or may have been legitimately DOWN at
+		// the time of discovery.
+		if (portp->state <= IB_PORT_DOWN) {
+			IB_LOG_INFINI_INFO_FMT(__func__,
+				"Discovering node %s nodeGuid "FMT_U64" via inbound port %u which previously failed discovery.",
+				sm_nodeDescString(nodep), nodep->nodeInfo.NodeGUID, portNumber);
+			IB_EXIT(__func__, VSTATUS_BAD);
+			return VSTATUS_BAD;
+		}
+
+		conPIp = &portp->portData->portInfo;
+	}
+
+	// There can be a race condition where the state of local port of the
+	// connected node doesn't match its neighbor's because of the time
+	// that elapsed between getting the neighbor's info and getting this
+	// info. This can lead to inconsistencies programming the fabric.
+	// If this happens, mark the link as down, we'll fix it in the next
+	// sweep.
+	if (cpp &&
+		((cpp->state == IB_PORT_ACTIVE && conPIp->PortStates.s.PortState <= IB_PORT_INIT  ) ||
+		 (cpp->state <= IB_PORT_INIT   && conPIp->PortStates.s.PortState == IB_PORT_ACTIVE)))
+	{
+		IB_LOG_INFINI_INFO_FMT(__func__, "Port states mismatched for"
+			" port[%d] of Node "FMT_U64 ":%s, connected to port[%d]"
+			" of Node "FMT_U64 ":%s.", cpp->index, cnp->nodeInfo.NodeGUID,
+			sm_nodeDescString(cnp), portNumber, nodeInfo.NodeGUID,
+			nodeDesc.NodeString);
+		// topology_discovery() will mark the link down
+		sm_request_resweep(0, 0, SM_SWEEP_REASON_ROUTING_FAIL);
+		IB_EXIT(__func__, VSTATUS_BAD);
+		return VSTATUS_BAD;
 	}
 
 	if (nodep->nodeInfo.NodeType == NI_TYPE_SWITCH) {
@@ -2774,25 +3069,18 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 		}
 	}
 
-
 	// We may have seen this node before, but not had both sides of the link set up
 	// properly to evaluate link policy, so check again now.
 	if(new_node == 0) {
 		if(!sm_valid_port(portp))
 			return(VSTATUS_BAD);
+
 		if (nodep->nodeInfo.NodeType != NI_TYPE_SWITCH
 			|| (nodep->nodeInfo.NodeType == NI_TYPE_SWITCH
 			&& (portp->index > 0))) {	
 		
 			if(sm_verifyPortSpeedAndWidth(topop, nodep, portp) != VSTATUS_OK) {
-			
-				portp->state = IB_PORT_DOWN;
-				Port_t *con_portp = sm_find_port(topop, portp->nodeno, portp->portno);
-
-				//now mark down connected port as well.
-				if(sm_valid_port(con_portp))
-					con_portp->state = IB_PORT_DOWN;
-
+				sm_mark_link_down(topop, portp);
 				return(VSTATUS_BAD);
 			}
 		}
@@ -2800,14 +3088,27 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 
 
 	if (nodep->nodeInfo.NodeType == NI_TYPE_SWITCH) {
-		if (cnp && cpp &&
-			(cnp->nodeInfo.NodeType == NI_TYPE_SWITCH) && (cpp->state == IB_PORT_INIT)) {
-			/* 
-			   IB_LOG_INFINI_INFO_FMT(__func__, "Switch reporting port change, node %s 
-			   guid "FMT_U64" link to node %s "FMT_U64" port %d", sm_nodeDescString(nodep),
-			   nodep->nodeInfo.NodeGUID, sm_nodeDescString(cnp), cnp->nodeInfo.NodeGUID,
-			   cpp->index); */
-			topology_changed = 1;
+		if (cnp && cpp && (cpp->state == IB_PORT_INIT)) {
+			if (cnp->nodeInfo.NodeType == NI_TYPE_SWITCH) {
+				/* 
+			   	IB_LOG_INFINI_INFO_FMT(__func__, "Switch reporting port change, node %s 
+			   	guid "FMT_U64" link to node %s "FMT_U64" port %d", sm_nodeDescString(nodep),
+			   	nodep->nodeInfo.NodeGUID, sm_nodeDescString(cnp), cnp->nodeInfo.NodeGUID,
+			   	cpp->index); */
+
+				topology_changed = 1;
+			} else if (!topology_changed) {
+				// Check for case when new HFI port was linked to an ISL on the last sweep.
+				oldnodep = sm_find_guid(&old_topology, cnp->nodeInfo.NodeGUID);
+				if (oldnodep) {
+					oldportp = sm_get_port(oldnodep, cpp->index);
+					if (sm_valid_port(oldportp) &&
+						oldportp->state >= IB_PORT_INIT &&
+						oldportp->portData->isIsl) {
+						topology_changed = 1;
+					}
+				}
+			}
 		}
 		// 
 		// If we have already seen this node, just return.
@@ -2957,7 +3258,8 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 			}
 		} else {
 			if (portp->portData->guid) {
-				continue;		/* already seen this port, don't get its portInfo again */
+				/* already seen this port, don't get its portInfo again */
+				goto cleanup_down_ports;
 			}
 		}
 
@@ -2989,7 +3291,7 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 						topology_saveLdr(&sm_newTopology, nodep->nodeInfo.NodeGUID, oldportp);
 					}
 				}
-				portp->state = IB_PORT_DOWN;
+				sm_mark_link_down(topop, portp);
 				goto cleanup_down_ports;
 			}
 
@@ -3011,7 +3313,7 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 						topology_saveLdr(&sm_newTopology, nodep->nodeInfo.NodeGUID, oldportp);
 					}
 				}
-				portp->state = IB_PORT_DOWN;
+				sm_mark_link_down(topop, portp);
 				goto cleanup_down_ports;
 			}
 
@@ -3025,7 +3327,6 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 				status = SM_Get_PortInfo(fd_topology, (1 << 24) | amod | STL_SM_CONF_START_ATTR_MOD, path, &portInfo); 
 
 				if (status != VSTATUS_OK) {	// fill in Port[i]
-					portp->state = IB_PORT_DOWN;	// used to be PORT_NOT_MINE
 					/* indicate a fabric change has been detected to insure paths-lfts-etc are
 					   recalculated */
 					if (topology_passcount && nodep->nodeInfo.NodeType == NI_TYPE_SWITCH)
@@ -3034,35 +3335,9 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 									"Failed to get PortInfo from NodeGUID " FMT_U64
 									" [%s] Port %d; Ignoring port!", nodep->nodeInfo.NodeGUID,
 									sm_nodeDescString(nodep), portp->index);
-					continue;
+					sm_mark_link_down(topop, portp);
+					goto cleanup_down_ports;
 				}
-			}
-
-			// There can be a race condition where the state of local port of the
-			// connected node doesn't match its neighbor's because of the time
-			// that elapsed between getting the neighbor's info and getting this
-			// info. This can lead to inconsistencies programming the fabric.
-			// If this happens, mark the link as down, we'll fix it in the next
-			// sweep.
-			if (cpp && cpp->portno == portp->index &&
-				((cpp->state == IB_PORT_ACTIVE && 
-				portInfo.PortStates.s.PortState <= IB_PORT_INIT) ||
-				(cpp->state <= IB_PORT_INIT && 
-				portInfo.PortStates.s.PortState == IB_PORT_ACTIVE))) {
-				IB_LOG_INFINI_INFO_FMT(__func__, "Port states mismatched for"
-					" port[%d] of Node "FMT_U64 ":%s, connected to port[%d]"
-					" of Node "FMT_U64 ":%s.", cpp->index, cnp->nodeInfo.NodeGUID,
-					sm_nodeDescString(cnp), portNumber, nodeInfo.NodeGUID,
-					nodeDesc.NodeString);
-
-				// Mark both sides of the link as down.
-				portp->state = IB_PORT_DOWN;
-				cpp->state = IB_PORT_DOWN;
-				if (cnp) DECR_PORT_COUNT(sm_topop, cnp);
-
-				sm_request_resweep(0, 0, SM_SWEEP_REASON_UNEXPECTED_BOUNCE);
-				IB_EXIT(__func__, VSTATUS_BAD);
-				return (VSTATUS_BAD);
 			}
 		}
 
@@ -3074,8 +3349,8 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 							 portInfo.DiagCode.s.UniversalDiagCode);
 
 			if (portInfo.DiagCode.s.UniversalDiagCode == DIAG_HARD_ERROR) {
-				portp->state = IB_PORT_DOWN;
-				continue;
+				sm_mark_link_down(topop, portp);
+				goto cleanup_down_ports;
 			}
 		}
 
@@ -3097,9 +3372,6 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 		portp->portData->lmc = portInfo.s1.LMC;
 		portp->portData->mtuSupported = portInfo.MTU.Cap;
 		portp->state = portInfo.PortStates.s.PortState;
-		if (portInfo.PortStates.s.PortState > IB_PORT_DOWN) {
-			bitset_set(&nodep->activePorts, portp->index);
-		}
 
 		oldnodep = sm_find_guid(&old_topology, nodep->nodeInfo.NodeGUID);
 		if (oldnodep) {
@@ -3125,15 +3397,24 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 				// Copy wire depth from old port data.
 				portp->portData->initWireDepth = oldportp->portData->initWireDepth;
 
-				if(nodep->nodeInfo.NodeType == NI_TYPE_CA && portp->portData->lid != oldportp->portData->lid) {
-					IB_LOG_WARN_FMT(__func__,
-									"Node %s (GUID: " FMT_U64 ") attempted to change LID on port %d from 0x%x to 0x%x. Resetting to previous LID.",
-									sm_nodeDescString(nodep), nodep->nodeInfo.NodeGUID,
-									portp->index, oldportp->portData->lid, portp->portData->lid);
-
+				if(nodep->nodeInfo.NodeType == NI_TYPE_CA && 
+					portp->portData->lid != oldportp->portData->lid) {
+					/* Don't warn about ports that merely bounced since the last sweep. */
+					if (portp->state > IB_PORT_INIT || portp->portData->lid != 0) {
+						IB_LOG_WARN_FMT(__func__,
+							"Node %s (GUID: " FMT_U64 ") attempted to change"
+							" LID on port %d from 0x%x to 0x%x."
+							" Resetting to previous LID.",
+							sm_nodeDescString(nodep), nodep->nodeInfo.NodeGUID,
+							portp->index, oldportp->portData->lid, portp->portData->lid);
+					}
 					portp->portData->lid = oldportp->portData->lid;
 					portp->portData->dirty.portInfo=1;
 				}
+
+				// reregistration stays pending across sweeps until success or state change
+				portp->portData->reregisterPending =
+					portp->state == IB_PORT_ACTIVE && oldportp->portData->reregisterPending;
 			}
 		}
 
@@ -3161,24 +3442,17 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 			&& (portp->index > 0))) {	
 		
 			if(sm_verifyPortSpeedAndWidth(topop, nodep, portp) != VSTATUS_OK) {
-			
-				portp->state = IB_PORT_DOWN;
-				Port_t *con_portp = sm_find_port(topop, portp->nodeno, portp->portno);
-
-
-				//now mark down connected port as well.
-				if(sm_valid_port(con_portp))
-					con_portp->state = IB_PORT_DOWN;
-
+				sm_mark_link_down(topop, portp);
 				goto cleanup_down_ports;
 			}
 		}
 
 
 		if (portInfo.PortStates.s.PortState == IB_PORT_INIT) {
-				bitset_set(&nodep->initPorts, portp->index);
-			if (mark_new_endnode(nodep) != VSTATUS_OK)
-				topology_changed = 1;
+			if (nodep->nodeInfo.NodeType != NI_TYPE_SWITCH) {
+				if (mark_new_endnode(nodep) != VSTATUS_OK)
+					topology_changed = 1;
+			}
 				
 			// Update this port's list of LinkDownReasons if there is a new one
 			if(portInfo.LinkDownReason != STL_LINKDOWN_REASON_NONE ||
@@ -3198,6 +3472,8 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 		portp->portData->rate = linkWidthToRate(portp->portData);
 
 		portp->portData->lsf = sm_GetLsf(&portInfo);
+
+		portp->portData->portSpeed = sm_GetSpeed(portp->portData);
 
 		if ((nodep->index == 0) && (portp->index == sm_config.port)) {
 			if ((sm_lid != RESERVED_LID) && (sm_lid != PERMISSIVE_LID)) {
@@ -3273,15 +3549,21 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 	  cleanup_down_ports:
 		/* keep track of live ports */
 		if (portp->state >= IB_PORT_INIT) {
+			bitset_set(&nodep->activePorts, portp->index);
 			INCR_PORT_COUNT(topop, nodep);
+
+			if (portp->state == IB_PORT_INIT) {
+				bitset_set(&nodep->initPorts, portp->index);
+				nodep->portsInInit = nodep->initPorts.nset_m;
+			}
+
 			// if applicable, take it out of the list of removed ports
 			(void) sm_removedEntities_clearPort(nodep, portp);
-
 		} else if (nodep->nodeInfo.NodeType == NI_TYPE_SWITCH) {
 			if (sm_dynamic_port_alloc() && !portp->portData->linkPolicyViolation) {
 				/* free port record associated with the DOWN ports of switches */
 				/* except when port is only down administatively */
-				sm_free_port(portp);
+				sm_free_port(topop, portp);
 			}
 			if (!topology_changed) {
 				if (!oldnodep) {
@@ -3312,10 +3594,6 @@ sm_setup_node(Topology_t * topop, FabricData_t * pdtop, Node_t * cnp, Port_t * c
 	if (nodep->nodeInfo.NodeType == NI_TYPE_SWITCH) {
 		start_port = 1;
 	}
-
-	status = sm_get_buffer_control_tables(fd_topology, nodep, start_port, end_port);
-
-	nodep->portsInInit = nodep->initPorts.nset_m;
 
 	if (new_node == 1) {
 		// initialize DGs for the node
@@ -3452,10 +3730,9 @@ sm_find_node(Topology_t * topop, int32_t nodeno)
 
 
 Node_t *
-sm_find_node_by_path(Topology_t * topop, uint8_t * path)
+sm_find_node_by_path(Topology_t * topop, Node_t * head, uint8_t * path)
 {
 	uint8_t pathIndex;
-	int32_t nextNodeNumber;
         Node_t *node_ptr;
         
 	IB_ENTER(__func__, topop, path, 0, 0);
@@ -3469,24 +3746,19 @@ sm_find_node_by_path(Topology_t * topop, uint8_t * path)
 		return NULL;
 	}
        
-	node_ptr = topop->node_head;
+	node_ptr = head ? head : topop->node_head;
 	if (!node_ptr) {
 		IB_EXIT(__func__, NULL);
 		return NULL;
 	}
 	for (pathIndex=1; pathIndex<=path[0]; pathIndex++) {
-		nextNodeNumber = node_ptr->port[ path[pathIndex] ].nodeno;
-		if (nextNodeNumber < 0 || nextNodeNumber >= topop->num_nodes) {
+		Port_t * portp = sm_get_port(node_ptr, path[pathIndex]);
+		if (!portp) {
 			IB_EXIT(__func__, NULL);
 			return NULL;
 		}
-		if (!topop->nodeArray) {
-			IB_EXIT(__func__, NULL);
-			return NULL;
-		}
-		if (topop->nodeArray[nextNodeNumber]) {
-			node_ptr = topop->nodeArray[nextNodeNumber];
-		} else {
+		node_ptr = sm_find_node(topop, portp->nodeno);
+		if (!node_ptr) {
 			IB_EXIT(__func__, NULL);
 			return NULL;
 		}
@@ -4138,7 +4410,7 @@ sm_initialize_port(Topology_t * topop, Node_t * nodep, Port_t * portp, int use_l
 	SMLinkPolicyXmlConfig_t  sm_link_policy;
 
 	// Setup the port MTU per VL map.
-	int vl, i, vf, mtu, activeVf;
+	int vl, i, vf, mtu;
 	VlVfMap_t vlvfmap;
 
 	if (use_lr_dr_mix) {
@@ -4217,9 +4489,7 @@ sm_initialize_port(Topology_t * topop, Node_t * nodep, Port_t * portp, int use_l
 #endif 
 
 	// If we're configuring a pre-configured fabric and we have SCAE disabled, make sure to disable it on every port
-	if(portp->portData->portInfo.PortMode.s.IsActiveOptimizeEnabled == 1 && 
-		(sm_config.switchCascadeActivateEnable == SCAE_DISABLED || 
-		(sm_config.switchCascadeActivateEnable == SCAE_SW_ONLY && nodep->nodeInfo.NodeType == NI_TYPE_CA))) {
+	if (portp->portData->portInfo.PortMode.s.IsActiveOptimizeEnabled && !sm_is_scae_allowed(nodep)) {
 		portInfo.PortMode.s.IsActiveOptimizeEnabled = 0;
 		needSet = 1;
 	}
@@ -4359,19 +4629,23 @@ sm_initialize_port(Topology_t * topop, Node_t * nodep, Port_t * portp, int use_l
 				new_portp->portData->portInfo.FlitControl.Interleave.s.MaxNestLevelRxSupported);
 
 		if (portInfo.FlitControl.Interleave.s.MaxNestLevelTxEnabled != 0) {
-			portInfo.FlitControl.Preemption.MinInitial = SM_PREEMPT_HEAD_DEF / SM_PREEMPT_HEAD_INC;
-			portInfo.FlitControl.Preemption.MinTail = SM_PREEMPT_TAIL_DEF / SM_PREEMPT_TAIL_INC;
-			portInfo.FlitControl.Preemption.LargePktLimit =
-			    sm_evalPreemptLargePkt(sm_config.preemption.large_packet, nodep);
-			portInfo.FlitControl.Preemption.SmallPktLimit =
-			    sm_evalPreemptSmallPkt(sm_config.preemption.small_packet, nodep);
-			portInfo.FlitControl.Preemption.PreemptionLimit =
-			    sm_evalPreemptLimit(sm_config.preemption.preempt_limit, nodep);
+			if (portp->state < IB_PORT_ARMED) {
+				// Only set Preemption settings if port is not up.
+				// The hardware is allowed to return different values than we set.
+				// We don't want to get stuck every sweep trying to set a value the
+				// hardware will never allow.
+				// Don't have to set needSet. Port is not up. Of course it needs set.
+				portInfo.FlitControl.Preemption.MinInitial = SM_PREEMPT_HEAD_DEF / SM_PREEMPT_HEAD_INC;
+				portInfo.FlitControl.Preemption.MinTail = SM_PREEMPT_TAIL_DEF / SM_PREEMPT_TAIL_INC;
 
-			if (!sm_eq_Preempt(&portInfo.FlitControl.Preemption, 
-					&portp->portData->portInfo.FlitControl.Preemption, 1)) {
-				needSet = 1;
-			}
+				portInfo.FlitControl.Preemption.LargePktLimit =
+			    	sm_evalPreemptLargePkt(sm_config.preemption.large_packet, nodep);
+				portInfo.FlitControl.Preemption.SmallPktLimit =
+			    	MIN(sm_evalPreemptSmallPkt(sm_config.preemption.small_packet, nodep),
+			    	    portInfo.FlitControl.Preemption.MaxSmallPktLimit);
+				portInfo.FlitControl.Preemption.PreemptionLimit =
+			    	sm_evalPreemptLimit(sm_config.preemption.preempt_limit, nodep);
+ 			}
 		}
 
 		if (portp->portData->portInfo.FlitControl.Interleave.s.MaxNestLevelTxEnabled !=
@@ -4397,16 +4671,11 @@ sm_initialize_port(Topology_t * topop, Node_t * nodep, Port_t * portp, int use_l
 				if (vl == 15) {
 					IB_LOG_WARN_FMT(__func__,
 									"VL15(Mgmt VL) is incorrectly assinged to VF%d for node %s, port %d",
-									vf, sm_nodeDescString(nodep), portp->index);
+									VirtualFabrics->v_fabric[vf].index, sm_nodeDescString(nodep), portp->index);
 					continue;
 				}
 
-                // VF index from All list, need to get VF index from Active list
-                activeVf = findVfIdxInActiveList(&VirtualFabrics->v_fabric_all[vf], VirtualFabrics, (smDebugPerf != 0));
-                if (activeVf == -1)
-                    continue;
-
-				mtu = MAX(mtu, VirtualFabrics->v_fabric[activeVf].max_mtu_int);
+				mtu = MAX(mtu, VirtualFabrics->v_fabric[vf].max_mtu_int);
 			}
 			// Do not need to change unless part of a VF.
 			if (mtu != 0) {
@@ -4639,7 +4908,6 @@ sm_initialize_port(Topology_t * topop, Node_t * nodep, Port_t * portp, int use_l
 
 	if (needSet == 1 || sm_config.forceAttributeRewrite) {
 		amod = portp->index;
-		struct Preemption_t preemptVals = portInfo.FlitControl.Preemption;
 		status = SM_Set_PortInfo(fd_topology, (1 << 24) | amod, path, &portInfo,
 								 (portp->portData->portInfo.M_Key ==
 								  0) ? sm_config.mkey : portp->portData->portInfo.M_Key,
@@ -4655,19 +4923,8 @@ sm_initialize_port(Topology_t * topop, Node_t * nodep, Port_t * portp, int use_l
 
 		portp->portData->dirty.portInfo=0;
 
-		// Don't check preempt values if preempt is disabled.
-		if (portInfo.FlitControl.Interleave.s.MaxNestLevelTxEnabled != 0) {
-			if (!sm_eq_Preempt
-				(&preemptVals, &portInfo.FlitControl.Preemption, sm_uses_PreemptRemap(portp))) {
-					IB_LOG_ERROR_FMT(__func__,
-						"FlitControl.Preemption requested/response value mismatch for "
-						"node %s nodeGuid " FMT_U64
-						" port %d.  Failed to set portinfo for node",
-						sm_nodeDescString(nodep), nodep->nodeInfo.NodeGUID, portp->index);
-				IB_EXIT(__func__, VSTATUS_BAD);
-				return VSTATUS_BAD;
-			}
-		}
+		/* Don't check preempt values, hardware can round off. */
+
 		/* 
 		 *  update the STL_PORT_INFO for SA queries. Set returns back actual settings (Get)
 		 */
@@ -4794,12 +5051,21 @@ sm_prep_switch_layer_LR_DR(Topology_t * topop, Node_t * nodep, SwitchList_t * sw
 	parent_lid = swportp->portData->lid;
 
 	for_switch_list_switches(swlist_head, sw) {
-		if (!bitset_test(&old_switchesInUse, sw->switchp->swIdx) || sm_config.force_rebalance
-			|| rebalance) {
+		if ((!bitset_test(&old_switchesInUse, sw->switchp->swIdx) || rebalance) ||
+			(sw->switchp->old &&
+			 (sw->switchp->initPorts.nset_m ||
+			  !bitset_equal(&sw->switchp->activePorts, &sw->switchp->old->activePorts)) &&
+			 topop->routingModule->funcs.handle_fabric_change(topop, sw->switchp->old, sw->switchp))) {
+			// New switch or rebalance or redundant ISL which may be used for switch traffic lost.
+			if (sm_config.sm_debug_routing && topology_passcount)
+				IB_LOG_INFINI_INFO_FMT(__func__, "Routing needed for switch %s: "FMT_U64,
+								sm_nodeDescString(sw->switchp), sw->switchp->nodeInfo.NodeGUID);
+
 			routing_needed = 1;
 		} else {
 			routing_needed = 0;
 		}
+
 		// IB_LOG_INFINI_INFO_FMT(__func__, "switch "FMT_U64,
 		// sw->switchp->nodeInfo.NodeGUID);
 		retry_count = 0;
@@ -4866,6 +5132,9 @@ sm_setup_switches_lrdr_wave_discovery_order(Topology_t * topop, int rebalance,
 {
 	SwitchList_t *swlist_head = NULL, *sw;
 	Status_t status = FERROR;
+
+	if (sm_config.sm_debug_routing && topology_passcount)
+		IB_LOG_INFINI_INFO_FMT(__func__, "rebalance %d routing_needed %d", rebalance, routing_needed);
 
 	Node_t *nodep;
 	/* Switches are added to the switch linked list as they are discovered. Traversing the list 
@@ -4972,7 +5241,7 @@ sm_initialize_switch_LR_DR(Topology_t * topop, Node_t * nodep, uint16_t parent_s
 
 	if (routing_needed) {
 		if ((status =
-			 sm_routing_prep_new_switch(topop, nodep, use_lr_dr_mix, path)) != VSTATUS_OK) {
+			sm_routing_prep_new_switch(topop, nodep, use_lr_dr_mix, path)) != VSTATUS_OK) {
 			IB_LOG_INFINI_INFO_FMT(__func__,
 								   "Basic LFT programming failed for switch " FMT_U64,
 								   nodep->nodeInfo.NodeGUID);
@@ -5315,8 +5584,14 @@ sm_update_cableinfo(Topology_t * topop, Node_t * nodep, Port_t * portp)
 	return status;
 }
 
+/**
+	sm_get_node_port_states will send Get(PortStateInfo) to nodep.
+	If path is provided DR packets will be used and portp can be NULL.
+	If path is NULL, LR packets will be used and portp must contain a valid port with valid DLID.
 
-//sm_get_node_port_states will send Get(PortStateInfo) to nodep. If path is provided DR packets will be used and portp can be null. If Path is null,  LR packets will be used and portp must contain a valid port with valid dlid.
+	@param psi On success, it is set to a valid PortStateInfo buffer which
+		must be freed. Buffer is length 1 for HFIs and NumPorts+1 for switches.
+*/
 Status_t
 sm_get_node_port_states(Topology_t * topop, Node_t * nodep, Port_t * portp, uint8_t* path, STL_PORT_STATE_INFO ** psi) 
 {
@@ -5345,7 +5620,9 @@ sm_get_node_port_states(Topology_t * topop, Node_t * nodep, Port_t * portp, uint
 		numPackets = 1;
 		numPSIs = 1;
 	}
-	*psi = 0;
+
+	if (psi) *psi = 0;
+
 	// Allocate and clear space for all the port states
 	status = vs_pool_alloc(&sm_pool, sizeof(STL_PORT_STATE_INFO) * numPSIs, (void*) &portStateInfo);
 	if(status != VSTATUS_OK) {
@@ -5397,13 +5674,27 @@ sm_get_node_port_states(Topology_t * topop, Node_t * nodep, Port_t * portp, uint
 		}
 	}
 
-	*psi = portStateInfo;
+	if (status != VSTATUS_OK) {
+		vs_pool_free(&sm_pool, portStateInfo);
+		portStateInfo = NULL;
+	}
+
+	if (psi) *psi = portStateInfo;
+
 	IB_EXIT(__func__, status);
 	return status;
 }
 
+/**
+	Sends a Set(PortStateInfo) to take portStates from srcState to dstState.
+
+	If no ports are in the srcState state or the Set fails, *psi == NULL.
+
+	On success, *psi points to the response buffer.  Buffer is length 1 for
+	HFIs and NumPorts+1 for switches.
+*/
 Status_t
-sm_set_node_port_states(Topology_t * topop, Node_t * nodep, Port_t * portp, uint8_t* path, STL_PORT_STATE_INFO ** psi, uint32_t portStateToSet) 
+sm_set_node_port_states(Topology_t * topop, Node_t * nodep, Port_t * portp, uint8_t* path, uint32_t srcState, uint32_t dstState, OPTIONAL OUT STL_PORT_STATE_INFO ** psi)
 {
 	Status_t status = VSTATUS_OK;
 	uint32_t numPackets = 1;
@@ -5412,25 +5703,26 @@ sm_set_node_port_states(Topology_t * topop, Node_t * nodep, Port_t * portp, uint
 	int i, portNum;
 	STL_PORT_STATE_INFO *portStateInfo = NULL;
 	uint16_t dlid;
-	uint32_t maxPSIsPerPacket = STL_MAX_PAYLOAD_SMP_DR / sizeof(STL_PORT_STATE_INFO);
+	uint32_t maxPSIsPerPacket = (path ? STL_MAX_PAYLOAD_SMP_DR : STL_MAX_PAYLOAD_SMP_LR) / sizeof(STL_PORT_STATE_INFO);
 
-	IB_ENTER(__func__, topop, nodep, portStateToSet, 0);
+	IB_ENTER(__func__, topop, nodep, 0, 0);
 
 	// We want to save the port number in case it changes in the for_all_ports loop below
 	if (sm_valid_port(portp)) {
 		portNum = portp->index;
-        } else {
+	} else {
 		return VSTATUS_BAD;
-        }
+	}
 
 	// Get the dlid of the node we need to talk to
 	if (nodep->nodeInfo.NodeType == NI_TYPE_SWITCH) {
 		Port_t *swportp;
 		swportp = sm_get_port(nodep, 0);
 		if (!sm_valid_port(swportp)) {
-			IB_LOG_WARN_FMT(__func__, "Failed to get Port 0 of Switch " FMT_U64,
-							nodep->nodeInfo.NodeGUID);
-			return VSTATUS_BAD;
+			IB_LOG_WARN_FMT(__func__,
+				"Failed to get port 0 of node %s nodeGuid " FMT_U64,
+				sm_nodeDescString(nodep), nodep->nodeInfo.NodeGUID);
+			goto done;
 		}
 		dlid = swportp->portData->lid;
 
@@ -5438,31 +5730,38 @@ sm_set_node_port_states(Topology_t * topop, Node_t * nodep, Port_t * portp, uint
 		// Calculate the number of packets to send for this switch
 		if(numPSIs > maxPSIsPerPacket) {
 			numPackets = numPSIs / maxPSIsPerPacket;
-
 			if((numPSIs % maxPSIsPerPacket) != 0)
 				numPackets += 1;
 		}
 	} else {
 		dlid = portp->portData->lid;
-		numPackets = 1;
-		numPSIs = 1;
 	}
 
-	// Allocate and clear space for all the port states
-	status = vs_pool_alloc(&sm_pool, sizeof(STL_PORT_STATE_INFO) * numPSIs, (void*) &portStateInfo);
-	if(status != VSTATUS_OK) {
-		IB_LOG_ERROR_FMT(__func__, "can't malloc portStateInfo status=%d", status);
-		IB_EXIT(__func__, status);
-		return status;
+	// Bring all armed ports to active
+	for_all_ports(nodep, portp) {
+		if (portp->state != srcState)
+			continue;
+
+		if(portp->portData->neighborQuarantined)
+			continue;
+
+		if (!portStateInfo) {
+			// at least one valid port: allocate buffer
+			size_t len = sizeof(STL_PORT_STATE_INFO) * numPSIs;
+			status = vs_pool_alloc(&sm_pool, len, (void *)&portStateInfo);
+			if(status != VSTATUS_OK) {
+				IB_LOG_ERROR_FMT(__func__, "can't malloc portStateInfo: status=%u", status);
+				goto done;
+			}
+			memset(portStateInfo, 0, len);
+		}
+
+		portStateInfo[portp->index].PortStates.s.PortState = dstState;
 	}
-	memset(portStateInfo, 0, sizeof(STL_PORT_STATE_INFO) * numPSIs);
-	
-	// Set all the port states to active
-        for_all_ports(nodep, portp) {
-            if (portp->state == IB_PORT_ARMED) {
-                portStateInfo[portp->index].PortStates.s.PortState = portStateToSet;
-            }
-        }
+
+	// no buffer?  nothing to do
+	if (!portStateInfo)
+		goto done;
 
 	// Send out the PortStateInfo packets
 	for(i = 0; i < numPackets; i++) {
@@ -5477,211 +5776,31 @@ sm_set_node_port_states(Topology_t * topop, Node_t * nodep, Port_t * portp, uint
 		}
 
 		if(path) {
-			status = SM_Set_PortStateInfo(fd_topology, amod, path, (portStateInfo + (maxPSIsPerPacket * i)), sm_config.mkey);
+			status = SM_Set_PortStateInfo(fd_topology, amod, path,
+				portStateInfo + maxPSIsPerPacket * i, sm_config.mkey);
 		} else {
-			status = SM_Set_PortStateInfo_LR(fd_topology, amod, sm_lid, dlid, (portStateInfo + (maxPSIsPerPacket * i)), sm_config.mkey);
+			status = SM_Set_PortStateInfo_LR(fd_topology, amod, sm_lid, dlid,
+				portStateInfo + maxPSIsPerPacket * i, sm_config.mkey);
 		}
 
 		if(status != VSTATUS_OK) {
 			IB_LOG_WARN_FMT(__func__,
-							"Cannot set PORT_STATE_INFO for node %s nodeGuid " FMT_U64 " status=%d",
-							sm_nodeDescString(nodep), nodep->nodeInfo.NodeGUID, status);
-			break;
+				"Cannot set PORT_STATE_INFO for node %s nodeGuid "FMT_U64": status=%u",
+				sm_nodeDescString(nodep), nodep->nodeInfo.NodeGUID, status);
+			goto done;
 		}
 	}
 
-	*psi = portStateInfo;
+done:
+	if (status != VSTATUS_OK && portStateInfo) {
+		vs_pool_free(&sm_pool, portStateInfo);
+		portStateInfo = NULL;
+	}
+
+	if (psi) *psi = portStateInfo;
+
 	IB_EXIT(__func__, status);
 	return status;
-}
-
-Status_t
-sm_activate_port(Topology_t * topop, Node_t * nodep, Port_t * portp)
-{
-	int32_t state;
-	Status_t status;
-	STL_PORT_INFO portInfo;
-	uint8_t portStateToSet;
-	uint16_t dlid;
-	uint32_t amod = 0;
-	uint32_t madStatus = 0;
-
-	IB_ENTER(__func__, topop, nodep, portp, 0);
-	
-
-	//do not try to activate ports connected to quarantined nodes
-	if(portp->portData->neighborQuarantined)
-		return VSTATUS_OK;
-	
-	if (nodep->nodeInfo.NodeType == NI_TYPE_SWITCH) {
-		Port_t *swportp;
-		swportp = sm_get_port(nodep, 0);
-		if (!sm_valid_port(swportp)) {
-			IB_LOG_WARN_FMT(__func__, "Failed to get Port 0 of Switch " FMT_U64,
-							nodep->nodeInfo.NodeGUID);
-			return VSTATUS_BAD;
-		}
-		dlid = swportp->portData->lid;
-	} else {
-		dlid = portp->portData->lid;
-	}
-
-	if (portp->state == IB_PORT_ARMED) {
-
-		/* Get this port's attributes - PR 105568 - fail to set if we don't get again */
-		status = SM_Get_PortInfo_LR(fd_topology, 
-			(1 << 24) | portp->index, 
-			sm_lid, dlid, &portInfo);
-		if (status != VSTATUS_OK) {
-			IB_LOG_WARN_FMT(__func__,
-							"Cannot get PORTINFO for node %s nodeGuid " FMT_U64
-							" port %d status=%d", sm_nodeDescString(nodep),
-							nodep->nodeInfo.NodeGUID, portp->index, status);
-			IB_EXIT(__func__, VSTATUS_BAD);
-			return (VSTATUS_BAD);
-		} else if (portInfo.PortStates.s.PortState < IB_PORT_ARMED) {
-			// was previous seen as armed; must have dropped during sweep
-			// we'll catch it the next time around
-			IB_LOG_WARN_FMT(__func__,
-							"Failed to activate NodeGUID " FMT_U64
-							" [%s] Index %d Port %d: Detected state reset during sweep",
-							nodep->nodeInfo.NodeGUID, sm_nodeDescString(nodep), nodep->index,
-							portp->index);
-			portp->state = portInfo.PortStates.s.PortState;
-			portp->portData->portInfo = portInfo;
-			sm_request_resweep(0, 0, SM_SWEEP_REASON_ACTIVATE_FAIL);
-			IB_EXIT(__func__, VSTATUS_OK);
-			return VSTATUS_OK;
-		} else {
-			portp->portData->portInfo = portInfo;
-		}
-	} else {
-		portInfo = portp->portData->portInfo;
-	}
-//
-//  Set the port state to ARMED or ACTIVE if needed.
-//
-	state = portInfo.PortStates.s.PortState;
-	if (state == IB_PORT_INIT) {
-		portStateToSet = portInfo.PortStates.s.PortState = IB_PORT_ARMED;
-		portInfo.LinkDownReason = STL_LINKDOWN_REASON_NONE;	
-		portInfo.NeighborLinkDownReason = STL_LINKDOWN_REASON_NONE;	
-		sm_enable_port_led(nodep, portp, FALSE);
-		if((nodep->nodeInfo.NodeType == STL_NODE_SW && sm_config.switchCascadeActivateEnable == SCAE_SW_ONLY) || sm_config.switchCascadeActivateEnable == SCAE_ALL) {
-			portInfo.PortMode.s.IsActiveOptimizeEnabled = 1;
-		}
-	} else if (state == IB_PORT_ARMED) {
-		portStateToSet = portInfo.PortStates.s.PortState = IB_PORT_ACTIVE;
-		if (smDebugPerf) {
-			IB_LOG_VERBOSE_FMT(__func__,
-								"activating client %s, port "
-								FMT_U64, sm_nodeDescString(nodep), portp->portData->guid);
-		}
-	} else if (state == IB_PORT_ACTIVE
-			   && (topology_passcount < 1 || topology_set_client_reregistration
-				   || (sm_find_guid(&old_topology, nodep->nodeInfo.NodeGUID) == NULL))) {
-		portStateToSet = portInfo.PortStates.s.PortState = IB_PORT_ACTIVE;
-		portInfo.Subnet.ClientReregister = 1;
-		if (smDebugPerf) {
-			IB_LOG_VERBOSE_FMT(__func__,
-							   "setting reregister bit in portInfo of active client %s, port "
-							   FMT_U64, sm_nodeDescString(nodep), portp->portData->guid);
-		}
-	} else {
-		portp->state = portInfo.PortStates.s.PortState;
-		portp->portData->portInfo = portInfo;
-		if (state == IB_PORT_ACTIVE)
-			portp->portData->numFailedActivate = 0;
-		IB_EXIT(__func__, 1);
-		return (VSTATUS_OK);
-	}
-
-//
-//  Set the "No change" attributes.
-//
-	portInfo.LinkSpeed.Enabled = 0;
-	portInfo.LinkWidth.Enabled = 0;
-	portInfo.PortStates.s.PortPhysicalState = 0;
-	portInfo.s4.OperationalVL = 0;
-
-	struct XmitQ_s xmitQVals[STL_MAX_VLS];
-	memcpy(xmitQVals, &portp->portData->portInfo.XmitQ, sizeof(xmitQVals));
-
-//
-//  Tell the port its new state.
-//
-	amod = portp->index;
-	status = SM_Set_PortInfo_LR(fd_topology, (1 << 24) | amod, 
-		sm_lid, dlid, &portInfo, portp->portData->portInfo.M_Key, &madStatus);
-
-	if (status != VSTATUS_OK && madStatus != MAD_STATUS_INVALID_ATTRIB) {
-		IB_LOG_WARN_FMT(__func__,
-						"Cannot set PORTINFO for node %s nodeGuid " FMT_U64
-						" port %d status=%d", sm_nodeDescString(nodep),
-						nodep->nodeInfo.NodeGUID, portp->index, status);
-		IB_EXIT(__func__, status);
-		return (status);
-	}
-
-	if(madStatus == MAD_STATUS_INVALID_ATTRIB && portStateToSet == IB_PORT_ARMED && portInfo.PortStates.s.IsSMConfigurationStarted == 0){
-		if(sm_config.portBounceLogLimit == PORT_BOUNCE_LOG_NO_LIMIT || topology_port_bounce_log_num < sm_config.portBounceLogLimit) {
-			IB_LOG_WARN_FMT(__func__,
-							"Arm port for node %s guid " FMT_U64
-							" port %d: port has bounced since programming start, requesting resweep",
-							sm_nodeDescString(nodep), nodep->nodeInfo.NodeGUID, portp->index);
-
-			topology_port_bounce_log_num++;
-
-			if(topology_port_bounce_log_num == sm_config.portBounceLogLimit) {
-				IB_LOG_WARN_FMT(__func__,
-								"Port bounce log limit of %d reached. Further port bounce events will be suppressed.",
-								sm_config.portBounceLogLimit);
-			}
-		} 
-
-		sm_request_resweep(0, 0, SM_SWEEP_REASON_UNEXPECTED_BOUNCE);
-	}
-
-	// If the arm/activate failed, print a log message as long as this isn't a neighbor normal failed activation
-	if (portInfo.PortStates.s.PortState != portStateToSet && 
-		!(madStatus == MAD_STATUS_INVALID_ATTRIB && portStateToSet == IB_PORT_ACTIVE && portInfo.PortStates.s.NeighborNormal == 0)) {
-		IB_LOG_WARN_FMT(__func__,
-						"Activate port for node %s guid " FMT_U64
-						" port %d: tried to set state to %d but returned %d",
-						sm_nodeDescString(nodep), nodep->nodeInfo.NodeGUID, portp->index,
-						portStateToSet, portInfo.PortStates.s.PortState);
-		// limit resweeps, if a device consistently can't be activated, it may
-		// have a HW or config issue
-		if (++portp->portData->numFailedActivate <= ACTIVATE_RETRY_LIMIT)
-			sm_request_resweep(1, 1, SM_SWEEP_REASON_ACTIVATE_FAIL);
-		// IB_EXIT(__func__, VSTATUS_BAD);
-		// return(VSTATUS_BAD);
-	}
-
-	// To save an additional Set(PortInfo) per port, the HOQLife/XmitQ values may not have been
-	// sent for a port in topology_assignments() if at that time the port was not
-	// ARMED or ACTIVE since at least one more Set(PortInfo) will be required to move
-	// the port to ARMED.  Thus it is necessary to check the request/response
-	// XmitQ values here as well
-	if (!sm_eq_XmitQ
-		(xmitQVals, portp->portData->portInfo.XmitQ, STL_MAX_VLS)) {
-		IB_LOG_ERROR_FMT(__func__,
-						 "XmitQ requested/response value mismatch for node %s guid " FMT_U64
-						 " port %d", sm_nodeDescString(nodep), nodep->nodeInfo.NodeGUID,
-						 portp->index);
-		IB_EXIT(__func__, VSTATUS_BAD);
-		return VSTATUS_BAD;
-	}
-	//
-	//  Save the port state and the port info
-	//
-	portp->state = portInfo.PortStates.s.PortState;
-	portp->portData->portInfo = portInfo;
-	if (portp->state == IB_PORT_ACTIVE)
-		portp->portData->numFailedActivate = 0;
-
-	IB_EXIT(__func__, VSTATUS_OK);
-	return (VSTATUS_OK);
 }
 
 int
@@ -5756,7 +5875,8 @@ sm_disable_port(Topology_t * topop, Node_t * nodep, Port_t * portp)
 						FMT_U64 "] was requested!", sm_nodeDescString(nodep),
 						nodep->nodeInfo.NodeGUID, portp->index, portInfo.M_Key, sm_config.mkey);
 	}
-	portp->state = IB_PORT_DOWN;
+
+	sm_mark_link_down(topop, portp);
 
 	IB_EXIT(__func__, VSTATUS_OK);
 	return VSTATUS_OK;
@@ -5953,7 +6073,7 @@ sm_bounce_port(Topology_t * topop, Node_t * nodep, Port_t * portp)
 						nodep->nodeInfo.NodeGUID, portp->index, portInfo.M_Key, sm_config.mkey);
 	}
 
-	portp->state = IB_PORT_DOWN;
+	sm_mark_link_down(topop, portp);
 
 	IB_EXIT(__func__, VSTATUS_OK);
 	return VSTATUS_OK;
@@ -6526,7 +6646,10 @@ Status_t sm_Node_init_lft(Node_t * switchp, size_t * outSize)
 {
 	if (switchp->nodeInfo.NodeType != NI_TYPE_SWITCH ||
 		switchp->switchInfo.LinearFDBCap == 0) {
-		return VSTATUS_OK;
+		// If we are in sm_Node_init_lft, and the node
+		// is not a switch, or if it is a switch with
+		// no LFT, then the node is bad.
+		return VSTATUS_BAD;
 	}
 
 	if (switchp->lft) {
@@ -6548,6 +6671,7 @@ Status_t sm_Node_init_lft(Node_t * switchp, size_t * outSize)
 
 	if (outSize)
 		*outSize = 0;
+
 	IB_LOG_ERROR_FMT(__func__,
 		"Unable to allocate %"PRISZT" LFT memory for node \"%s\", nodeGuid "FMT_U64,
 		sizeLft, sm_nodeDescString(switchp), switchp->nodeInfo.NodeGUID);
@@ -6558,57 +6682,55 @@ Status_t sm_Node_init_lft(Node_t * switchp, size_t * outSize)
 Status_t
 sm_calculate_lft(Topology_t * topop, Node_t * switchp)
 {
+	Status_t status = VSTATUS_OK;
 	Node_t *nodep;
 	Port_t *portp;
-	Status_t status;
-	int programLft;
-	uint16_t lid, portLid;
+	STL_LID currentLid;
 	uint8_t xftPorts[128];
 
-	// Allow topology to override.
-	if (topop->routingModule->funcs.calculate_lft != NULL) {
-        return topop->routingModule->funcs.calculate_lft(topop, switchp);
-	}
+	if (sm_config.sm_debug_routing)
+		IB_LOG_INFINI_INFO_FMT(__func__, "switch %s", switchp->nodeDesc.NodeString);
 
 	status = sm_Node_init_lft(switchp, NULL);
 	if (status != VSTATUS_OK) {
-		IB_FATAL_ERROR
+		IB_FATAL_ERROR_NODUMP
 			("sm_calculate_lft: CAN'T ALLOCATE SPACE FOR NODE'S LFT;  OUT OF MEMORY IN SM MEMORY POOL!  TOO MANY NODES!!");
 		return status;
 	}
 
-	for (lid = 0; lid <= topop->maxLid; ++lid) {
-		// grab the node corresponding to the current lid
-		nodep = lidmap[lid].newNodep;
-		portp = lidmap[lid].newPortp;
-		// we'll program the entire LMC range in one go, so only
-		// program if we're at the beginning of the range
-		programLft = (nodep != NULL && sm_valid_port(portp)
-					  && portp->state > IB_PORT_DOWN && lid == portp->portData->lid)
-			? 1 : 0;
-		if (!programLft)
-			continue;
-		status = topop->routingModule->funcs.setup_xft(topop, switchp, nodep, portp, xftPorts);
-		if (status != VSTATUS_OK) {
-			IB_LOG_ERROR_FMT(__func__, "Failed to setup xft for %s (0x%"PRIx64")",
-				nodep->nodeDesc.NodeString,
-				nodep->nodeInfo.NodeGUID);
-			return status;
-		}
+	for_all_nodes(topop, nodep) {
+		for_all_end_ports(nodep, portp) {
+			if (sm_valid_port(portp) && portp->state > IB_PORT_DOWN) {
+				if (portp->portData->lmc > 0) {
+					IB_LOG_VERBOSE_FMT(__func__,
+							"Setting up Linear Forwarding Table for node[%d] %s, port[%d], LMC=%d.",
+							nodep->index, sm_nodeDescString(nodep), portp->index,
+							portp->portData->lmc);
+				}
+				status = topop->routingModule->funcs.setup_xft(topop, switchp, nodep, portp, xftPorts);
+				if (status != VSTATUS_OK) {
+					IB_LOG_ERROR_FMT(__func__, "Failed to setup xft for %s (0x%"PRIx64")",
+							nodep->nodeDesc.NodeString, nodep->nodeInfo.NodeGUID);
+					return status;
+				}
 
-		if (topop->routingModule->funcs.setup_pgs && nodep->nodeInfo.NodeType == NI_TYPE_SWITCH) {
-			status = topop->routingModule->funcs.setup_pgs(topop, switchp, nodep); 
-			if (status != VSTATUS_OK) {
-				IB_LOG_ERROR_FMT(__func__, "Failed to setup port groups for %s (0x%"PRIx64")",
-					nodep->nodeDesc.NodeString,
-					nodep->nodeInfo.NodeGUID);
-				return status;
+				for_all_port_lids(portp, currentLid) {
+					switchp->lft[currentLid] = xftPorts[currentLid - portp->portData->lid];
+				}
+			}
+
+			if (topop->routingModule->funcs.setup_pgs && nodep->nodeInfo.NodeType == NI_TYPE_SWITCH) {
+				status = topop->routingModule->funcs.setup_pgs(topop, switchp, nodep);
+				if (status != VSTATUS_OK) {
+					IB_LOG_ERROR_FMT(__func__, "Failed to setup port groups for %s (0x%"PRIx64")",
+							nodep->nodeDesc.NodeString, nodep->nodeInfo.NodeGUID);
+					return status;
+				}
 			}
 		}
-		for_all_port_lids(portp, portLid) {
-			switchp->lft[portLid] = xftPorts[portLid - lid];
-		}
 	}
+
+	switchp->routingRecalculated = 1;
 
 	return VSTATUS_OK;
 }
@@ -6693,8 +6815,9 @@ sm_write_full_lfts_by_block_LR(Topology_t * topop, SwitchList_t * swlist, int re
 				status = VSTATUS_BAD;
 				goto clearDispatch;
 			}
-			// IB_LOG_INFINI_INFO_FMT(__func__,
-			// "setting block %d for switch %s", block, sm_nodeDescString(switchp));
+			if (sm_config.sm_debug_routing) 
+				IB_LOG_INFINI_INFO_FMT(__func__,
+					"setting block %d for switch %s", block, sm_nodeDescString(switchp));
 
 			numBlocks =
 				(block + sm_config.lft_multi_block - 1 <=
@@ -6755,38 +6878,52 @@ sm_setup_lft(Topology_t * topop, Node_t * cnp)
 	uint16_t currentLid;
 	Node_t *nodep;
 	Port_t *portp;
-	Status_t status;
+	Status_t status = VSTATUS_OK;
 	uint8_t xftPorts[128];
 
 	IB_ENTER(__func__, topop, cnp, 0, 0);
 
-	status = sm_Node_init_lft(cnp, NULL);
-	if (status != VSTATUS_OK) {
-		IB_FATAL_ERROR
-			("sm_setup_lft: CAN'T ALLOCATE SPACE FOR NODE'S LFT;  OUT OF MEMORY IN SM MEMORY POOL!  TOO MANY NODES!!");
-		return status;
-	}
+	if (sm_config.sm_debug_routing) 
+		IB_LOG_INFINI_INFO_FMT(__func__, "setting routing for %s", sm_nodeDescString(cnp));
 
-	for_all_nodes(topop, nodep) {
-		for_all_end_ports(nodep, portp) {
-			if (sm_valid_port(portp) && portp->state > IB_PORT_DOWN) {
-				if (portp->portData->lmc > 0) {
-					IB_LOG_VERBOSE_FMT(__func__,
-									   "Setting up Linear Forwarding Table for node[%d] %s, port[%d], LMC=%d.",
-									   nodep->index, sm_nodeDescString(nodep), portp->index,
-									   portp->portData->lmc);
-				}
-				status = topop->routingModule->funcs.setup_xft(topop, cnp, nodep, portp, xftPorts);
+	// Allow topology to override.
+	if (topop->routingModule->funcs.calculate_routes != NULL) {
+		status = topop->routingModule->funcs.calculate_routes(topop, cnp);
+		if (status != VSTATUS_OK) {
+			return status;
+		}
 
-				for_all_port_lids(portp, currentLid) {
-					cnp->lft[currentLid] = xftPorts[currentLid - portp->portData->lid];
+	} else {
+		status = sm_Node_init_lft(cnp, NULL);
+		if (status != VSTATUS_OK) {
+			IB_FATAL_ERROR
+				("sm_setup_lft: CAN'T ALLOCATE SPACE FOR NODE'S LFT;  OUT OF MEMORY IN SM MEMORY POOL!  TOO MANY NODES!!");
+			return status;
+		}
+
+		for_all_nodes(topop, nodep) {
+			for_all_end_ports(nodep, portp) {
+				if (sm_valid_port(portp) && portp->state > IB_PORT_DOWN) {
+					if (portp->portData->lmc > 0) {
+						IB_LOG_VERBOSE_FMT(__func__,
+							"Setting up Linear Forwarding Table for node[%d] %s, port[%d], LMC=%d.",
+							nodep->index, sm_nodeDescString(nodep), portp->index,
+							portp->portData->lmc);
+					}
+					status = topop->routingModule->funcs.setup_xft(topop, cnp, nodep, portp, xftPorts);
+
+					for_all_port_lids(portp, currentLid) {
+						cnp->lft[currentLid] = xftPorts[currentLid - portp->portData->lid];
+					}
 				}
 			}
-		}
-		if (topop->routingModule->funcs.setup_pgs) {
-			status = topop->routingModule->funcs.setup_pgs(topop, cnp, nodep);
+			if (topop->routingModule->funcs.setup_pgs) {
+				status = topop->routingModule->funcs.setup_pgs(topop, cnp, nodep);
+			}
 		}
 	}
+
+	cnp->routingRecalculated = 1;
 
 	// update lft to include loop paths for loop test
 	(void) loopTest_userexit_updateLft(topop, cnp);
@@ -6873,8 +7010,8 @@ sm_setup_lft_deltas(Topology_t * oldtp, Topology_t * newtp, Node_t * cnp)
 {
 
 	uint16_t currentLid, curBlock;
-	Node_t *nodep, *oldnodep;
-	Port_t *portp, *oldportp, *portInUse;
+	Node_t *nodep;
+	Port_t *portp, *portInUse;
 	Status_t status;
 	uint8_t xftPorts[128];
 	bitset_t lidBlocks;
@@ -6886,20 +7023,6 @@ sm_setup_lft_deltas(Topology_t * oldtp, Topology_t * newtp, Node_t * cnp)
 	if (!optSend) {
 		IB_LOG_INFINI_INFO("Can't allocate space for lidblock map, size= ",
 						   newtp->maxLid / LFTABLE_LIST_COUNT + 1);
-	}
-
-	if (cnp->oldExists) {
-		oldnodep = cnp->old;
-		if (oldnodep) {
-			for_all_ports(cnp, portp) {
-				if (sm_valid_port(portp) && (portp->state > IB_PORT_DOWN)) {
-					oldportp = sm_get_port(oldnodep, portp->index);
-					if (oldportp && sm_valid_port(oldportp)) {
-						portp->portData->lidsRouted = oldportp->portData->lidsRouted;
-					}
-				}
-			}
-		}
 	}
 
 	curBlock = 0xffff;
@@ -7638,16 +7761,21 @@ sm_alloc_port(Topology_t * topop, Node_t * nodep, uint32_t portIndex, int *bytes
 }
 
 void
-sm_free_port(Port_t * portp)
+sm_free_port(Topology_t * topop, Port_t * portp)
 {
-	if (topology_passcount > 1 && sm_valid_port(portp)) {
+	if (sm_valid_port(portp)) {
 		if (smDebugDynamicPortAlloc) {
 			IB_LOG_INFINI_INFO_FMT(__func__, "Freeing  port %d for node %d",
 								   portp->index, ((Node_t *) portp->portData->nodePtr)->index);
 		}
 
+		if (topop->portMap)
+			cl_qmap_remove(topop->portMap, portp->portData->guid);
+
 		bitset_free(&portp->portData->fullPKeyMember);
 		bitset_free(&portp->portData->vfMember);
+		bitset_free(&portp->portData->dgMember);
+
 		if (portp->portData->hfiCongCon) {
 			vs_pool_free(&sm_pool, portp->portData->hfiCongCon);
 			portp->portData->hfiCongCon = NULL;
@@ -7658,6 +7786,8 @@ sm_free_port(Port_t * portp)
 			portp->portData->scscMap = NULL;
 		}
 
+		sm_port_releaseNewArb(portp);
+				
 		// Free port record associated with the port.
 		(void) vs_pool_free(&sm_pool, (void *) portp->portData);
 		portp->portData = NULL;
@@ -7665,39 +7795,14 @@ sm_free_port(Port_t * portp)
 }
 
 void
-sm_node_free_port(Node_t * nodep)
+sm_node_free_port(Topology_t * topop, Node_t * nodep)
 {
-	int portIndex = 0;
+	Port_t * portp;
 
-	if (nodep) {
-		for (portIndex = 0; portIndex <= nodep->nodeInfo.NumPorts; portIndex++) {
-			if (nodep->port[portIndex].portData != NULL) {
-				if (smDebugDynamicPortAlloc) {
-					IB_LOG_INFINI_INFO_FMT(__func__, "Freeing  port %d for node %d",
-										   portIndex, nodep->index);
-				}
+	if (!nodep) return;
 
-				bitset_free(&nodep->port[portIndex].portData->fullPKeyMember);
-				bitset_free(&nodep->port[portIndex].portData->vfMember);
-				bitset_free(&nodep->port[portIndex].portData->dgMember);
-
-				if (nodep->port[portIndex].portData->hfiCongCon) {
-					vs_pool_free(&sm_pool, nodep->port[portIndex].portData->hfiCongCon);
-					nodep->port[portIndex].portData->hfiCongCon = NULL;
-				}
-
-				if (nodep->port[portIndex].portData->scscMap) {
-					vs_pool_free(&sm_pool, nodep->port[portIndex].portData->scscMap);
-					nodep->port[portIndex].portData->scscMap = NULL;
-				}
-
-				sm_port_releaseNewArb(&nodep->port[portIndex]);
-				// Free port record associated with the port.
-				(void) vs_pool_free(&sm_pool, (void *) nodep->port[portIndex].portData);
-				nodep->port[portIndex].portData = NULL;
-			}
-		}
-	}
+	for_all_ports(nodep, portp)
+		sm_free_port(topop, portp);
 }
 
 Status_t
@@ -8128,10 +8233,12 @@ void
 sm_compactSwitchSpace(Topology_t * topop, bitset_t * switchbits)
 {
 	Node_t *nodep;
-	int fidx, lidx, i, j, ij, ji, oldij;
+	int fidx, lidx, i, j, ij, ji, oldij, oldji;
 	uint16_t *cost = NULL;
+	SmPathPortmask_t *path = NULL;
 	size_t numSws = switchbits->nset_m;
 	size_t bytesCost = numSws * numSws * sizeof(uint16_t);
+	size_t bytesPath = SM_PATH_SIZE(numSws);
 
 	if (switchbits->nset_m == 0)
 		return;
@@ -8149,6 +8256,11 @@ sm_compactSwitchSpace(Topology_t * topop, bitset_t * switchbits)
 		if (vs_pool_alloc(&sm_pool, bytesCost, (void *) &cost) != VSTATUS_OK) {
 			return;
 		}
+
+		if (vs_pool_alloc(&sm_pool, bytesPath, (void *) &path) != VSTATUS_OK) {
+			vs_pool_free(&sm_pool, (void *) &cost);
+			return;
+		}
 	}
 
 	for (fidx = bitset_find_first_zero(switchbits); fidx >= 0;
@@ -8160,7 +8272,6 @@ sm_compactSwitchSpace(Topology_t * topop, bitset_t * switchbits)
 
 			for (nodep = topop->switch_tail; nodep != NULL; nodep = nodep->type_prev) {
 				if (nodep->swIdx == lidx) {
-
 					sm_topop->routingModule->funcs.process_swIdx_change(sm_topop, lidx, fidx, lidx);
 
 					nodep->swIdx = fidx;
@@ -8174,11 +8285,16 @@ sm_compactSwitchSpace(Topology_t * topop, bitset_t * switchbits)
 
 							if (j == fidx) {
 								topop->cost[ij] = topop->cost[ji] = 0;
+								topop->path[ij] = topop->path[ji] = SM_PATH_PORTMASK_EMPTY;
 								continue;
 							}
 
 							oldij = Index(lidx, j);
+							oldji = Index(j, lidx);
 							topop->cost[ij] = topop->cost[ji] = topop->cost[oldij];
+
+							topop->path[ij] = topop->path[oldij];
+							topop->path[ji] = topop->path[oldji];
 						}
 					}
 					break;
@@ -8197,87 +8313,25 @@ sm_compactSwitchSpace(Topology_t * topop, bitset_t * switchbits)
 		(void) vs_pool_free(&sm_pool, (void *) topop->cost);
 
 		topop->cost = cost;
-		topop->bytes = bytesCost;
+		topop->bytesCost = bytesCost;
+	}
+
+	if (path) {
+		for (i = 0; i < numSws; i++) {
+			(void) memcpy((void *) (path + SM_PATH_OFFSET(i, numSws)),
+						  (void *) (topop->path + SM_PATH_OFFSET(i, topop->max_sws)),
+						  SM_PATH_SWITCH_SPAN(numSws));
+		}
+
+		(void) vs_pool_free(&sm_pool, (void *) topop->path);
+
+		topop->path = path;
+		topop->bytesPath = bytesPath;
 	}
 
 	topop->max_sws = switchbits->nset_m;
 
 	return;
-}
-
-Status_t
-sm_activate_switch(Topology_t * topop, Node_t * nodep)
-{
-	Port_t *portp;
-	Status_t status;
-	Node_t *linkedToNodep;
-	Port_t *linkedToPortp;
-
-	IB_ENTER(__func__, topop, nodep, 0, 0);
-
-	/* we are about to activate new nodes so mark us as sweeping now */
-	activateInProgress = 1;
-
-	for_all_ports(nodep, portp) {
-		// 
-		// Transition all of the ports in the 'INIT' state to the 'ARMED' state.
-		// 
-		if (sm_valid_port(portp) && portp->state == IB_PORT_INIT) {
-			if (((linkedToPortp = sm_find_port(topop, portp->nodeno, portp->portno)) == NULL) ||
-				!sm_valid_port(linkedToPortp))
-				continue;
-
-			linkedToNodep = linkedToPortp->portData->nodePtr;
-			if (linkedToNodep->nodeInfo.NodeType == NI_TYPE_CA)
-				continue;
-
-			status = sm_activate_port(topop, nodep, portp);
-			if (status != VSTATUS_OK) {
-				IB_LOG_ERROR_FMT(__func__,
-								 "TT(ta): can't ARM node %s nodeGuid " FMT_U64
-								 " node index %d port index %d", sm_nodeDescString(nodep),
-								 nodep->nodeInfo.NodeGUID, nodep->index, portp->index);
-			} else {
-				bitset_clear(&nodep->initPorts, portp->index);
-			}
-
-			status = sm_activate_port(topop, linkedToNodep, linkedToPortp);
-			if (status != VSTATUS_OK) {
-				IB_LOG_ERROR_FMT(__func__,
-								 "TT(ta): can't ARM node %s nodeGuid " FMT_U64
-								 " node index %d port index %d",
-								 sm_nodeDescString(linkedToNodep),
-								 linkedToNodep->nodeInfo.NodeGUID, linkedToNodep->index,
-								 linkedToPortp->index);
-			}
-			// 
-			// Transition all of the ports in the 'ARMED' state to the 'ACTIVE' state.
-			// 
-			if (portp->state != IB_PORT_ARMED)
-				continue;
-
-			status = sm_activate_port(topop, nodep, portp);
-			if (status != VSTATUS_OK) {
-				IB_LOG_ERROR_FMT(__func__,
-								 "TT(ta): can't ACTIVE node %s nodeGuid " FMT_U64
-								 " node index %d port index %d", sm_nodeDescString(nodep),
-								 nodep->nodeInfo.NodeGUID, nodep->index, portp->index);
-			}
-
-			status = sm_activate_port(topop, linkedToNodep, linkedToPortp);
-			if (status != VSTATUS_OK) {
-				IB_LOG_ERROR_FMT(__func__,
-								 "TT(ta): can't ARM node %s nodeGuid " FMT_U64
-								 " node index %d port index %d",
-								 sm_nodeDescString(linkedToNodep),
-								 linkedToNodep->nodeInfo.NodeGUID, linkedToNodep->index,
-								 linkedToPortp->index);
-			}
-		}
-	}
-
-	IB_EXIT(__func__, VSTATUS_OK);
-	return VSTATUS_OK;
 }
 
 uint8_t
@@ -8525,10 +8579,10 @@ sm_getLogConfigSettings(uint32_t * logLevel, uint32_t * logMode,
 		memcpy(log_masks, sm_log_masks, sizeof(sm_log_masks));
 
 	if (logFile)
-		strcpy(logFile, sm_config.log_file);
+		cs_strlcpy(logFile, sm_config.log_file, LOGFILE_SIZE);
 
 	if (syslogFacility)
-		strcpy(syslogFacility, sm_config.syslog_facility);
+		cs_strlcpy(syslogFacility, sm_config.syslog_facility, STRING_SIZE);
 }
 #endif
 
@@ -8674,7 +8728,7 @@ boolean
 sm_Port_t_IsCableInfoSupported(Port_t * port)
 {
 	return sm_valid_port(port) && port->index > 0 &&
-		port->portData->portInfo.PortPhyConfig.s.PortType == STL_PORT_TYPE_STANDARD &&
+		port->portData->portInfo.PortPhysConfig.s.PortType == STL_PORT_TYPE_STANDARD &&
 		port->portData->cableInfo != (CableInfo_t *) & dummy_ciNotSupported;
 }
 
@@ -9582,3 +9636,58 @@ sm_select_path_lids
 	return VSTATUS_OK;
 }
 
+// Marks both sides of a link down in the topology.
+// Does not affect the actual device port state.
+//
+// Ensures that:
+//  - Port_t.state is IB_PORT_DOWN
+//  - the port is removed from its node's init and active bitsets
+//  - associated counters are decremented
+//  - the neighbor, if avaiable, is also marked down
+//
+void
+sm_mark_link_down(Topology_t *topop, Port_t *portp)
+{
+	if (!portp) return;
+
+	if (portp->state > IB_PORT_DOWN) {
+		portp->state = IB_PORT_DOWN;
+		if (portp->portData) {
+			Node_t * nodep = portp->portData->nodePtr;
+			DEBUG_ASSERT(nodep);
+			if (sm_debug)
+				IB_LOG_INFINI_INFO_FMT(__func__, 
+					"marking node %s nodeGuid "FMT_U64" port %u down",
+					sm_nodeDescString(nodep), nodep->nodeInfo.NodeGUID, portp->index);
+			if (bitset_test(&nodep->activePorts, portp->index)) {
+				bitset_clear(&nodep->activePorts, portp->index);
+				DECR_PORT_COUNT(topop, nodep);
+			}
+			if (bitset_test(&nodep->initPorts, portp->index)) {
+				bitset_clear(&nodep->initPorts, portp->index);
+				nodep->portsInInit = nodep->portsInInit ? nodep->portsInInit - 1 : 0;
+			}
+		}
+	}
+		
+	Port_t *nportp = sm_find_port(topop, portp->nodeno, portp->portno);
+	if (nportp && nportp->state > IB_PORT_DOWN) {
+		nportp->state = IB_PORT_DOWN;
+		if (nportp->portData) {
+			Node_t * nnodep = nportp->portData->nodePtr;
+			DEBUG_ASSERT(nnodep);
+			if (sm_debug)
+				IB_LOG_INFINI_INFO_FMT(__func__, 
+					"marking node %s nodeGuid "FMT_U64" port %u down",
+					sm_nodeDescString(nnodep), nnodep->nodeInfo.NodeGUID, nportp->index);
+			if (bitset_test(&nnodep->activePorts, nportp->index)) {
+				bitset_clear(&nnodep->activePorts, nportp->index);
+				DECR_PORT_COUNT(topop, nnodep);
+			}
+			if (bitset_test(&nnodep->initPorts, nportp->index)) {
+				bitset_clear(&nnodep->initPorts, nportp->index);
+				nnodep->portsInInit = nnodep->portsInInit ? nnodep->portsInInit - 1 : 0;
+			}
+		}
+	}
+}

@@ -628,7 +628,11 @@ iba_create_special_qp(
 FSTATUS
 iba_attach_qp_to_mcgroup(
 	IN IB_HANDLE QpHandle,
+#if INCLUDE_16B
+	IN STL_LID McgDestLid,
+#else
 	IN IB_LID McgDestLid,
+#endif
 	IN IB_GID McgGID
 	)
 {
@@ -640,7 +644,11 @@ iba_attach_qp_to_mcgroup(
 FSTATUS
 iba_detach_qp_from_mcgroup(
 	IN IB_HANDLE QpHandle,
+#if INCLUDE_16B
+	IN STL_LID McgDestLid,
+#else
 	IN IB_LID McgDestLid,
+#endif
 	IN IB_GID McgGID
 	)
 {
@@ -1507,6 +1515,14 @@ iba_post_send(
 			WorkRequest2.Req.SendUD.Qkey = WorkRequest->Req.SendUD.Qkey;
 			WorkRequest2.Req.SendUD.AVHandle = WorkRequest->Req.SendUD.AVHandle;
 			break;
+#if defined(INCLUDE_STLEEP)
+		case QPTypeSTLEEP:
+			/* This should never happen as there are no send options defined for an IB_WORK_REQ */
+			/* Must use IB_WORK_REQ2 and ib_post_send2 */
+			sysPrintf("%s: Sends for QPTypeSTLEEP must be issued through ib_post_send2.\n", __func__);
+			return FERROR;
+			break;
+#endif
 		case QPTypeRawDatagram:
 		case QPTypeRawIPv6:
 		case QPTypeRawEthertype:

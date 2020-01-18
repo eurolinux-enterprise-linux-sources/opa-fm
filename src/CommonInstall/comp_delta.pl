@@ -130,6 +130,7 @@ my @delta_components_rhel70 = (
 
 my @delta_components_sles12_sp2 = (
 				"opa_stack", 		# Kernel drivers.
+				"ibacm",
 				"intel_hfi", 		# HFI drivers
 				"delta_ipoib", 		# ipoib module.
 				"mpi_selector",
@@ -146,6 +147,7 @@ my @delta_components_sles12_sp2 = (
 
 my @delta_components_rhel73 = (
 				"opa_stack", 		# Kernel drivers.
+				"ibacm",
 				"intel_hfi", 		# HFI drivers
 				"delta_ipoib", 		# ipoib module.
 				"mpi_selector",
@@ -195,6 +197,28 @@ my %ibacm_comp_info = (
 					StartupScript => "ibacm",
 					StartupParams => [ ]
 					},
+);
+
+my %ibacm_sles12_sp2_comp_info = (
+        'ibacm' => {
+                                        KernelRpms => [ ],
+                                        UserRpms =>       [ ],
+                                        DebugRpms =>  [ ],
+                                        Drivers => "", # none
+                                        StartupScript => "ibacm",
+                                        StartupParams => [ ]
+                                        },
+);
+
+my %ibacm_rhel73_comp_info = (
+        'ibacm' => {
+                                        KernelRpms => [ ],
+                                        UserRpms =>       [ ],
+                                        DebugRpms =>  [ ],
+                                        Drivers => "", # none
+                                        StartupScript => "ibacm",
+                                        StartupParams => [ ]
+                                        },
 );
 
 my %intel_hfi_comp_info = (
@@ -393,7 +417,7 @@ my %opa_stack_dev_sles12_sp2_comp_info = (
 my %opa_stack_dev_rhel73_comp_info = (
 	'opa_stack_dev' => {
 					KernelRpms => [ ],
-					UserRpms =>  [  ],
+					UserRpms =>  [ "ifs-kernel-updates-devel" ],
 					DebugRpms =>  [  ],
 					Drivers => "", 	# none
 					StartupScript => "",
@@ -498,6 +522,8 @@ my %opa_stack_rhel72_comp_info = (
 					KernelRpms => [ "kmod-ifs-kernel-updates" ], # special case
 					UserRpms =>	  [ "opa-scripts",
 								"srptools",
+								"libibmad",
+								"infiniband-diags",
 								  ],
 					DebugRpms =>  [ "srptools-debuginfo",
 								  ],
@@ -544,7 +570,8 @@ my %opa_stack_sles_comp_info = (
 my %opa_stack_sles12_sp2_comp_info = (
 	'opa_stack' => {
 					KernelRpms => [ "ifs-kernel-updates-kmp-default" ], # special case
-					UserRpms =>   [ "opa-scripts" ],
+					UserRpms =>   [ "opa-scripts",
+								"infiniband-diags" ],
 					DebugRpms =>  [  ],
 					Drivers => "",
 					StartupScript => "opa",
@@ -555,7 +582,8 @@ my %opa_stack_sles12_sp2_comp_info = (
 my %opa_stack_rhel73_comp_info = (
 	'opa_stack' => {
 					KernelRpms => [ "kmod-ifs-kernel-updates" ], # special case
-					UserRpms =>   [ "opa-scripts" ],
+					UserRpms =>   [ "opa-scripts",
+								"infiniband-diags" ],
 					DebugRpms =>  [  ],
 					Drivers => "",
 					StartupScript => "opa",
@@ -667,6 +695,7 @@ my %delta_comp_info_sles12_sp2 = (
 	%mpiRest_comp_info,
 	%hfi1_uefi_comp_info,
 	%delta_debug_comp_info,
+	%ibacm_sles12_sp2_comp_info,
 );
 
 my %delta_comp_info_rhel73 = (
@@ -679,10 +708,12 @@ my %delta_comp_info_rhel73 = (
 	%openmpi_comp_info,
 	%gasnet_comp_info,
 	%openshmem_comp_info,
+	%opa_stack_dev_rhel73_comp_info,
 	%delta_mpisrc_comp_info,
 	%mpiRest_comp_info,
 	%hfi1_uefi_comp_info,
 	%delta_debug_comp_info,
+	%ibacm_rhel73_comp_info,
 );
 
 my %delta_comp_info = ( );
@@ -725,7 +756,7 @@ my @delta_user_srpms_rhel72 = (
 		"opa-scripts", "mpi-selector", "ibacm",
 		"libhfi1", "libpsm2", "hfi1-diagtools-sw", "hfidiags", "hfi1-firmware", "hfi1-firmware_debug",
  		"mvapich2", "openmpi", "gasnet", "openshmem", "openshmem-test-suite",
-		"shmem-benchmarks", "srptools", "hfi1_uefi"
+		"shmem-benchmarks", "srptools", "libibmad", "infiniband-diags", "hfi1_uefi"
 );
 my @delta_user_srpms_rhel70 = (
 		"opa-scripts", "libibumad", "ibacm", "mpi-selector",
@@ -743,13 +774,13 @@ my @delta_user_srpms_sles12_sp2 = (
 		"opa-scripts", "mpi-selector",
 		"libpsm2", "hfi1-diagtools-sw", "hfidiags", "hfi1-firmware", "hfi1-firmware_debug",
  		"mvapich2", "openmpi", "gasnet", "openshmem", "openshmem-test-suite",
-		"shmem-benchmarks", "hfi1_uefi"
+		"shmem-benchmarks", "infiniband-diags", "hfi1_uefi"
 );
 my @delta_user_srpms_rhel73 = (
 		"opa-scripts", "mpi-selector",
 		"libpsm2", "hfi1-diagtools-sw", "hfidiags", "hfi1-firmware", "hfi1-firmware_debug",
  		"mvapich2", "openmpi", "gasnet", "openshmem", "openshmem-test-suite",
-		"shmem-benchmarks", "hfi1_uefi"
+		"shmem-benchmarks", "infiniband-diags", "hfi1_uefi"
 );
 my @delta_user_srpms = ( );
 
@@ -1409,6 +1440,7 @@ sub init_delta_rpm_info($)
 sub delta_rpm_install_list($$$@)
 {
 	my $rpmdir = shift();
+	my $rpmdir_t;
 	my $osver = shift();	# OS version
 	my $skip_kernelib = shift();	# should compat-rdma be skipped if in package_list
 	my(@package_list) = @_;	# package names
@@ -1417,10 +1449,14 @@ sub delta_rpm_install_list($$$@)
 	# user space RPM installs
 	foreach my $package ( @package_list )
 	{
+		$rpmdir_t=$rpmdir;
 		if ($delta_rpm_info{$package}{'Available'} ) {
 			if ( "$delta_rpm_info{$package}{'Mode'}" eq "kernel" ) {
 				if ( "$CUR_VENDOR_VER" eq "ES72" || "$CUR_VENDOR_VER" eq "ES73" || "$CUR_VENDOR_VER" eq "ES122" ) {
 					if ( $package =~ /ifs-kernel-updates/ ) {
+						if ( $GPU_Install == 1 ) {
+                                                        $rpmdir_t=$rpmdir."/CUDA";
+                                                }
 						next if ( $skip_kernelib);
 						$ret = 1;
 					}
@@ -1435,9 +1471,19 @@ sub delta_rpm_install_list($$$@)
 						$ret = 1;
 					}
 				}
-				rpm_install_with_options($rpmdir, $osver, $package, " -U --nodeps ");
+				rpm_install_with_options($rpmdir_t, $osver, $package, " -U --nodeps ");
 			} else {
-				rpm_install_with_options($rpmdir, "user", $package, " -U --nodeps ");
+				if ( $GPU_Install == 1 ) {
+                                        if ( -d $rpmdir."/CUDA" ) {
+                                                if ( $package =~ /libpsm/ || $package =~ /ifs-kernel-updates/) {
+                                                        $rpmdir_t=$rpmdir."/CUDA";
+                                                }
+                                        } else {
+                                                NormalPrint("CUDA specific packages do not exist\n");
+                                                exit 0;
+                                        }
+                                }
+				rpm_install_with_options($rpmdir_t, "user", $package, " -U --nodeps ");
 			}
 		}
 	}
@@ -1571,8 +1617,23 @@ sub delta_srpm_file($$)
 {
 	my $srcdir = shift();
 	my $globname = shift(); # in $srcdir
+	my $result;
 
-	my $result = file_glob("$srcdir/$SRPMS_SUBDIR/$globname");
+        if ( $GPU_Install == 1 ) {
+                if ( -d $srcdir."/SRPMS/CUDA" ) {
+                        if ("$globname" eq "libpsm2*.src.rpm") {
+                                $result = file_glob("$srcdir/$SRPMS_SUBDIR/CUDA/$globname");
+                        } elsif ("$globname" eq "ifs-kernel-updates*.src.rpm"){
+                                $result = file_glob("$srcdir/$SRPMS_SUBDIR/CUDA/$globname");
+                        }
+                } else {
+                        NormalPrint("CUDA specific SRPMs do not exist\n");
+                        exit 0;
+                }
+        } else {
+                $result = file_glob("$srcdir/$SRPMS_SUBDIR/$globname");
+        }
+
 	$result =~ s|^$srcdir/||;
 	return $result;
 }
@@ -1853,28 +1914,28 @@ sub build_srpm($$$$$)
 
 	if ("$srpm" eq "gasnet") {
 	    $cmd .= " --define '_name gasnet_openmpi_hfi'";
-	    $cmd .= " --define '_prefix /usr/shmem/gcc/gasnet-1.24.0-openmpi-hfi'";
+	    $cmd .= " --define '_prefix /usr/shmem/gcc/gasnet-1.28.2-openmpi-hfi'";
 	    $cmd .= " --define '_name gasnet_gcc_hfi'";
 	    $cmd .= " --define 'spawner mpi'";
-	    $cmd .= " --define 'mpi_prefix /usr/mpi/gcc/openmpi-1.8.5-hfi'";
+	    $cmd .= " --define 'mpi_prefix /usr/mpi/gcc/openmpi-1.10.4-hfi'";
 	}
 
 	if ("$srpm" eq "openshmem") {
 	    $cmd .= " --define '_name openshmem_gcc_hfi'";
-	    $cmd .= " --define '_prefix /usr/shmem/gcc/openshmem-1.0h-hfi'";
-	    $cmd .= " --define 'gasnet_prefix /usr/shmem/gcc/gasnet-1.24.0-openmpi-hfi'";
+	    $cmd .= " --define '_prefix /usr/shmem/gcc/openshmem-1.3-hfi'";
+	    $cmd .= " --define 'gasnet_prefix /usr/shmem/gcc/gasnet-1.28.2-openmpi-hfi'";
 	    $cmd .= " --define 'configargs --with-gasnet-threnv=seq'";
 	}
 
 	if ("$srpm" eq "openshmem-test-suite") {
 	    $cmd .= " --define '_name openshmem-test-suite_gcc_hfi'";
-	    $cmd .= " --define '_prefix /usr/shmem/gcc/openshmem-1.0h-hfi'";
-	    $cmd .= " --define 'openshmem_prefix /usr/shmem/gcc/openshmem-1.0h-hfi'";
+	    $cmd .= " --define '_prefix /usr/shmem/gcc/openshmem-1.3-hfi'";
+	    $cmd .= " --define 'openshmem_prefix /usr/shmem/gcc/openshmem-1.3-hfi'";
 	}
 
 	if ("$srpm" eq "shmem-benchmarks") {
-	    $cmd .= " --define '_prefix /usr/shmem/gcc/openshmem-1.0h-hfi'";
-	    $cmd .= " --define 'openshmem_prefix /usr/shmem/gcc/openshmem-1.0h-hfi'";
+	    $cmd .= " --define '_prefix /usr/shmem/gcc/openshmem-1.3-hfi'";
+	    $cmd .= " --define 'openshmem_prefix /usr/shmem/gcc/openshmem-1.3-hfi'";
 	}
 
 		return run_build("$srcdir $SRC_RPM $RPM_ARCH", "$srcdir", $cmd, "$resfileop");
@@ -2226,7 +2287,7 @@ sub uninstall_old_delta_rpms($$$)
 
 	my $ret = 0;	# assume success
 	my @packages = ();
-	my @prev_release_rpms = ( "hfi1-psm-compat-devel","hfi1-psm","hfi1-psm-devel","hfi1-psm-debuginfo","libhfi1verbs","libhfi1verbs-devel" );
+	my @prev_release_rpms = ( "hfi1-psm-compat-devel","hfi1-psm","hfi1-psm-devel","hfi1-psm-debuginfo","libhfi1verbs","libhfi1verbs-devel", "ifs-kernel-updates" );
 
 	if ("$message" eq "" ) {
 		$message = "previous OFA Delta";
@@ -2631,6 +2692,7 @@ sub install_kernel_ib($$)
 {
 	my $rpmdir = shift();
 	my $install_list = shift();	# total that will be installed when done
+	my $rpmdir_t = $rpmdir;
 
 	my $driver_subdir=$ComponentInfo{'opa_stack'}{'DriverSubdir'};	# same for all delta components
 
@@ -2638,9 +2700,19 @@ sub install_kernel_ib($$)
 		return;
 	}
 
+	$rpmdir_t = $rpmdir;
+	if ( $GPU_Install == 1 ) {
+                if ( -d $rpmdir."/CUDA" ) {
+                        $rpmdir_t=$rpmdir."/CUDA";
+                } else {
+                        NormalPrint("CUDA specific packages do not exist\n");
+                        exit 0;
+                }
+        }
+
 	if(!$skip_kernel) {
 		foreach my $srpm ( @delta_kernel_srpms ) {
-			rpm_install_with_options("$rpmdir", $CUR_OS_VER, $srpm, " -U --nodeps ");
+			rpm_install_with_options("$rpmdir_t", $CUR_OS_VER, $srpm, " -U --nodeps ");
 		}
 	}
 	remove_unneeded_kernel_ib_drivers($install_list);
@@ -2705,7 +2777,11 @@ sub installed_delta_opa_stack()
 		return ( -e "$ROOT$BASE_DIR/version_delta" 
 				&& rpm_is_installed("libibumad", "user")
 				&& rpm_is_installed("ifs-kernel-updates", $CUR_OS_VER));
-	} elsif ( "$CUR_VENDOR_VER" eq "ES72" || "$CUR_VENDOR_VER" eq "ES73" ) {
+	} elsif ( "$CUR_VENDOR_VER" eq "ES72" ) {
+		return ( -e "$ROOT$BASE_DIR/version_delta"
+				&& rpm_is_installed("kmod-ifs-kernel-updates", $CUR_OS_VER)
+				|| rpm_is_installed("ifs-kernel-updates", $CUR_OS_VER));
+	} elsif ( "$CUR_VENDOR_VER" eq "ES73" ) {
 		return ( -e "$ROOT$BASE_DIR/version_delta"
 				&& rpm_is_installed("kmod-ifs-kernel-updates", $CUR_OS_VER));
 	} elsif ( "$CUR_VENDOR_VER" eq 'ES122' ) {
@@ -2801,9 +2877,7 @@ sub need_reinstall_opa_stack($$)
 
 sub check_os_prereqs_opa_stack
 {
- 	return rpm_check_os_prereqs("opa_stack", "any", (
-				'pciutils', 'libstdc++ any user'
-   				));
+	return rpm_check_os_prereqs("opa_stack", "any");
 }
 
 sub preinstall_opa_stack($$)
@@ -2826,22 +2900,20 @@ sub install_opa_stack($$)
 	#override the udev permissions.
 	install_udev_permissions("$srcdir/config");
 
-	#edit_modconf("$srcdir/config");
-	edit_limitsconf("$srcdir/config");
+	# setup environment variable so that RPM can configure limits conf
+        setup_env("OPA_LIMITS_CONF", 1);
+        # so setting up envirnment to install driver for this component. actual install is done by rpm
+	setup_env("OPA_INSTALL_CALLER", 1);
 
 	# Check $BASE_DIR directory ...exist 
 	check_config_dirs();
 	check_dir("/usr/lib/opa");
 
-	copy_systool_file("$srcdir/comp.pl", "/usr/lib/opa/.comp_ofed_delta.pl");
+        prompt_opa_conf_param('ARPTABLE_TUNING', 'Adjust kernel ARP table size for large fabrics?', "y", 'OPA_ARPTABLE_TUNING');
+        prompt_opa_conf_param('SRP_LOAD', 'SRP initiator autoload?', "n", 'OPA_SRP_LOAD');
+        prompt_opa_conf_param('SRPT_LOAD', 'SRP target autoload?', "n", 'OPA_SRPT_LOAD');
 
 	install_delta_comp('opa_stack', $install_list);
-
-	prompt_opa_conf_param('ARPTABLE_TUNING', 'Adjust kernel ARP table size for large fabrics?', "y");
-	prompt_opa_conf_param('SRP_LOAD', 'SRP initiator autoload?', "n");
-	prompt_opa_conf_param('SRPT_LOAD', 'SRP target autoload?', "n");
-	
-	copy_data_file("$srcdir/Version", "$BASE_DIR/version_delta");
 
 	# prevent distro's open IB from loading
 	#add_blacklist("ib_mthca");
@@ -3046,7 +3118,6 @@ sub install_intel_hfi($$)
     my $installing_list = shift();  # what items are being installed/reinstalled
 
     print_install_banner_delta_comp('intel_hfi');
-    install_delta_comp('intel_hfi', $install_list);
 
     # Adjust irqbalance
     if ( -e "/etc/sysconfig/irqbalance" ) {
@@ -3054,9 +3125,16 @@ sub install_intel_hfi($$)
 		print "and run using the --hintpolicy=exact option.\n";
         $Default_IrqBalance = GetYesNoWithMemory("IrqBalance", 1, "$irq_perm_string", "y");
         if ( $Default_IrqBalance == 1 ) {
-            set_opairqbalance();
-		}
+            #set env variable so that RPM can do post install configuration of IRQBALANCE
+            #  if opasystemconfig already exists, set it manually
+            if ( -f "/sbin/opasystemconfig" ) {
+                system("/sbin/opasystemconfig --enable Irq_Balance");
+            } else {
+                setup_env("OPA_IRQBALANCE", 1);
+            }
+        }
     }
+    install_delta_comp('intel_hfi', $install_list);
 
     need_reboot();
     $ComponentWasInstalled{'intel_hfi'}=1;
@@ -3083,6 +3161,11 @@ sub uninstall_intel_hfi($$)
     $ComponentWasInstalled{'intel_hfi'}=0;
     remove_blacklist('hfi1');
     rebuild_ramdisk();
+}
+
+sub check_os_prereqs_intel_hfi
+{
+        return rpm_check_os_prereqs("intel_hfi", "any");
 }
 
 # ==========================================================================
@@ -3224,9 +3307,8 @@ sub available_opa_stack_dev()
 
 sub installed_opa_stack_dev()
 {
-	return ((rpm_is_installed("libibumad-devel", "user")
-			&& -e "$ROOT$BASE_DIR/version_delta")
-			|| installed_ibdev);
+	return (rpm_is_installed("libibumad-devel", "user")
+			&& -e "$ROOT$BASE_DIR/version_delta");
 }
 
 # only called if installed_opa_stack_dev is true
@@ -3235,7 +3317,7 @@ sub installed_version_opa_stack_dev()
 	if ( -e "$ROOT$BASE_DIR/version_delta" ) {
 		return `cat $ROOT$BASE_DIR/version_delta`;
 	} else {
-		return installed_version_ibdev;
+		return "";
 	}
 }
 
@@ -3296,10 +3378,6 @@ sub uninstall_opa_stack_dev($$)
 	print_uninstall_banner_delta_comp('opa_stack_dev');
 	uninstall_delta_comp('opa_stack_dev', $install_list, $uninstalling_list, 'verbose');
 	$ComponentWasInstalled{'opa_stack_dev'}=0;
-	if (installed_ibdev) {
-		print_separator;
-		uninstall_ibdev("", " ibdev ");
-	}
 }
 
 # ==========================================================================
@@ -3340,20 +3418,11 @@ sub available_delta_ipoib()
 
 sub installed_delta_ipoib()
 {
-	my $driver_subdir=$ComponentInfo{'delta_ipoib'}{'DriverSubdir'};
 	if ( "$CUR_VENDOR_VER" eq "ES67" ) {
-                return (( -e "$ROOT$BASE_DIR/version_delta"
-				&& rpm_is_installed("ifs-kernel-updates", $CUR_OS_VER)));
-	} elsif ( "$CUR_VENDOR_VER" eq "ES72" || "$CUR_VENDOR_VER" eq "ES73" ) {
-		return ((-e "$ROOT$BASE_DIR/version_delta"
-				&& rpm_is_installed("kmod-ifs-kernel-updates", $CUR_OS_VER)));
-	} elsif ( "$CUR_VENDOR_VER" eq "ES122" ) {
-		return ((-e "$ROOT$BASE_DIR/version_delta"
-				&& rpm_is_installed("ifs-kernel-updates-kmp-default", $CUR_OS_VER)));
-	} else {
-		return ((-e "$ROOT$BASE_DIR/version_delta"
-				&& rpm_is_installed("compat-rdma", $CUR_OS_VER)));
+		return (( -e "$ROOT$BASE_DIR/version_delta"
+			&& rpm_is_installed("ifs-kernel-updates", $CUR_OS_VER)));
 	}
+	return 1;
 }
 
 # only called if installed_delta_ipoib is true
@@ -3479,7 +3548,7 @@ sub need_reinstall_mpi_selector($$)
 
 sub check_os_prereqs_mpi_selector
 {
- 	return rpm_check_os_prereqs("mpi_selector", "any", ( "tcsh"))
+	return rpm_check_os_prereqs("mpi_selector", "any");
 }
 
 sub preinstall_mpi_selector($$)
@@ -3566,7 +3635,7 @@ sub need_reinstall_mvapich2($$)
 
 sub check_os_prereqs_mvapich2
 {
- 	return rpm_check_os_prereqs("mvapich2", "user", ( "sysfsutils", "libstdc++"));
+	return rpm_check_os_prereqs("mvapich2", "user");
 }
 
 sub preinstall_mvapich2($$)
@@ -3665,11 +3734,7 @@ sub need_reinstall_openmpi($$)
 
 sub check_os_prereqs_openmpi
 {
-	if (lc($CUR_DISTRO_VENDOR) eq "suse") {
-		return rpm_check_os_prereqs("openmpi", "user", ( "libstdc++", "opensm-libs3"));
-	} else {
-		return rpm_check_os_prereqs("openmpi", "user", ( "libstdc++"));
-	}
+	return rpm_check_os_prereqs("openmpi", "user");
 }
 
 sub preinstall_openmpi($$)
@@ -3816,6 +3881,11 @@ sub uninstall_gasnet($$)
 	$ComponentWasInstalled{'gasnet'}=0;
 }
 
+sub check_os_prereqs_gasnet()
+{
+	return rpm_check_os_prereqs("gasnet", "user");
+}
+
 # ==========================================================================
 # OFED openshmem for gcc installation
 
@@ -3910,6 +3980,11 @@ sub uninstall_openshmem($$)
 	$ComponentWasInstalled{'openshmem'}=0;
 }
 
+sub check_os_prereqs_openshmem
+{
+	return rpm_check_os_prereqs("openshmem", "user");
+}
+
 # ==========================================================================
 # OFED DELTA delta_mpisrc installation
 
@@ -3926,9 +4001,9 @@ sub available_delta_mpisrc()
 sub installed_delta_mpisrc()
 {
 	return ((-e "$ROOT$BASE_DIR/version_delta"
-			&& file_glob("$ROOT/usr/lib/opa/src/MPI/mvapich*.src.rpm") ne ""
-			&& file_glob("$ROOT/usr/lib/opa/src/MPI/openmpi*.src.rpm") ne ""
-			&& file_glob("$ROOT/usr/lib/opa/src/MPI/mpitests*.src.rpm") ne ""));
+			&& file_glob("$ROOT/usr/src/opa/MPI/mvapich*.src.rpm") ne ""
+			&& file_glob("$ROOT/usr/src/opa/MPI/openmpi*.src.rpm") ne ""
+			&& file_glob("$ROOT/usr/src/opa/MPI/mpitests*.src.rpm") ne ""));
 }
 
 # only called if installed_delta_mpisrc is true
@@ -3962,10 +4037,7 @@ sub need_reinstall_delta_mpisrc($$)
 
 sub check_os_prereqs_delta_mpisrc
 {
- 	return rpm_check_os_prereqs("delta_mpisrc", "any", 
-					( @{ $delta_srpm_info{'mvapich'}{'BuildPrereq'}},
-					  @{ $delta_srpm_info{'openmpi'}{'BuildPrereq'}},
-					  @{ $delta_srpm_info{'mvapich2'}{'BuildPrereq'}} ));
+	return rpm_check_os_prereqs("delta_mpisrc", "any");
 }
 
 sub preinstall_delta_mpisrc($$)
@@ -3985,29 +4057,29 @@ sub install_delta_mpisrc($$)
 
 	print_install_banner_delta_comp('delta_mpisrc');
 	install_delta_comp('delta_mpisrc', $install_list);
-	check_dir("/usr/lib/opa/src");
-	check_dir("/usr/lib/opa/src/MPI");
+	check_dir("/usr/src/opa");
+	check_dir("/usr/src/opa/MPI");
 	# remove old versions (.src.rpm and built .rpm files too)
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mvapich[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mvapich2[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/openmpi[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mpitests[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.res 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.err 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.warn 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/.mpiinfo 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/mvapich[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/mvapich2[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/openmpi[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/mpitests[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/make.*.res 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/make.*.err 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/make.*.warn 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/.mpiinfo 2>/dev/null";
 
 	# install new versions
 	foreach my $srpm ( "mvapich2", "openmpi", "mpitests" ) {
 		my $srpmfile = file_glob("$srcdir/$SRPMS_SUBDIR/${srpm}-*.src.rpm");
 		if ( "$srpmfile" ne "" ) {
 			my $file = my_basename($srpmfile);
-			copy_data_file($srpmfile, "/usr/lib/opa/src/MPI/$file");
+			copy_data_file($srpmfile, "/usr/src/opa/MPI/$file");
 		}
 	}
-	copy_systool_file("$srcdir/do_build", "/usr/lib/opa/src/MPI/do_build");
-	copy_systool_file("$srcdir/do_mvapich2_build", "/usr/lib/opa/src/MPI/do_mvapich2_build");
-	copy_systool_file("$srcdir/do_openmpi_build", "/usr/lib/opa/src/MPI/do_openmpi_build");
+	copy_systool_file("$srcdir/do_build", "/usr/src/opa/MPI/do_build");
+	copy_systool_file("$srcdir/do_mvapich2_build", "/usr/src/opa/MPI/do_mvapich2_build");
+	copy_systool_file("$srcdir/do_openmpi_build", "/usr/src/opa/MPI/do_openmpi_build");
 
 	$ComponentWasInstalled{'delta_mpisrc'}=1;
 }
@@ -4027,21 +4099,21 @@ sub uninstall_delta_mpisrc($$)
 	print_uninstall_banner_delta_comp('delta_mpisrc');
 
 	# remove old versions (.src.rpm and built .rpm files too)
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mvapich2[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/openmpi[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mpitests[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.res 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.err 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.warn 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/.mpiinfo 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/do_build 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/do_mvapich2_build 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/do_openmpi_build 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/.mpiinfo 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/mvapich2[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/openmpi[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/mpitests[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/make.*.res 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/make.*.err 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/make.*.warn 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/.mpiinfo 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/do_build 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/do_mvapich2_build 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/do_openmpi_build 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/.mpiinfo 2>/dev/null";
 
 	uninstall_delta_comp('delta_mpisrc', $install_list, $uninstalling_list, 'verbose');
-	system "rmdir $ROOT/usr/lib/opa/src/MPI 2>/dev/null"; # remove only if empty
-	system "rmdir $ROOT/usr/lib/opa/src 2>/dev/null"; # remove only if empty
+	system "rmdir $ROOT/usr/src/opa/MPI 2>/dev/null"; # remove only if empty
+	system "rmdir $ROOT/usr/src/opa 2>/dev/null"; # remove only if empty
 	$ComponentWasInstalled{'delta_mpisrc'}=0;
 }
 
@@ -4284,6 +4356,41 @@ sub uninstall_ibacm($$)
 	uninstall_delta_comp('ibacm', $install_list, $uninstalling_list, 'verbose');
 	$ComponentWasInstalled{'ibacm'}=0;
 }
+
+sub check_os_prereqs_ibacm
+{
+	return rpm_check_os_prereqs("ibacm", "user");
+}
+
+# ------------------------------------------------------------------
+# # subroutines for rdma-ndd component
+# # -----------------------------------------------------------------
+sub installed_rdma_ndd()
+{
+        return (rpm_is_installed("infiniband-diags", "user"));
+}
+
+sub enable_autostart2_rdma_ndd()
+{
+        system "systemctl enable rdma-ndd >/dev/null 2>&1";
+}
+
+sub disable_autostart2_rdma_ndd()
+{
+        system "systemctl disable rdma-ndd >/dev/null 2>&1";
+}
+
+sub IsAutostart2_rdma_ndd()
+{
+        my $status = `systemctl is-enabled rdma-ndd`;
+        if ( $status eq "enabled\n" ){
+                return 1;
+        }
+        else{
+                return 0;
+        }
+}
+
 # ------------------------------------------------------------------
 # subroutines for hfi1_uefi component
 # ------------------------------------------------------------------

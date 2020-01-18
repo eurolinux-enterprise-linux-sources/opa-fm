@@ -44,6 +44,7 @@ DIRS			= \
 				$(shell ls -d opafirmware 2>/dev/null)  \
 				$(shell ls -d opamon 2>/dev/null) \
 				$(shell ls -d opareport 2>/dev/null) \
+				$(shell ls -d opa2rm 2>/dev/null) \
 				$(shell ls -d opaxmlextract 2>/dev/null) \
 				$(shell ls -d opaxmlfilter 2>/dev/null) \
 				$(shell ls -d opaxmlgenerate 2>/dev/null) \
@@ -54,6 +55,7 @@ DIRS			= \
 				$(shell ls -d opagenswitches 2>/dev/null) \
 				$(shell ls -d opagenesmchassis 2>/dev/null) \
 				$(shell ls -d opasmaquery 2>/dev/null) \
+				$(shell ls -d opapaextract 2>/dev/null) \
 				$(shell ls -d opatop 2>/dev/null) \
 				$(shell ls -d chassis_setup 2>/dev/null) \
 				$(shell ls -d switch_setup 2>/dev/null) \

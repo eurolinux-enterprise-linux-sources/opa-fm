@@ -1,12 +1,5 @@
 #!/bin/bash
 
-if [ ! -f /etc/os-release ]
-then
-	echo No such file /etc/os-release
-	echo Pleae contact Intel support
-	exit 1
-fi
-
 id=$(grep ^ID= /etc/os-release | cut -f2 -d\")
 versionid=$(grep ^VERSION_ID= /etc/os-release | cut -f2 -d\")
 
@@ -36,13 +29,12 @@ then
 	else
 		sed -i "s/__RPM_BLDRQ2/Requires(post): \/sbin\/chkconfig/g" $to
 		sed -i "s/__RPM_RQ1/Requires(preun): \/sbin\/chkconfig/g" $to
-		sed -i 's/RPM_INS=n/RPM_INS=y/g' opa-fm.spec
+		sed -i "s/__RPM_INS/install -D -m 755 stage.rpm\/opafm $RPM_BUILD_ROOT%{_sysconfdir}\/init.d\/opafm/g" $to
 		sed -i "s/__RPM_SYSCONF/%{_sysconfdir}\/init.d\/opafm/g" $to
 	fi
+	sed -i "s/__RPM_RQ2/Requires: libibumad%{?_isa}, libibmad%{?_isa}, libibverbs%{?_isa}, rdma, expat%{?_isa}, libhfi1, openssl%{?_isa}/g" $to
 	sed -i "/__RPM_DEBUG/,+1d" $to
-fi
-
-if [ "$id" = "sles" ]
+elif [ "$id" = "sles" ]
 then
 	sed -i "s/__RPM_BLDRQ1/libexpat-devel, libibumad-devel, libibverbs-devel, libibmad-devel, openssl-devel/g" $to
 	st=$(echo "$versionid >= 12.1" | bc)
@@ -61,7 +53,31 @@ then
 	else
 		sed -i "/__RPM_DEBUG/,+1d" $to
 	fi
+	sed -i "/__RPM_INS/,+1d" $to
 	sed -i "/__RPM_SYSCONF/,+1d" $to
+	sed -i "s/__RPM_RQ2/Requires: libibumad3, libibmad5, libibverbs1, rdma, libexpat1, openssl/g" $to
+else
+	echo ERROR: Unsupported distribution: $id $versionid
+	exit 1
 fi
 
 exit 0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

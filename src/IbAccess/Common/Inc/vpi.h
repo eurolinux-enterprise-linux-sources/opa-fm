@@ -77,6 +77,9 @@ typedef enum {
 	QPTypeUnreliableDatagram,
 	QPTypeSMI,
 	QPTypeGSI,
+#if defined(INCLUDE_STLEEP)
+	QPTypeSTLEEP,
+#endif
 	QPTypeRawDatagram,
 	QPTypeRawIPv6,
 	QPTypeRawEthertype
@@ -165,7 +168,11 @@ typedef struct _GLOBALROUTE_INFO {
  */
 typedef struct _IB_ADDRESS_VECTOR {
 	EUI64		PortGUID;		/* Used only on CreateAV, ModifyAV, QueryAV */
+#if INCLUDE_16B
+	STL_LID		DestLID;		/* Destination's LID */
+#else
 	IB_LID		DestLID;		/* Destination's LID */
+#endif
 	IB_PATHBITS	PathBits;		/* Combines with the base SrcLID to indicate */
 								/* SrcLID for pkts */
 	IB_SL		ServiceLevel;
@@ -242,6 +249,13 @@ typedef enum {
 	| IB_QP_ATTR_QKEY | IB_QP_ATTR_PKEYINDEX \
 	| IB_QP_ATTR_SENDPSN \
 	| IB_QP_ATTR_ENABLESQDASYNCEVENT ))
+#if defined(INCLUDE_STLEEP)
+#define QP_ATTR_STLEEP \
+	((IB_QP_ATTRS) \
+	( IB_QP_ATTR_SENDQDEPTH | IB_QP_ATTR_RECVQDEPTH \
+	| IB_QP_ATTR_SENDDSLISTDEPTH | IB_QP_ATTR_RECVDSLISTDEPTH \
+	| IB_QP_ATTR_ENABLESQDASYNCEVENT ))
+#endif
 #define QP_ATTR_RD \
 	((IB_QP_ATTRS) \
 	( IB_QP_ATTR_SENDQDEPTH | IB_QP_ATTR_RECVQDEPTH \
@@ -823,7 +837,12 @@ typedef union _IB_SEND_OPTIONS {
 		uint16		SolicitedEvent:		1;	/* Generate solicited event at */
 											/* destination. N/A for RdmaRead */
 											/* nor Atomics */
+#if INCLUDE_16B
+		uint16		SendFMH:			1;	/* Use 16b and FM Header for mad requests */
+		uint16		Reserved2:			7;	/* Must be zero */
+#else
 		uint16		Reserved2:			8;	/* Must be zero */
+#endif
 	} s;
 } IB_SEND_OPTIONS;
 
@@ -890,7 +909,11 @@ typedef struct _IB_WORK_REQ {
 		} SendRD;			/* Send, RdmaRead, RdmaWrite */
 		struct _IB_SEND_RAWD {
 			uint32		QPNumber;	/* Dest QP number */
+#if INCLUDE_16B
+			STL_LID		DestLID;	/* Destination's Base LID */
+#else
 			IB_LID		DestLID;	/* Destination's Base LID */
+#endif
 			IB_PATHBITS	PathBits;	/* Combines with the base SrcLID to */
 									/* determine SrcLID for pkts. */
 			IB_SL		ServiceLevel;	/* For dest */
@@ -973,7 +996,11 @@ struct _IB_ATOMIC_RD2 {
 /* Send for Raw QP */
 struct _IB_SEND_RAWD2 {
 	uint32					QPNumber;	/* Dest QP number */
+#if INCLUDE_16B
+	STL_LID					DestLID;	/* Destination's Base LID */
+#else
 	IB_LID					DestLID;	/* Destination's Base LID */
+#endif
 	IB_PATHBITS				PathBits;	/* Combines with the base SrcLID to */
 										/* determine SrcLID for pkts. */
 	IB_SL					ServiceLevel;	/* For dest */
@@ -986,6 +1013,13 @@ struct _IB_SEND_RAWD2 {
 	uint8					Reserved;
 	uint16					EtherType;	 /* Ethernet type */
 } PACK_SUFFIX;
+
+#if defined(INCLUDE_STLEEP)
+/* Send for the STLEEP QP */
+struct _OPA_SEND_STLEEP2 {
+	IB_SEND_OPTIONS			Options;
+} PACK_SUFFIX;
+#endif
 
 /* this family of structures allows for future addition of new fields as well
  * as optimized memory usage by applications.  The APIs accept a IB_WORK_REQ2
@@ -1024,6 +1058,9 @@ typedef struct _IB_WORK_REQ2 {
 		struct _IB_SEND_RD2 SendRD;				/* Send, RdmaRead, RdmaWrite */
 		struct _IB_ATOMIC_RD2 AtomicRD;			/* CompareSwap, FetchAdd */
 		struct _IB_SEND_RAWD2 SendRawD;			/* Send */
+#if defined(INCLUDE_STLEEP)
+		struct _OPA_SEND_STLEEP2 SendSTLEEP;	/* Send */
+#endif
 	} PACK_SUFFIX Req;
 } PACK_SUFFIX IB_WORK_REQ2;
 
@@ -1185,6 +1222,28 @@ typedef struct _IB_WORK_REQ2_RAW {
 	} PACK_SUFFIX Req;
 } PACK_SUFFIX IB_WORK_REQ2_RAW;
 
+#if defined(INCLUDE_STLEEP)
+/* any SendQ or RecvQ operation on the STLEEP QP */
+typedef struct _IB_WORK_REQ2_STLEEP {
+	struct _IB_WORK_REQ2	*Next;		/* link to next WQE being posted
+										 * allows for more efficient operation
+										 * by posting multiple WQEs in 1 call
+										 */
+	IB_LOCAL_DATASEGMENT	*DSList;	/* Ptr to scatter/gather list */
+	uint64					WorkReqId;	/* Consumer supplied value returned */
+										/* on a work completion */
+	uint32					MessageLen;	/* overall size of message */
+	uint32					DSListDepth;/* Number of data segments in */
+										/* scatter/gather list. */
+	IB_WR_OP				Operation;
+	uint32					Reserved;	/* 64 bit align Req union below */
+	union {
+		struct _OPA_SEND_STLEEP2 SendSTLEEP;	/* Send */
+		/* no additional information for Recv WQEs */
+	} PACK_SUFFIX Req;
+} PACK_SUFFIX IB_WORK_REQ2_STLEEP;
+#endif
+
 #include "iba/public/ipackoff.h"
 
 /*
@@ -1265,7 +1324,11 @@ typedef struct _IB_WORK_COMPLETION {
 			IB_RECV_FLAGS	Flags;
 			uint32		ImmediateData;
 			uint32		SrcQPNumber;
+#if INCLUDE_16B
+			STL_LID		SrcLID;
+#else
 			IB_LID		SrcLID;
+#endif
 			IB_P_KEY	PkeyIndex;		/* GSI only */
 			IB_SL		ServiceLevel;
 			IB_PATHBITS	DestPathBits;
@@ -1275,7 +1338,11 @@ typedef struct _IB_WORK_COMPLETION {
 			uint32			ImmediateData;
 			uint32			SrcQPNumber;
 			uint32			DestEECNumber;	/* Dest EE Context number */
+#if INCLUDE_16B
+			STL_LID			SrcLID;
+#else
 			IB_LID			SrcLID;
+#endif
 			IB_SL			ServiceLevel;
 			uint8			FreedResourceCount;
 		} RecvRD;

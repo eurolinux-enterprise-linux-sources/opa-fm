@@ -525,7 +525,7 @@ void bufferLargeSmDiagOutputs(fm_config_interation_data_t *iterationData) {
         iterationData->offset += FM_CONFIG_INTERMEDIATE_SIZE;
         return;
     }
-    strcpy(iterationData->intermediateBuffer, location);
+    cs_strlcpy(iterationData->intermediateBuffer, location, FM_CONFIG_INTERMEDIATE_BUFF);
     iterationData->intermediateLength = strlen(location);
     iterationData->more = 0;
     iterationData->done = 1;
@@ -541,7 +541,6 @@ void sm_linux_signal_handler(int a) {
 	}
 	else {
 		sm_control_shutdown(NULL);
-		exit(0);
 	}
 }
 
@@ -630,7 +629,7 @@ main(int argc, char *argv[]) {
 	status = initSmXmlMemoryPool();
 	if (status != VSTATUS_OK) {
 		printf("exiting\n");
-		exit(0);
+		exit(2);
 	}
 
 	// init callback function for XML parser so it can get pool memory
@@ -648,7 +647,7 @@ main(int argc, char *argv[]) {
 			break;
 		case '?':
 			IB_LOG_ERROR_FMT(__func__, "invalid command line parameter specified: %d", optopt);
-			exit(2);
+			exit(1);
 		default:
 			break;
 		}
@@ -667,14 +666,14 @@ main(int argc, char *argv[]) {
 	status = sm_initialize_sm_pool();
 	if (status != VSTATUS_OK) {
 		printf("sm_initialize_sm_pool not successful; exiting\n");
-		exit(0);
+		exit(2);
 	}
 
 	// Allocate memory for and copy VF and DG information from xml config to sm_vfdg_config
 	status = handleVfDgMemory();
 	if (status != VSTATUS_OK) {
 		printf("handleVfDgMemory not successful; exiting\n");
-		exit(0);
+		exit(2);
 	}
 
 	// reset getopt()

@@ -1271,11 +1271,7 @@ open_mngr_cnx(uint32_t dev, uint32_t port,
     
     if (mode == 1) {
         // query SA for location of manager
-#ifdef NO_STL_SERVICE_RECORD      // SA shouldn't support STL Service Record
         IB_SERVICE_RECORD sr; 
-#else
-        STL_SERVICE_RECORD sr; 
-#endif
         uint32_t count; 
         uint16_t sl; 
         
@@ -2075,6 +2071,7 @@ if3_mngr_send_mad(IBhandle_t fd, SA_MAD *psa, uint32_t dataLength, uint8_t *buff
         } else {
             // release context for single MAD request
             rmpp_cntxt_full_release(fe_cntxt);
+            fe_cntxt = NULL;
 
             // wait for response from manager
             rc = rmpp_receive_response(fd_rmpp_usrid, mi, &imad, buffer, bufferLength, cb, context); 
@@ -2087,9 +2084,9 @@ if3_mngr_send_mad(IBhandle_t fd, SA_MAD *psa, uint32_t dataLength, uint8_t *buff
             }
             
             // get MAD status from the header
-			if (rc == VSTATUS_OK) {
-				*madRc = imad.base.status; 
-			}
+            if (rc == VSTATUS_OK) {
+                *madRc = imad.base.status; 
+            }
             
             // set response status to no_records since rmpp returns zero length record with status OK 
             // in those cases
@@ -2939,11 +2936,7 @@ if3_mngr_register_sa (IBhandle_t fd, uint8_t * servName, uint64_t servID, uint32
 
 	uint32_t rc;
 	ManagerInfo_t *mi;
-#ifdef NO_STL_SERVICE_RECORD      // SA shouldn't support STL Service Record
 	IB_SERVICE_RECORD serviceFound;
-#else
-	STL_SERVICE_RECORD serviceFound;
-#endif
 	uint32_t count;
 
 	IB_ENTER(__func__, fd, servName, servID, option);

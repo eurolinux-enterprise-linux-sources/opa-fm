@@ -1,9 +1,7 @@
-%global Intel_Release 6
-
 Name: opa-fm
 Epoch: 1
-Version: 10.3.1.0
-Release: 8%{?dist}
+Version: 10.5.1.0.1
+Release: 1%{?dist}
 Summary: Intel Omni-Path Fabric Management Software
 
 Group: System Environment/Daemons
@@ -12,17 +10,14 @@ Url: https://github.com/01org/opa-fm
 # tarball created by:
 # git clone https://github.com/01org/opa-fm.git
 # cd opa-fm
-# git checkout v10_3_1
-# git archive --format=tar --prefix=opa-fm-%{version}-%{Intel_Release}/ \
-# 4a98a653d528f1db788e59d7a25711630561a19c | xz > opa-fm-%{version}-%{Intel_Release}.tar.xz
-Source0: %{name}-%{version}-%{Intel_Release}.tar.xz
+# git archive --format=tar --prefix=opa-fm-%{version}/ \
+# b5eaf8d7a4170fcd25dcf939ac7fca7cfcab3e41 | xz > opa-fm-%{version}.tar.xz
+Source0: %{name}-%{version}.tar.xz
 
 # bz1262327 needs Patch0002
 Patch0002: 0001-Fix-well-known-tempfile-issue-in-script.patch
 
-BuildRequires: autoconf
-BuildRequires: systemd
-BuildRequires: zlib-devel, openssl-devel, expat-devel
+BuildRequires: openssl-devel, expat-devel
 BuildRequires: libibmad-devel, libibverbs-devel >= 1.2.0
 BuildRequires: libibumad-devel
 Requires(post): systemd
@@ -37,7 +32,7 @@ includes: the Subnet Manager, Baseboard Manager, Performance Manager,
 Fabric Executive, and some fabric management tools.
 
 %prep
-%setup -q -n %{name}-%{version}-%{Intel_Release}
+%setup -q
 %patch0002 -p1
 
 # Make it possible to override hardcoded compiler flags
@@ -68,19 +63,21 @@ mkdir -p %{buildroot}/%{_localstatedir}/usr/lib/opa-fm/
 %files
 %doc Esm/README
 %{_unitdir}/opafm.service
-%config(noreplace) %{_sysconfdir}/sysconfig/opafm.xml
-%{_sysconfdir}/sysconfig/opa/opafm.info
+%config(noreplace) %{_sysconfdir}/opa-fm/opafm.xml
 %{_prefix}/lib/opa-fm/bin/*
-%{_prefix}/lib/opa-fm/etc/*
 %{_prefix}/lib/opa-fm/runtime/*
-%{_prefix}/lib/opa-fm/samples/*
+%{_prefix}/share/opa-fm/*
+%{_prefix}/lib/opa/.comp_opafm.pl
 %{_sbindir}/opafmcmd
 %{_sbindir}/opafmcmdall
-%{_localstatedir}/usr/lib/opa-fm/
 %{_mandir}/man8/*
 
 
 %changelog
+* Thu Oct 19 2017 Honggang Li <honli@redhat.com> - 10.5.1.0.1-1
+- Rebase to upstream release 10.5.1.0.1
+- Resolves: bz1452787, bz1500903
+
 * Fri Mar 17 2017 Honggang Li <honli@redhat.com> - 10.3.1.0-8
 - Rebase to upstream branch v10_3_1 as required.
 - Clean up change log.

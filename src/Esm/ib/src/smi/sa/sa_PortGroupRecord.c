@@ -74,25 +74,32 @@ sa_PortGroupRecord(Mai_t *maip, sa_cntxt_t *sa_cntxt) {
     //  Assume failure.
     records = 0;
 
-    //  Check the method.  If this is a template lookup, then call the regular
-    //  GetTable(*) template lookup routine.
-    switch (maip->base.method) {
-    case SA_CM_GET:
-        INCREMENT_COUNTER(smCounterSaRxGetPortGroupRecord);
-        GetPortGroupRecord(maip, &records);
-        break;
-    case SA_CM_GETTABLE:
-        INCREMENT_COUNTER(smCounterSaRxGetTblPortGroupRecord);
-        GetPortGroupRecord(maip, &records);
-        break;
-    default:
-        maip->base.status = MAD_STATUS_BAD_METHOD;
-        (void)sa_send_reply(maip, sa_cntxt);
-        IB_LOG_WARN("sa_PortGroupRecord: invalid METHOD:", maip->base.method);
-        IB_EXIT("sa_PortGroupRecord", VSTATUS_OK);
-        return VSTATUS_OK;
-        break;
-    }
+	// Check Method
+	if (maip->base.method == SA_CM_GET) {
+		INCREMENT_COUNTER(smCounterSaRxGetPortGroupRecord);
+	} else if (maip->base.method == SA_CM_GETTABLE) {
+		INCREMENT_COUNTER(smCounterSaRxGetTblPortGroupRecord);
+	} else {
+		// Generate an error response and return.
+		maip->base.status = MAD_STATUS_BAD_METHOD;
+		IB_LOG_WARN_FMT(__func__, "invalid Method: %s (%u)",
+			cs_getMethodText(maip->base.method), maip->base.method);
+		(void)sa_send_reply(maip, sa_cntxt);
+		IB_EXIT(__func__, VSTATUS_OK);
+		return VSTATUS_OK;
+	}
+	// Check Base and Class Version
+	if (maip->base.bversion == STL_BASE_VERSION && maip->base.cversion == STL_SA_CLASS_VERSION) {
+		GetPortGroupRecord(maip, &records);
+	} else {
+		// Generate an error response and return.
+		maip->base.status = MAD_STATUS_BAD_CLASS;
+		IB_LOG_WARN_FMT(__func__, "invalid Base and/or Class Versions: Base %u, Class %u",
+			maip->base.bversion, maip->base.cversion);
+		(void)sa_send_reply(maip, sa_cntxt);
+		IB_EXIT(__func__, VSTATUS_OK);
+		return VSTATUS_OK;
+	}
 
     //  Determine reply status
     if (maip->base.status != MAD_STATUS_OK) {
@@ -128,25 +135,32 @@ sa_PortGroupFwdRecord(Mai_t *maip, sa_cntxt_t *sa_cntxt) {
     //  Assume failure.
     records = 0;
 
-    //  Check the method.  If this is a template lookup, then call the regular
-    //  GetTable(*) template lookup routine.
-    switch (maip->base.method) {
-    case SA_CM_GET:
-        INCREMENT_COUNTER(smCounterSaRxGetPortGroupFwdRecord);
-        (void)GetPortGroupFwdRecord(maip, &records);
-        break;
-    case SA_CM_GETTABLE:
-        INCREMENT_COUNTER(smCounterSaRxGetTblPortGroupFwdRecord);
-        (void)GetPortGroupFwdRecord(maip, &records);
-        break;
-    default:
-        maip->base.status = MAD_STATUS_BAD_METHOD;
-        (void)sa_send_reply(maip, sa_cntxt);
-        IB_LOG_WARN("sa_PortGroupFwdRecord: invalid METHOD:", maip->base.method);
-        IB_EXIT("sa_PortGroupFwdRecord", VSTATUS_OK);
-        return VSTATUS_OK;
-        break;
-    }
+	// Check Method
+	if (maip->base.method == SA_CM_GET) {
+		INCREMENT_COUNTER(smCounterSaRxGetPortGroupFwdRecord);
+	} else if (maip->base.method == SA_CM_GETTABLE) {
+		INCREMENT_COUNTER(smCounterSaRxGetTblPortGroupFwdRecord);
+	} else {
+		// Generate an error response and return.
+		maip->base.status = MAD_STATUS_BAD_METHOD;
+		IB_LOG_WARN_FMT(__func__, "invalid Method: %s (%u)",
+			cs_getMethodText(maip->base.method), maip->base.method);
+		(void)sa_send_reply(maip, sa_cntxt);
+		IB_EXIT(__func__, VSTATUS_OK);
+		return VSTATUS_OK;
+	}
+	// Check Base and Class Version
+	if (maip->base.bversion == STL_BASE_VERSION && maip->base.cversion == STL_SA_CLASS_VERSION) {
+		(void)GetPortGroupFwdRecord(maip, &records);
+	} else {
+		// Generate an error response and return.
+		maip->base.status = MAD_STATUS_BAD_CLASS;
+		IB_LOG_WARN_FMT(__func__, "invalid Base and/or Class Versions: Base %u, Class %u",
+			maip->base.bversion, maip->base.cversion);
+		(void)sa_send_reply(maip, sa_cntxt);
+		IB_EXIT(__func__, VSTATUS_OK);
+		return VSTATUS_OK;
+	}
 
     //  Determine reply status
     if (maip->base.status != MAD_STATUS_OK) {
@@ -244,18 +258,19 @@ GetPortGroupRecord(Mai_t *maip, uint32_t *records)
 
 	// FIXME: make a common function, then optimize checkLid similar to
 	// SLSCTableRecord
-    for_all_switch_nodes(&old_topology, nodep) {
-        port0Lid = (sm_get_port(nodep, 0))->portData->lid;
-        if (checkLid && (port0Lid != lid)) continue;
-        if (nodep->switchInfo.PortGroupCap == 0) continue;
-        if (nodep->switchInfo.CapabilityMask.s.IsAdaptiveRoutingSupported==0) continue;
-		if (nodep->switchInfo.AdaptiveRouting.s.Enable==0) continue;
+	for_all_switch_nodes(&old_topology, nodep) {
+		port0Lid = (sm_get_port(nodep, 0))->portData->lid;
+		if (checkLid && (port0Lid != lid)) continue;
+		if (nodep->switchInfo.PortGroupCap == 0) continue;
+		if (nodep->switchInfo.CapabilityMask.s.IsAdaptiveRoutingSupported == 0) continue;
+		if (nodep->switchInfo.AdaptiveRouting.s.Enable == 0) continue;
+		if (nodep->switchInfo.PortGroupTop == 0) continue;
 
-        if (nodep->pgt==0) {
-            maip->base.status = MAD_STATUS_SA_REQ_INVALID;
-            IB_LOG_ERROR_FMT("GetPortGroupRecord","PG Table uninitialized. LID:%d",(int)port0Lid);
-            goto done; // Need to unlock topology db.
-        }
+		if (nodep->pgt == 0) {
+			maip->base.status = MAD_STATUS_SA_REQ_INVALID;
+			IB_LOG_ERROR_FMT("GetPortGroupRecord", "PG Table uninitialized. LID:%d", (int)port0Lid);
+			goto done; // Need to unlock topology db.
+		}
 
         endBlock = (nodep->switchInfo.PortGroupTop+7)/STL_PGTB_NUM_ENTRIES_PER_BLOCK-1;
         blkIdx = checkBlock ? blockNum : 0;

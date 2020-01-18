@@ -39,7 +39,7 @@ use strict;
 # Fast Fabric installation
 
 my $FF_CONF_FILE = "/usr/lib/opa/tools/opafastfabric.conf";
-my $FF_TLS_CONF_FILE = "/etc/sysconfig/opa/opaff.xml";
+my $FF_TLS_CONF_FILE = "/etc/opa/opaff.xml";
 sub available_fastfabric
 {
 	my $srcdir=$ComponentInfo{'fastfabric'}{'SrcDir'};
@@ -55,13 +55,8 @@ sub installed_fastfabric
 # only called if installed_fastfabric is true
 sub installed_version_fastfabric
 {
-	my $version_file="$BASE_DIR/version_ff";
-
-	if ( -e "$version_file" ) {
-		return `cat $ROOT$version_file`;
-	} else {
-		return "";
-	}
+	my $version = rpm_query_version_release_pkg("opa-fastfabric");
+	return dot_version("$version");
 }
 
 # only called if available_fastfabric is true
@@ -90,11 +85,7 @@ sub need_reinstall_fastfabric($$)
 
 sub check_os_prereqs_fastfabric
 {	
-	if ("$CUR_DISTRO_VENDOR" eq 'redhat') {
-		return rpm_check_os_prereqs("fastfabric", "user", ( "tcl 8.4", "expect", "atlas" ));
-	} else {
-		return rpm_check_os_prereqs("fastfabric", "user", ( "tcl 8.4", "expect" ));
-	}
+	return rpm_check_os_prereqs("fastfabric", "user");
 }
 
 sub preinstall_fastfabric
@@ -111,41 +102,36 @@ sub install_fastfabric
 	my $installing_list = $_[1];	# what items are being installed/reinstalled
 
 	my $srcdir=$ComponentInfo{'fastfabric'}{'SrcDir'};
+	my $depricated_dir = "/etc/sysconfig/opa";
 
 	my $version=media_version_fastfabric();
 	chomp $version;
 	printf("Installing $ComponentInfo{'fastfabric'}{'Name'} $version $DBG_FREE...\n");
 		LogPrint "Installing $ComponentInfo{'fastfabric'}{'Name'} $version $DBG_FREE for $CUR_DISTRO_VENDOR $CUR_VENDOR_VER\n";
 	check_config_dirs();
-	if ( -e "$srcdir/comp.pl" ) {
-		check_dir("/usr/lib/opa");
-		copy_systool_file("$srcdir/comp.pl", "/usr/lib/opa/.comp_fastfabric.pl");
-	}
 
 	my $rpmfile = rpm_resolve("$srcdir/RPMS/*/", "any", "opa-fastfabric");
 	rpm_run_install($rpmfile, "any", " -U ");
 
 	check_dir("/usr/lib/opa/tools");
-	check_dir("/usr/lib/opa/samples");
-	system "chmod ug+x $ROOT/usr/lib/opa/samples/hostverify.sh";
-	system "rm -f $ROOT/usr/lib/opa/samples/nodeverify.sh";
+	check_dir("/usr/share/opa/samples");
+	system "chmod ug+x $ROOT/usr/share/opa/samples/hostverify.sh";
+	system "rm -f $ROOT/usr/share/opa/samples/nodeverify.sh";
 
 	check_rpm_config_file("$FF_TLS_CONF_FILE");
-	printf("Default opaff.xml can be found in '/usr/lib/opa/samples/opaff.xml-sample'\n");
-	check_rpm_config_file("$CONFIG_DIR/opa/opamon.conf");
-	check_rpm_config_file("$CONFIG_DIR/opa/opafastfabric.conf");
-	check_rpm_config_file("$CONFIG_DIR/opa/allhosts");
-	check_rpm_config_file("$CONFIG_DIR/opa/chassis");
-	check_rpm_config_file("$CONFIG_DIR/opa/hosts");
-	check_rpm_config_file("$CONFIG_DIR/opa/ports");
-	check_rpm_config_file("$CONFIG_DIR/opa/switches");
+	printf("Default opaff.xml can be found in '/usr/share/opa/samples/opaff.xml-sample'\n");
+	check_rpm_config_file("$CONFIG_DIR/opa/opamon.conf", $depricated_dir);
+	check_rpm_config_file("$CONFIG_DIR/opa/opafastfabric.conf", $depricated_dir);
+	check_rpm_config_file("$CONFIG_DIR/opa/allhosts", $depricated_dir);
+	check_rpm_config_file("$CONFIG_DIR/opa/chassis", $depricated_dir);
+	check_rpm_config_file("$CONFIG_DIR/opa/hosts", $depricated_dir);
+	check_rpm_config_file("$CONFIG_DIR/opa/ports", $depricated_dir);
+	check_rpm_config_file("$CONFIG_DIR/opa/switches", $depricated_dir);
 	check_rpm_config_file("/usr/lib/opa/tools/osid_wrapper");
 
 	#install_conf_file("$ComponentInfo{'fastfabric'}{'Name'}", "$FF_TLS_CONF_FILE", "$srcdir/fastfabric/tools/tls");
 	#remove_conf_file("$ComponentInfo{'fastfabric'}{'Name'}", "$OPA_CONFIG_DIR/iba_stat.conf");
 	system("rm -rf $ROOT$OPA_CONFIG_DIR/iba_stat.conf");	# old config
-
-	install_shmem_apps($srcdir);
 
 	$rpmfile = rpm_resolve("$srcdir/RPMS/*/", "any", "opa-mpi-apps");
 	rpm_run_install($rpmfile, "any", " -U ");
@@ -174,13 +160,10 @@ sub uninstall_fastfabric
 	remove_conf_file("$ComponentInfo{'fastfabric'}{'Name'}", "$OPA_CONFIG_DIR/iba_stat.conf");
 	remove_conf_file("$ComponentInfo{'fastfabric'}{'Name'}", "$FF_TLS_CONF_FILE");
 	
-
-	uninstall_shmem_apps;
-
 	# remove samples we installed (or user compiled), however do not remove
 	# any logs or other files the user may have created
-	remove_installed_files "/usr/lib/opa/samples";
-	system "rmdir $ROOT/usr/lib/opa/samples 2>/dev/null";	# remove only if empty
+	remove_installed_files "/usr/share/opa/samples";
+	system "rmdir $ROOT/usr/share/opa/samples 2>/dev/null";	# remove only if empty
 
 	system("rm -rf $ROOT/usr/lib/opa/.comp_fastfabric.pl");
 	system "rmdir $ROOT/usr/lib/opa 2>/dev/null";	# remove only if empty
@@ -189,3 +172,79 @@ sub uninstall_fastfabric
 	$ComponentWasInstalled{'fastfabric'}=0;
 }
 
+#############################################################################
+##
+##    OPAMGT SDK
+
+sub available_opamgt_sdk
+{
+	my $srcdir = $ComponentInfo{'opamgt_sdk'}{'SrcDir'};
+	return ( rpm_exists("$srcdir/RPMS/*/", "any", "opa-libopamgt-devel") &&
+		     rpm_exists("$srcdir/RPMS/*/", "any", "opa-libopamgt"));
+}
+
+sub installed_opamgt_sdk
+{
+	return ( rpm_is_installed("opa-libopamgt-devel", "any") &&
+		     rpm_is_installed("opa-libopamgt", "any"));
+}
+
+sub installed_version_opamgt_sdk
+{
+	return rpm_query_version_release_pkg("opa-libopamgt-devel");
+}
+
+sub media_version_opamgt_sdk
+{
+	my $srcdir = $ComponentInfo{'opamgt_sdk'}{'SrcDir'};
+	my $rpm = rpm_resolve("$srcdir/RPMS/*/", "any", "opa-libopamgt-devel");
+	return rpm_query_version_release($rpm);
+}
+
+sub build_opamgt_sdk
+{
+	return 0;
+}
+
+sub need_reinstall_opamgt_sdk
+{
+	return "no";
+}
+
+sub check_os_prereqs_opamgt_sdk
+{
+	rpm_check_os_prereqs("opa-libopamgt", "any");
+}
+
+sub preinstall_opamgt_sdk
+{
+	return 0;
+}
+
+sub install_opamgt_sdk
+{
+	my $install_list = $_[0];       # total that will be installed when done
+	my $installing_list = $_[1];    # what items are being installed/reinstalled
+
+	my $srcdir = $ComponentInfo{'opamgt_sdk'}{'SrcDir'};
+	my $version=media_version_opamgt_sdk();
+	chomp $version;
+	printf("Installing $ComponentInfo{'opamgt_sdk'}{'Name'} $version $DBG_FREE...\n");
+	LogPrint "Installing $ComponentInfo{'opamgt_sdk'}{'Name'} $version $DBG_FREE for $CUR_DISTRO_VENDOR $CUR_VENDOR_VER\n";
+
+	rpm_install("$srcdir/RPMS/*/", "any", "opa-libopamgt");
+	rpm_install("$srcdir/RPMS/*/", "any", "opa-libopamgt-devel");
+
+	$ComponentWasInstalled{'opamgt_sdk'}=1;
+}
+
+sub postinstall_opamgt_sdk
+{
+
+}
+
+sub uninstall_opamgt_sdk
+{
+	rpm_uninstall_all_list("any", "verbose", ("opa-libopamgt-devel", "opa-libopamgt") );
+	$ComponentWasInstalled{'opamgt_sdk'}=0;
+}

@@ -53,8 +53,7 @@ DIRS			= \
 				$(TL_DIR)/IbAccess
 ifeq "$(IB_STACK)" "OPENIB"
 DIRS			+= \
-				$(TL_DIR)/oib_utils \
-				$(TL_DIR)/opa_fe_utils
+				$(TL_DIR)/opamgt
 endif
 DIRS			+= \
 				$(TL_DIR)/Xml \
@@ -106,6 +105,19 @@ INSTALL_SOURCES	= \
  				$(TL_DIR)/CommonInstall/comp_qlgc_fm.pl \
  				$(TL_DIR)/CommonInstall/main_qlgc_fm.pl
 COMP_SOURCES = $(TL_DIR)/CommonInstall/comp_qlgc_fm.pl
+
+ifeq "$(BUILD_TARGET_OS_VENDOR_VERSION)" "ES72"
+        PREREQ_SOURCE= $(TL_DIR)/CommonInstall/comp_fm_prereq_RHEL72.pl
+endif
+ifeq "$(BUILD_TARGET_OS_VENDOR_VERSION)" "ES73"
+        PREREQ_SOURCE= $(TL_DIR)/CommonInstall/comp_fm_prereq_RHEL72.pl
+endif
+ifeq "$(BUILD_TARGET_OS_VENDOR_VERSION)" "ES121"
+        PREREQ_SOURCE= $(TL_DIR)/CommonInstall/comp_fm_prereq_SLES121.pl
+endif
+ifeq "$(BUILD_TARGET_OS_VENDOR_VERSION)" "ES122"
+        PREREQ_SOURCE= $(TL_DIR)/CommonInstall/comp_fm_prereq_SLES122.pl
+endif
 
 # Source files to include in DSP File
 DSP_SOURCES		= $(INCLUDE_TARGETS) $(SOURCES) $(MISC_FILES) \
@@ -183,8 +195,9 @@ INSTALL.pl: $(INSTALL_SOURCES)
 	chmod +x INSTALL.pl
 
 comp.pl: $(COMP_SOURCES)
-	 cat $(COMP_SOURCES) > comp.pl
+	 cat $(PREREQ_SOURCE) $(COMP_SOURCES) > comp.pl
 	 chmod +x comp.pl
+	 cp comp.pl $(TL_DIR)/Esm/.comp_opafm.pl
 
 # install for includes, libs and cmds phases
 include $(TL_DIR)/Makerules/Maketargets.install
@@ -219,13 +232,13 @@ endif
 	dir=`dirname $(GLOBAL_BIN_DIR)`; \
 	mkdir $$dir/stage.rpm; \
 	cp -r -L $(GLOBAL_BIN_DIR)/* $$dir/stage.rpm/ ; \
+	cp $(TL_DIR)/Esm/.comp_opafm.pl $$dir/stage.rpm/; \
 	cd $$dir/stage.rpm && find . -print| $(PREP);
 	cd $(PROJ_STAGE_DIR) && $(PATCH_VERSION) -m % $(RELEASE_TAG) INSTALL
 	cd $(PROJ_STAGE_DIR) && $(PATCH_BRAND) -m % "$(BUILD_BRAND)" INSTALL
 
 # package builds standard package
-# package_full can include extra depricated items
-package package_full:
+package:
 	mkdir -p $(RELEASE_DIR)
 	rm -f packaged_files dist_files
 	cd $(STAGE_DIR) ; \
@@ -238,16 +251,12 @@ package package_full:
 	echo "$(RELEASE_DIR)/IntelOPA-FM.$$ver.tgz" >> $(TL_DIR)/packaged_files; \
 	echo "$(RELEASE_DIR)/IntelOPA-FM.$$ver.tgz" >> $(TL_DIR)/dist_files; \
 
-.PHONY:  package package_full
+.PHONY:  package
 
 vars_include: vars_include_global
 
 final_package:
-	if [ -d rpmbuild ]; then \
-		cd rpmbuild; \
-	else \
-		cd ../rpmbuild; \
-	fi; \
+	cd $(TL_DIR)/rpmbuild; \
 	dir=`head -n1 BUILD/opa-fm-$${MKRPM_REL}/packaged_files |xargs dirname`; \
 	filename=`head -n1 BUILD/opa-fm-$${MKRPM_REL}/packaged_files |xargs basename`; \
 	subdir=$${filename%.tgz}; \
@@ -264,7 +273,9 @@ final_package:
 	fi; \
 	cd $$dir; \
 	echo "Packaging $$dir/$$filename ..."; \
-	tar cfz $$filename $$subdir; \
+	tar cvfz $$filename $$subdir
+	cp $(TL_DIR)/rpmbuild/BUILD/opa-fm-$${MKRPM_REL}/packaged_files .
+	cp $(TL_DIR)/rpmbuild/BUILD/opa-fm-$${MKRPM_REL}/dist_files .
 
 # Unit test execution
 #include $(TL_DIR)/Makerules/Maketargets.runtest

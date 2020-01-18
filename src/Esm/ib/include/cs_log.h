@@ -285,13 +285,13 @@ extern uint32_t cs_log_masks[VIEO_LAST_MOD_ID+1];
 #define IB_LOG_MOD_FMT0(sev, modid, p1) \
 	IB_LOG_MOD_FMT_DATA(sev, modid, "%s%s%s%s%s", p1, 0)
 #define IB_LOG_FMTU(sev, p1, p2) \
-	IB_LOG_FMT_DATA(sev, "%s%s%s%s%s %"CS64u, p1, (LogVal64_t)p2)
+	IB_LOG_FMT_DATA(sev, "%s%s%s%s%s %u", p1, (LogVal_t)p2)
 #define IB_LOG_MOD_FMTU(sev, modid, p1, p2) \
-	IB_LOG_MOD_FMT_DATA(sev, modid, "%s%s%s%s%s %"CS64u, p1, (LogVal64_t)p2)
+	IB_LOG_MOD_FMT_DATA(sev, modid, "%s%s%s%s%s %u", p1, (LogVal_t)p2)
 #define IB_LOG_FMTX(sev, p1, p2) \
-	IB_LOG_FMT_DATA(sev, "%s%s%s%s%s 0x%"CS64x, p1, (LogVal64_t)p2)
+	IB_LOG_FMT_DATA(sev, "%s%s%s%s%s 0x%x", p1, (LogVal_t)p2)
 #define IB_LOG_MOD_FMTX(sev, modid, p1, p2) \
-	IB_LOG_MOD_FMT_DATA(sev, modid, "%s%s%s%s%s 0x%"CS64x, p1, (LogVal64_t)p2)
+	IB_LOG_MOD_FMT_DATA(sev, modid, "%s%s%s%s%s 0x%x", p1, (LogVal_t)p2)
 #define IB_LOG_FMTLX(sev, p1, p2) \
 	IB_LOG_FMT_DATA(sev, "%s%s%s%s%s 0x%"CS64x, p1, (LogVal64_t)p2)
 #define IB_LOG_MOD_FMTLX(sev, modid, p1, p2) \
@@ -390,7 +390,7 @@ extern uint32_t cs_log_masks[VIEO_LAST_MOD_ID+1];
 #define IB_FATAL_ERROR_NODUMP(p1) do {						\
 	smCsmLogMessage(CSM_SEV_NOTICE, CSM_COND_SM_SHUTDOWN, NULL, NULL, p1); \
 	vs_log_output(VS_LOG_FATAL, LOCAL_MOD_ID, __func__, NULL, "%s", p1); \
-    exit(1); \
+    exit(2); \
 } while (0)
 #define IB_FATAL_ERROR(p1) do {						\
 	smCsmLogMessage(CSM_SEV_NOTICE, CSM_COND_SM_SHUTDOWN, NULL, NULL, p1); \
@@ -940,8 +940,8 @@ extern uint32_t cs_log_masks[VIEO_LAST_MOD_ID+1];
 	do { if (IB_LOG_IS_INTERESTED_MOD(VS_LOG_ENTER, modid) && ! vs_log_filter() ) \
 		LOG_DEBUG5(MOD_ESM, "SM Enter: %s%s %llu %llu %llu %llu", \
 			LOG_PTR(cs_log_get_module_prefix(modid)),LOG_PTR(p1), \
-			LOG_ARG((LogVal64_t)p2), LOG_ARG((LogVal64_t)p3), \
-			LOG_ARG((LogVal64_t)p4), LOG_ARG((LogVal64_t)p5)); \
+			LOG_ARG((LogVal64_t)(LogVal_t)p2), LOG_ARG((LogVal64_t)(LogVal_t)p3), \
+			LOG_ARG((LogVal64_t)(LogVal_t)p4), LOG_ARG((LogVal64_t)(LogVal_t)p5)); \
 	} while (0)
 #define IB_LOG_MOD_ARGS1(modid, p1) 					\
 	do { if (IB_LOG_IS_INTERESTED_MOD(VS_LOG_ENTER, modid) && ! vs_log_filter() ) \
@@ -1179,5 +1179,26 @@ vs_log_output_memory(uint32_t sev, /* severity */
 // fatal abort with core dump
 void vs_fatal_error(uint8_t *string);
 #endif
+
+//
+// IB_*_NOREPEAT(lastMst, msgNum, [argument list]) 
+//
+// Prevent the same error from coming out over and over by tracking the
+// previous error that was logged. Functions using these macros should locally
+// declare an (optionally static) unsigned variable to track the last message
+// sent and clear that variable before returning successfully. In addition, 
+// each invocation of IB_WARN_NOREPEAT and IB_ERROR_NOREPEAT in that function should 
+// be assigned a unique msgNum.
+#define IB_WARN_NOREPEAT(lastMsg, msgNum, fmt...) \
+	if (lastMsg != msgNum) { \
+		cs_log(VS_LOG_WARN,__func__, ## fmt); \
+		lastMsg = msgNum; \
+	}
+
+#define IB_ERROR_NOREPEAT(lastMsg, msgNum, fmt...) \
+	if (lastMsg != msgNum) { \
+		cs_log(VS_LOG_ERROR,__func__, ## fmt); \
+		lastMsg = msgNum; \
+	}
 
 #endif /*__VIEO_VS_LOG__*/

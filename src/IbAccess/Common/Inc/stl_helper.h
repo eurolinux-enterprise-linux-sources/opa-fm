@@ -44,6 +44,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 extern "C" {
 #endif
 
+#define BYTES_PER_FLIT 8
+
+/*
+ * STL defines an algorithmic relationship between NodeGUID and PortGUID
+ * Bit 32-34 of the NodeGUID always has 1
+ * Bit 32-34 of the PortGUID has 1 for switch port 0, or the HFI port number
+ * These bits should never be 0
+ * These functions help translate from one to the other
+ */
+#define PORTGUID_PNUM_MASK 0x7ull	// bit field mask
+#define PORTGUID_PNUM_SHIFT 32		// low bit number
+
+static __inline EUI64 PortGUIDtoNodeGUID(EUI64 portGUID)
+{
+	return ((portGUID & ~(PORTGUID_PNUM_MASK << PORTGUID_PNUM_SHIFT))
+				| (1ull << PORTGUID_PNUM_SHIFT));
+}
+
+static __inline EUI64 NodeGUIDtoPortGUID(EUI64 nodeGUID, uint8 portnum)
+{
+	// assume portnum is valid, in which case it can't be zero for HFIs
+	// and can only be zero for switches
+	// hence avoiding the need for a NodeType argument to this function
+	if (portnum)
+		return ((nodeGUID & ~(PORTGUID_PNUM_MASK << PORTGUID_PNUM_SHIFT))
+				 | ((EUI64)portnum << PORTGUID_PNUM_SHIFT));	// HFI port
+	else
+		return nodeGUID;	// switch port 0
+}
+
 /*
  * Convert STL_PORT_STATE to a constant string
  */
@@ -1123,6 +1153,17 @@ StlNodeTypeToText(NODE_TYPE type)
 		(type == STL_NODE_SW)?"SW": "??";
 }
 
+
+static __inline uint8 StlNeighNodeTypeToNodeType(NODE_TYPE type)
+{
+
+	if(type==STL_NEIGH_NODE_TYPE_HFI)
+		return STL_NODE_FI;
+	else
+		return STL_NODE_SW;
+
+}
+
 static __inline const char*
 StlLinkQualToText(uint8 linkQual)
 {
@@ -1199,7 +1240,7 @@ StlGetFirstPortInPortMask(const STL_PORTMASK* portSelectMask)
 	uint64_t pmask;
 	int i;
 
-	for (i=0; i <= MAX_STL2_PORTS; i++) {
+	for (i=0; i <= MAX_STL_PORTS; i++) {
 		pmask = (uint64_t)(1) << (i % 64);
 		if (portSelectMask[3-(i/64)] & pmask) 
 			return i;
@@ -1213,7 +1254,7 @@ StlGetNextUnusedPortInPortMask(const STL_PORTMASK* portSelectMask, const uint8_t
 	uint64_t pmask;
 	int i;
 
-	for (i=port+1; i <= MAX_STL2_PORTS; i++) {
+	for (i=port+1; i <= MAX_STL_PORTS; i++) {
 		pmask = (uint64_t)(1) << (i % 64);
 		if ((portSelectMask[3-(i/64)] & pmask) == 0)
 			return i;
@@ -1296,6 +1337,46 @@ void FormatStlPortMask(char *buf, const STL_PORTMASK *portSelectMask, uint8_t nu
 		buf[buflen - 1] = '\0'; // ran out of space, cap it off
 }
 
+static __inline
+FSTATUS StringToStlPortMask(STL_PORTMASK *portSelectMask, const char *buf)
+{
+	const char *pbuf = buf;
+	unsigned int lhs, rhs, i, j;
+	uint8 p;
+	char newString[80];
+	const char delimiter = '-';
+	char currChar;
+	memset(newString, 0, sizeof(newString));
+
+	// cut "ports:" off buf if necessary
+	if (strncmp(buf, "ports: ", 7) == 0) pbuf += 7;
+
+	for(i=0; i < strlen(pbuf)+1; i++) {
+		currChar = pbuf[i];
+		if(currChar == ',' || currChar == '\0') {
+			if(!newString[0]) continue;
+			if (strchr(newString, delimiter)) {
+			// for (lhs-rhs), add port to portmask
+				if(sscanf(newString, "%u-%u", &lhs, &rhs) != 2)
+					return FINVALID_PARAMETER;
+				if (lhs > MAX_STL_PORTS || rhs > MAX_STL_PORTS || lhs >= rhs)
+					return FINVALID_PARAMETER;
+				for (j=lhs; j<=rhs; j++)
+					StlAddPortToPortMask(portSelectMask, j);
+			} else {
+				if(FSUCCESS != StringToUint8(&p, newString, NULL, 0, TRUE) || p > MAX_STL_PORTS)
+					return FINVALID_PARAMETER;
+				StlAddPortToPortMask(portSelectMask, p);
+			}
+			memset(newString, 0, sizeof(newString));
+		}
+		else
+			strncat(newString, &currChar, 1);
+	}
+
+	return FSUCCESS;
+}
+
 /* convert Neighbor node Type to text */
 static __inline const char*
 OpaNeighborNodeTypeToText(uint8 ntype)
@@ -1307,7 +1388,7 @@ OpaNeighborNodeTypeToText(uint8 ntype)
 static __inline int
 IsCableInfoAvailable(STL_PORT_INFO *portInfo)
 {
-	return (portInfo->PortPhyConfig.s.PortType == STL_PORT_TYPE_STANDARD
+	return (portInfo->PortPhysConfig.s.PortType == STL_PORT_TYPE_STANDARD
 			&& ! (portInfo->PortStates.s.PortPhysicalState == STL_PORT_PHYS_OFFLINE
 				&& portInfo->PortStates.s.OfflineDisabledReason == STL_OFFDIS_REASON_LOCAL_MEDIA_NOT_INSTALLED));
 }
@@ -1328,6 +1409,23 @@ StlShiftToResolution(uint8 shift, uint8 add) {
 // res = 2^(shift + add)
 	if (shift) return (uint32)1<<(shift + add);
 	else return 0;
+}
+
+static __inline const char*
+StlVlarbSecToText (uint8 sec) {
+	switch (sec) {
+		case STL_VLARB_LOW_ELEMENTS:
+			return "Low";
+		case STL_VLARB_HIGH_ELEMENTS:
+			return "High";
+		case STL_VLARB_PREEMPT_ELEMENTS:
+			return "Preempt";
+		case STL_VLARB_PREEMPT_MATRIX:
+			return "Preempt Matrix";
+		default:
+			DEBUG_ASSERT(0);
+			return "Unknown";
+	}
 }
 
 static __inline void
@@ -1413,7 +1511,8 @@ static __inline CounterSelectMask_t DiffPACounters(STL_PORT_COUNTERS_DATA * data
 	GET_DELTA_COUNTER(portMarkFECN, PortMarkFECN);
 	GET_DELTA_COUNTER(fmConfigErrors, FMConfigErrors);
 	GET_DELTA_COUNTER(uncorrectableErrors, UncorrectableErrors);
-	result->lq.AsReg8 = MIN(data1->lq.AsReg8, data2->lq.AsReg8);
+	result->lq.s.numLanesDown = MAX(data1->lq.s.numLanesDown, data2->lq.s.numLanesDown);
+	result->lq.s.linkQualityIndicator = MIN(data1->lq.s.linkQualityIndicator, data2->lq.s.linkQualityIndicator);
 
 #undef GET_DELTA_COUNTER
 	return mask;

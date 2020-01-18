@@ -296,15 +296,6 @@ void PrintQueryResultValue(PrintDest_t *dest, int indent, PrintDest_t *dbgDest,
 		}
 		break;
 		}
-	case OutputTypeSLVLMapRecord:
-		{
-		SLVLMAP_RECORD_RESULTS *p = (SLVLMAP_RECORD_RESULTS*)pResult->QueryResult;
-		for (i=0; i<p->NumSLVLMapRecords; ++i)
-		{
-			PrintSLVLMapRecord(dest, indent, &p->SLVLMapRecords[i]);
-		}
-		break;
-		}
 	case OutputTypeStlSCSCTableRecord:
 		{
 		STL_SC_MAPPING_TABLE_RECORD_RESULTS *p = (STL_SC_MAPPING_TABLE_RECORD_RESULTS*)pResult->QueryResult;
@@ -579,8 +570,8 @@ void PrintQueryResultValue(PrintDest_t *dest, int indent, PrintDest_t *dbgDest,
 		{
 			p_rec = &p->CableInfoRecords[i];
 			// Skip unaligned or partial records
-			if ( ( (p_rec->u1.s.Address != STL_CIB_STD_START_ADDR) &&
-					(p_rec->u1.s.Address != STL_CIB_STD_START_ADDR + STL_CABLE_INFO_MAXLEN + 1) ) ||
+			if ( ( (p_rec->u1.s.Address != STL_CIB_STD_HIGH_PAGE_ADDR) &&
+					(p_rec->u1.s.Address != STL_CIB_STD_HIGH_PAGE_ADDR + STL_CABLE_INFO_MAXLEN + 1) ) ||
 					(p_rec->Length != STL_CABLE_INFO_MAXLEN) )
 				continue;
 			// Group multiple records for same LID and port into one

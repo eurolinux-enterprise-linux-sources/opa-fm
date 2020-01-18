@@ -111,6 +111,9 @@ void PrintStlHfiCongestionLog(PrintDest_t *dest, int indent, const STL_HFI_CONGE
 void PrintStlHfiCongestionControlTab(PrintDest_t *dest, int indent, const STL_HFI_CONGESTION_CONTROL_TABLE *pHfiCongestionControl, uint8_t cnt, uint8_t start, int printLineByLine);
 void PrintStlBfrCtlTable(PrintDest_t *dest, int indent, const STL_BUFFER_CONTROL_TABLE *pBfrCtlTable, int printLineByLine);
 void PrintStlBfrCtlTableSmp(PrintDest_t *dest, int indent, const STL_SMP *smp, uint8_t nodeType, int printLineByLine);
+void PrintStlCableInfoLowPage(PrintDest_t *dest, int indent, const uint8_t *cableInfoData, uint8_t detail, int printLineByLine);
+void PrintStlCableInfoHighPage(PrintDest_t *dest, int indent, const uint8_t *cableInfoData, uint8_t portType, uint8_t detail, int printLineByLine);
+void PrintStlCableInfoDump(PrintDest_t *dest, int indent, const uint8_t *cableInfoData, uint16_t addr, uint8_t len, int printLineByLine);
 // len is real length of cable data
 void PrintStlCableInfo(PrintDest_t *dest, int indent, const uint8_t *cableInfoData, uint16_t addr, uint8_t len, uint8_t portType, uint8_t detail, int printLineByLine);
 void PrintStlCableInfoSmp(PrintDest_t *dest, int indent, const STL_SMP *smp, uint8_t portType, int printLineByLine);
@@ -136,6 +139,7 @@ void PrintStlMCastFDBRecord(PrintDest_t *dest, int indent, const STL_MULTICAST_F
 void PrintStlLinkRecord(PrintDest_t *dest, int indent, const STL_LINK_RECORD *pLinkRecord);
 void PrintStlServiceRecord(PrintDest_t *dest, int indent, const STL_SERVICE_RECORD *pServiceRecord);
 void PrintStlInformInfoRecord(PrintDest_t * dest, int indent, const STL_INFORM_INFO_RECORD * pInformInfoRecord);
+void PrintStlVfInfoRecord_detail(PrintDest_t *dest, int indent, int detail, const STL_VFINFO_RECORD *pVfInfo, int showQueryParams);
 void PrintStlVfInfoRecord(PrintDest_t *dest, int indent, const STL_VFINFO_RECORD *pVfInfo);
 void PrintStlVfInfoRecordCSV(PrintDest_t *dest, int indent, const STL_VFINFO_RECORD *pVfInfo);
 void PrintStlVfInfoRecordCSV2(PrintDest_t *dest, int indent, const STL_VFINFO_RECORD *pVfInfo);

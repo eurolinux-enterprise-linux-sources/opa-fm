@@ -29,8 +29,8 @@
 
 #[ICS VERSION STRING: unknown]
 Name: opa-fm
-Version: 10.3.1.0
-Release: 6%{?dist}
+Version: 10.5.1.0
+Release: 1%{?dist}
 Summary: Intel Omni-Path Fabric Management Software
 
 License: GPLv2 or BSD
@@ -38,17 +38,19 @@ Url: https://github.com/01org/opa-fm
 # tarball created by:
 # git clone https://github.com/01org/opa-fm.git
 # cd opa-fm
-# tar czf opa-fm.tar.gz --exclude-vcs .
+# tar czf opa-fm.tar.gz --exclude-cvs .
 Source0: %{name}.tar.gz
 ExclusiveArch: x86_64
 # The Intel OPA product line is only available on x86_64 platforms at this time.
 
-Requires: rdma openssl
+Requires: rdma
 
+#BuildRequires: libibverbs-devel >= 1.1-1, libibumad-devel, libibmad-devel
 BuildRequires: __RPM_BLDRQ1
 
 __RPM_BLDRQ2
 __RPM_RQ1
+__RPM_RQ2
 
 __RPM_DEBUG
 
@@ -61,19 +63,29 @@ Fabric Executive, and some fabric management tools.
 %setup -q -c
 
 %build
-if [ -d Esm ]; then
-	cd Esm
-fi
-./fmbuild -V %{version}.%{release} 
+cd Esm
+./fmbuild -V %{version}.%{release}
 
 %install
 BUILDDIR=%{_builddir} DESTDIR=%{buildroot} LIBDIR=%{_libdir} RPM_INS=n ./Esm/fm_install.sh
+mkdir -p %{buildroot}/%{_localstatedir}/usr/lib/opa-fm/
 
 %post
-/bin/systemctl daemon-reload >/dev/null 2>&1 || :
-
+if [ $1 = 1 ]; then
+	if [ $(command -v systemctl) ]; then
+		/bin/systemctl daemon-reload >/dev/null 2>&1 || :
+	else
+		/sbin/chkconfig --add opafm
+	fi
+fi
 %preun
-systemctl stop opafm.service >/dev/null 2>&1 || :
+if [ $1 = 1 ] || [ $1 = 0 ]; then
+	if [ $(command -v systemctl) ]; then
+		systemctl stop opafm.service >/dev/null 2>&1 || :
+	else
+		/sbin/chkconfig --del opafm
+	fi
+fi
 
 %files
 %doc Esm/README 
@@ -81,19 +93,17 @@ systemctl stop opafm.service >/dev/null 2>&1 || :
 __RPM_SYSCONF
 
 /usr/lib/systemd/system/opafm.service
-%config(noreplace) %{_sysconfdir}/sysconfig/opafm.xml
-%{_sysconfdir}/sysconfig/opa/opafm.info
+%config(noreplace) %{_sysconfdir}/opa-fm/opafm.xml
 /usr/lib/opa-fm/bin/*
-/usr/lib/opa-fm/etc/*
 /usr/lib/opa-fm/runtime/*
-/usr/lib/opa-fm/samples/*
+/usr/share/opa-fm/*
+/usr/lib/opa/.comp_opafm.pl
 %{_sbindir}/opafmcmd
 %{_sbindir}/opafmcmdall
 %{_mandir}/man8/*
 
 %changelog
-* Fri Feb 23 2017 Scott Breyer <scott.j.breyer@intel.com> - 10.3.1.0-6
-- Updates for spec file cleanup for 10.3.1.0.6
+* Thu Oct 09 2014 Kaike Wan <kaike.wan@intel.com> - 10.0.0.0-177
+- Initial version 
 
-* Fri Sep 23 2016 Anton Bodner <anton.bodner@intel.com> - 10.3.0.0-56
-- Update to latest from build 10.3.0.0.58 (FM 10.3.0.0.56)
+

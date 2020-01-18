@@ -2625,9 +2625,12 @@ sub install_opa_stack($$)
 
 	#override the udev permissions.
 	install_udev_permissions("$srcdir/config");
-
-	#edit_modconf("$srcdir/config");
-	edit_limitsconf("$srcdir/config");
+        # set environment variable for RPM to configure linmits_conf
+	# edit_limitsconf("$srcdir/config");
+	setup_env("OPA_LIMITS_CONF", 1);
+        # We also need to install driver, so setting up envirnment
+        # to install driver for this component. actual install is done by rpm
+	setup_env("OPA_INSTALL_DRIVER", 1);
 
 	# Check $BASE_DIR directory ...exist 
 	check_config_dirs();
@@ -2640,7 +2643,7 @@ sub install_opa_stack($$)
 	# in some recovery situations OFED doesn't properly restore openib.conf
 	# this makes sure the SMA NodeDesc is properly set so the hostnmae is used
 	change_openib_conf_param('NODE_DESC', '$(hostname -s)');
-	prompt_openib_conf_param('RENICE_IB_MAD', 'OFED SMI/GSI renice', "y");
+	prompt_openib_conf_param('RENICE_IB_MAD', 'OFED SMI/GSI renice', "y", 'OPA_RENICE_IB_MAD');
 	# QIB driver has replaced IPATH, make sure IPATH disabled
 	change_openib_conf_param('IPATH_LOAD', 'no');
 	# MWHEINZ FIXME - disabled because the qib driver is loaded 
@@ -3120,9 +3123,8 @@ sub available_opa_stack_dev()
 
 sub installed_opa_stack_dev()
 {
-	return ((rpm_is_installed("libibverbs-devel", "user")
-			&& -e "$ROOT$BASE_DIR/version_ofed")
-			|| installed_ibdev);
+	return (rpm_is_installed("libibverbs-devel", "user")
+			&& -e "$ROOT$BASE_DIR/version_ofed");
 }
 
 # only called if installed_opa_stack_dev is true
@@ -3131,7 +3133,7 @@ sub installed_version_opa_stack_dev()
 	if ( -e "$ROOT$BASE_DIR/version_ofed" ) {
 		return `cat $ROOT$BASE_DIR/version_ofed`;
 	} else {
-		return installed_version_ibdev;
+		return "";
 	}
 }
 
@@ -3192,10 +3194,6 @@ sub uninstall_opa_stack_dev($$)
 	print_uninstall_banner_ofed_comp('opa_stack_dev');
 	uninstall_ofed_comp('opa_stack_dev', $install_list, $uninstalling_list, 'verbose');
 	$ComponentWasInstalled{'opa_stack_dev'}=0;
-	if (installed_ibdev) {
-		print_separator;
-		uninstall_ibdev("", " ibdev ");
-	}
 }
 
 # ==========================================================================
@@ -3298,7 +3296,7 @@ sub install_ofed_ipoib($$)
 	print_install_banner_ofed_comp('ofed_ipoib');
 	install_ofed_comp('ofed_ipoib', $install_list);
 
-	prompt_openib_conf_param('SET_IPOIB_CM', 'IPoIB Connected Mode', "y");
+	prompt_openib_conf_param('SET_IPOIB_CM', 'IPoIB Connected Mode', "y", 'OPA_SET_IPOIB_CM');
 	# bonding is more involved, require user to edit to enable that
 	Config_ifcfg(1,"$ComponentInfo{'ofed_ipoib'}{'Name'}","ib", "$FirstIPoIBInterface",1);
 	check_network_config;
@@ -3995,9 +3993,9 @@ sub available_ofed_mpisrc()
 sub installed_ofed_mpisrc()
 {
 	return ((-e "$ROOT$BASE_DIR/version_ofed"
-			&& file_glob("$ROOT/usr/lib/opa/src/MPI/mvapich*.src.rpm") ne ""
-			&& file_glob("$ROOT/usr/lib/opa/src/MPI/openmpi*.src.rpm") ne ""
-			&& file_glob("$ROOT/usr/lib/opa/src/MPI/mpitests*.src.rpm") ne ""));
+			&& file_glob("$ROOT/usr/src/opa/MPI/mvapich*.src.rpm") ne ""
+			&& file_glob("$ROOT/usr/src/opa/MPI/openmpi*.src.rpm") ne ""
+			&& file_glob("$ROOT/usr/src/opa/MPI/mpitests*.src.rpm") ne ""));
 }
 
 # only called if installed_ofed_mpisrc is true
@@ -4054,29 +4052,29 @@ sub install_ofed_mpisrc($$)
 
 	print_install_banner_ofed_comp('ofed_mpisrc');
 	install_ofed_comp('ofed_mpisrc', $install_list);
-	check_dir("/usr/lib/opa/src");
-	check_dir("/usr/lib/opa/src/MPI");
+	check_dir("/usr/src/opa");
+	check_dir("/usr/src/opa/MPI");
 	# remove old versions (.src.rpm and built .rpm files too)
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mvapich[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mvapich2[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/openmpi[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mpitests[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.res 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.err 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.warn 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/.mpiinfo 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/mvapich[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/mvapich2[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/openmpi[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/mpitests[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/make.*.res 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/make.*.err 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/make.*.warn 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/.mpiinfo 2>/dev/null";
 
 	# install new versions
 	foreach my $srpm ( "mvapich2", "openmpi", "mpitests" ) {
 		my $srpmfile = file_glob("$srcdir/$SRPMS_SUBDIR/${srpm}-*.src.rpm");
 		if ( "$srpmfile" ne "" ) {
 			my $file = my_basename($srpmfile);
-			copy_data_file($srpmfile, "/usr/lib/opa/src/MPI/$file");
+			copy_data_file($srpmfile, "/usr/src/opa/MPI/$file");
 		}
 	}
-	copy_systool_file("$srcdir/do_build", "/usr/lib/opa/src/MPI/do_build");
-	copy_systool_file("$srcdir/do_mvapich2_build", "/usr/lib/opa/src/MPI/do_mvapich2_build");
-	copy_systool_file("$srcdir/do_openmpi_build", "/usr/lib/opa/src/MPI/do_openmpi_build");
+	copy_systool_file("$srcdir/do_build", "/usr/src/opa/MPI/do_build");
+	copy_systool_file("$srcdir/do_mvapich2_build", "/usr/src/opa/MPI/do_mvapich2_build");
+	copy_systool_file("$srcdir/do_openmpi_build", "/usr/src/opa/MPI/do_openmpi_build");
 
 	$ComponentWasInstalled{'ofed_mpisrc'}=1;
 }
@@ -4096,21 +4094,21 @@ sub uninstall_ofed_mpisrc($$)
 	print_uninstall_banner_ofed_comp('ofed_mpisrc');
 
 	# remove old versions (.src.rpm and built .rpm files too)
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mvapich2[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/openmpi[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/mpitests[-_]*.rpm 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.res 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.err 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/make.*.warn 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/.mpiinfo 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/do_build 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/do_mvapich2_build 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/do_openmpi_build 2>/dev/null";
-	system "rm -rf $ROOT/usr/lib/opa/src/MPI/.mpiinfo 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/mvapich2[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/openmpi[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/mpitests[-_]*.rpm 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/make.*.res 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/make.*.err 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/make.*.warn 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/.mpiinfo 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/do_build 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/do_mvapich2_build 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/do_openmpi_build 2>/dev/null";
+	system "rm -rf $ROOT/usr/src/opa/MPI/.mpiinfo 2>/dev/null";
 
 	uninstall_ofed_comp('ofed_mpisrc', $install_list, $uninstalling_list, 'verbose');
-	system "rmdir $ROOT/usr/lib/opa/src/MPI 2>/dev/null"; # remove only if empty
-	system "rmdir $ROOT/usr/lib/opa/src 2>/dev/null"; # remove only if empty
+	system "rmdir $ROOT/usr/src/opa/MPI 2>/dev/null"; # remove only if empty
+	system "rmdir $ROOT/usr/src/opa 2>/dev/null"; # remove only if empty
 	$ComponentWasInstalled{'ofed_mpisrc'}=0;
 }
 
@@ -4215,7 +4213,7 @@ sub install_ofed_srp($$)
 	print_install_banner_ofed_comp('ofed_srp');
 	install_ofed_comp('ofed_srp', $install_list);
 
-	prompt_openib_conf_param('SRPHA_ENABLE', 'OFA SRP High Availability deamon', "n");
+	prompt_openib_conf_param('SRPHA_ENABLE', 'OFA SRP High Availability deamon', "n", 'OPA_SRPHA_ENABLE');
 	need_reboot();
 	$ComponentWasInstalled{'ofed_srp'}=1;
 }

@@ -54,8 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * 
  * (4)	In this document, attributes are listed in the same order they appear
  *		in the IB spec. Where a new attribute is added, it is added after
- *		the existing attribute it was modeled after. For example, the VL2VL and
- *		VL2pVL records are listed after the SL2VL record.
+ *		the existing attribute it was modeled after.
  *
  * (5)	The use of "Jumbo" (>256 byte) MADs are only used when needed. For
  *		table-based MADs, RMPP is the preferred solution.
@@ -74,7 +73,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "iba/ib_sa_records.h"
 
 #define NO_STL_MCMEMBER_RECORD     // SA shouldn't support STL McMember Record
-#define NO_STL_SERVICE_RECORD      // SA shouldn't support STL Service Record
 
 #if defined (__cplusplus)
 extern "C" {
@@ -126,7 +124,7 @@ extern "C" {
 #define	STL_SA_ATTR_MULTIPATH_LID_RECORD		0x0087 	/* not implemented */
 #define STL_SA_ATTR_CABLE_INFO_RECORD			0x0088 
 #define STL_SA_ATTR_VF_INFO_RECORD				0x0089 // Previously vendor specific
-#define STL_SA_ATTR_PORT_STATE_INFO_RECORD		0x008A 
+/* Reserved                                             0x008A */
 #define STL_SA_ATTR_PORTGROUP_TABLE_RECORD		0x008B 
 #define STL_SA_ATTR_BUFF_CTRL_TAB_RECORD		0x008C 
 #define STL_SA_ATTR_FABRICINFO_RECORD			0x008D
@@ -647,32 +645,31 @@ typedef struct {
 #define STL_SWITCHINFO_RECORD_COMP_LID 				0x0000000000000001ull
 /* Reserved											0x0000000000000002ull */
 #define STL_SWITCHINFO_RECORD_COMP_LFDBCAP			0x0000000000000004ull
-#define STL_SWITCHINFO_RECORD_COMP_RFDBCAP			0x0000000000000008ull
+/* Reserved											0x0000000000000008ull */
 #define STL_SWITCHINFO_RECORD_COMP_MFDBCAP			0x0000000000000010ull
 #define STL_SWITCHINFO_RECORD_COMP_LFDBTOP			0x0000000000000020ull
-#define STL_SWITCHINFO_RECORD_COMP_RFDBTOP			0x0000000000000040ull
+/* Reserved											0x0000000000000040ull */
 #define STL_SWITCHINFO_RECORD_COMP_MFDBTOP			0x0000000000000080ull
 #define STL_SWITCHINFO_RECORD_COMP_COLLCAP			0x0000000000000100ull
 #define STL_SWITCHINFO_RECORD_COMP_COLLTOP			0x0000000000000200ull
 /* Reserved											0x0000000000000400ull */
-#define STL_SWITCHINFO_RECORD_COMP_IPPRIMARY 		0x0000000000000800ull
+#define STL_SWITCHINFO_RECORD_COMP_IPPRIMARY		0x0000000000000800ull
 #define STL_SWITCHINFO_RECORD_COMP_IPSECONDARY		0x0000000000001000ull
-#define STL_SWITCHINFO_RECORD_COMP_DEFPORT			0x0000000000002000ull
-#define STL_SWITCHINFO_RECORD_COMP_DEFMCPRIPORT		0x0000000000004000ull
-#define STL_SWITCHINFO_RECORD_COMP_DEFMCNOPRIPORT	0x0000000000008000ull
+/* Reserved											0x0000000000002000ull */
+/* Reserved											0x0000000000004000ull */
+/* Reserved											0x0000000000008000ull */
 /* Reserved											0x0000000000010000ull */
 #define STL_SWITCHINFO_RECORD_COMP_PORTSTATECHG		0x0000000000020000ull
-#define STL_SWITCHINFO_RECORD_COMP_OPTSLVL			0x0000000000040000ull
-#define STL_SWITCHINFO_RECORD_COMP_LIDSPERPORT 		0x0000000000080000ull
-#define STL_SWITCHINFO_RECORD_COMP_PENFCAP	 		0x0000000000100000ull
-/* Reserved											0x0000000000200000ull */
-
+#define STL_SWITCHINFO_RECORD_COMP_LIFETIME			0x0000000000040000ull
+#define STL_SWITCHINFO_RECORD_COMP_PENFCAP			0x0000000000080000ull
+#define STL_SWITCHINFO_RECORD_COMP_PORTGROUPCAP 	0x0000000000100000ull
+#define STL_SWITCHINFO_RECORD_COMP_PORTGROUPTOP 	0x0000000000200000ull
 #define STL_SWITCHINFO_RECORD_COMP_RMODESUPPORTEED	0x0000000000400000ull
 #define STL_SWITCHINFO_RECORD_COMP_RMODEENABLED		0x0000000000800000ull
-#define STL_SWITCHINFO_RECORD_COMP_INENFFCAP 		0x0000000001000000ull
-#define STL_SWITCHINFO_RECORD_COMP_OUTENFCAP		0x0000000002000000ull
-#define STL_SWITCHINFO_RECORD_COMP_FRAWINCAP		0x0000000004000000ull
-#define STL_SWITCHINFO_RECORD_COMP_FRAWOUTCAP		0x0000000008000000ull
+/* Reserved											0x0000000001000000ull */
+/* Reserved											0x0000000002000000ull */
+/* Reserved											0x0000000004000000ull */
+/* Reserved											0x0000000008000000ull */
 #define STL_SWITCHINFO_RECORD_COMP_EP0				0x0000000010000000ull
 /* Reserved											0x0000000020000000ull */
 /* Reserved											0x0000000040000000ull */
@@ -681,13 +678,12 @@ typedef struct {
 #define STL_SWITCHINFO_RECORD_COMP_ARLOSTONLY 		0x0000000200000000ull
 #define STL_SWITCHINFO_RECORD_COMP_ARPAUSE 			0x0000000400000000ull
 #define STL_SWITCHINFO_RECORD_COMP_ARENABLE 		0x0000000800000000ull
-#define STL_SWITCHINFO_RECORD_COMP_ART1ENABLE 		0x0000001000000000ull
-/* Reserved											0x0000002000000000ull */
-#define STL_SWITCHINFO_RECORD_COMP_ISART1SUPP 		0x0000004000000000ull
-#define STL_SWITCHINFO_RECORD_COMP_SIARSUPP 		0x0000008000000000ull
-/* Reserved											0x0000010000000000ull */
-#define STL_SWITCHINFO_RECORD_COMP_ISCOLL1 			0x0000020000000000ull
-#define STL_SWITCHINFO_RECORD_COMP_ISCOLL2 			0x0000040000000000ull
+#define STL_SWITCHINFO_RECORD_COMP_ARALGORITHM 		0x0000001000000000ull
+#define STL_SWITCHINFO_RECORD_COMP_ARFREQ 			0x0000002000000000ull
+#define STL_SWITCHINFO_RECORD_COMP_ARTHRESHOLD 		0x0000004000000000ull
+/* Reserved											0x0000008000000000ull */
+#define STL_SWITCHINFO_RECORD_COMP_CAPMASK 			0x0000010000000000ull
+#define STL_SWITCHINFO_RECORD_COMP_CMCOLLECTIVES	0x0000020000000000ull
 
 static __inline
 void
@@ -1017,23 +1013,26 @@ typedef struct {
 #define STL_MCMEMBER_COMPONENTMASK_MGID		0x0000000000000001ull
 #define STL_MCMEMBER_COMPONENTMASK_PORTGID 	0x0000000000000002ull
 #define STL_MCMEMBER_COMPONENTMASK_QKEY		0x0000000000000004ull
-#define STL_MCMEMBER_COMPONENTMASK_PKEY 	0x0000000000000080ull
-#define STL_MCMEMBER_COMPONENTMASK_RATE_SEL 	0x0000000000000100ull
-#define STL_MCMEMBER_COMPONENTMASK_RATE 	0x0000000000000200ull
-#define STL_MCMEMBER_COMPONENTMASK_OK_RATE 	( STL_MCMEMBER_COMPONENTMASK_RATE \
-						| STL_MCMEMBER_COMPONENTMASK_RATE_SEL )
+/* Reserved									0x0000000000000008ull */
 #define STL_MCMEMBER_COMPONENTMASK_MTU_SEL 	0x0000000000000010ull
 #define STL_MCMEMBER_COMPONENTMASK_MTU 		0x0000000000000020ull
 #define STL_MCMEMBER_COMPONENTMASK_OK_MTU	( STL_MCMEMBER_COMPONENTMASK_MTU_SEL \
 						| STL_MCMEMBER_COMPONENTMASK_MTU )
 #define STL_MCMEMBER_COMPONENTMASK_TCLASS	0x0000000000000040ull
+#define STL_MCMEMBER_COMPONENTMASK_PKEY 	0x0000000000000080ull
+#define STL_MCMEMBER_COMPONENTMASK_RATE_SEL 0x0000000000000100ull
+#define STL_MCMEMBER_COMPONENTMASK_RATE 	0x0000000000000200ull
+#define STL_MCMEMBER_COMPONENTMASK_OK_RATE 	( STL_MCMEMBER_COMPONENTMASK_RATE \
+						| STL_MCMEMBER_COMPONENTMASK_RATE_SEL )
 #define STL_MCMEMBER_COMPONENTMASK_LIFE_SEL	0x0000000000000400ull
 #define STL_MCMEMBER_COMPONENTMASK_LIFE		0x0000000000000800ull
 #define STL_MCMEMBER_COMPONENTMASK_OK_LIFE	( STL_MCMEMBER_COMPONENTMASK_LIFE_SEL \
 						| STL_MCMEMBER_COMPONENTMASK_LIFE )
 #define STL_MCMEMBER_COMPONENTMASK_SL		0x0000000000001000ull
+/* Reserved									0x0000000000002000ull */
 #define STL_MCMEMBER_COMPONENTMASK_HOP		0x0000000000004000ull
 #define STL_MCMEMBER_COMPONENTMASK_SCOPE	0x0000000000008000ull
+/* Reserved									0x0000000000010000ull */
 #define STL_MCMEMBER_COMPONENTMASK_JNSTATE	0x0000000000020000ull
 #define STL_MCMEMBER_COMPONENTMASK_OK_JOIN	( STL_MCMEMBER_COMPONENTMASK_MGID \
 						| STL_MCMEMBER_COMPONENTMASK_JNSTATE \
@@ -1495,6 +1494,7 @@ BSWAP_STL_TRACE_RECORD(STL_TRACE_RECORD  *Dest)
 {
 #if CPU_LE
 	Dest->IDGeneration = ntoh16(Dest->IDGeneration);
+	Dest->NodeID = ntoh64(Dest->NodeID);
 	Dest->ChassisID = ntoh64(Dest->ChassisID);
 	Dest->EntryPortID = ntoh64(Dest->EntryPortID);
 	Dest->ExitPortID = ntoh64(Dest->ExitPortID);
@@ -1706,45 +1706,6 @@ typedef struct {
 
 
 /*
- * LinkSpeedWidthPairsRecord
- *
- * Support for this attribute is optional; not implemented in IFS.
- *
- * STL Differences:
- *
- * 		Widened Speed attributes to 16 bits to match STL requirements.
- * 		Added additional speed elements.
- * 		Added reserved field to preserve word alignment.
- */
-typedef struct {
-	uint8		NumTables;
-	uint8		PortMask[32];
-	uint8		Reserved;
-	
-	uint16		Speed_SDR;
-	uint16		Speed_DDR;
-	uint16		Speed_QDR;
-	
-	uint16		Speed_FDR;
-	uint16		Speed_EDR;
-	uint16		Speed_Rsvd1;
-	uint16		Speed_Rsvd2;
-	
-} PACK_SUFFIX STL_LINK_SPEED_WIDTH_PAIRS_TABLE_ELEMENT;
- 
-typedef struct {
-	struct {
-		uint32	LID;
-	} PACK_SUFFIX RID;
-	
-	uint32		Reserved;
-	
-	STL_LINK_SPEED_WIDTH_PAIRS_TABLE_ELEMENT PairsTable[0]; 
-} PACK_SUFFIX STL_LINK_SPEED_WIDTH_PAIRS_TABLE_RECORD;
-
-
-
-/*
  * CableInfoRecord
  *
  * STL Differences:
@@ -1823,7 +1784,7 @@ typedef struct {
 		IB_BITFIELD3(uint8,
 				selectFlags:2, 	/* 1 bit to indicate SL in queries, 1 bit for pkey */
 				rsvd2:1,
-				sl:5);			/* service level - 5 bits */
+				slBase:5);		/* service level - 5 bits */
 		IB_BITFIELD3(uint8,
 				mtuSpecified:1,	/* mtu specified for VF - 1 bit */
 				rsvd3:1,    
@@ -1833,7 +1794,7 @@ typedef struct {
 				rateSpecified:1, /* rate specified for VF - 1 bit */
 				rsvd4:1,
 				rate:6);		/* max rate assigned to VF - 6 bits */
-						
+
 		IB_BITFIELD3(uint8,
 				pktLifeSpecified:1, /* pkt life time specified for VF - 1 bit */
 				rsvd5:4,
@@ -1844,20 +1805,30 @@ typedef struct {
 	uint8		bandwidthPercent;	/* bandwidth percentage, 8 bits */
 
 	IB_BITFIELD2(uint8,
-				rsvd6:7,	
+				rsvd6:7,
 				priority:1);		/* priority, 1 bit */
 
-	uint8		routingSLs;
+	uint8		routingSLs; /* Always 1 */
 
 	IB_BITFIELD2(uint8,
-				rsvd8:1,	
+				rsvd7:1,
 				preemptionRank:7);
 	
 	IB_BITFIELD2(uint8,
-				rsvd9:3,	
+				rsvd8:3,
 				hoqLife:5);
-	
-	uint8		rsvd7[22];
+
+	IB_BITFIELD3(uint8,
+				slResponseSpecified:1, /* slResponse field is set - 1 bit */
+				rsvd9:2,
+				slResponse:5); /* service level - 5 bits */
+
+	IB_BITFIELD3(uint8,
+				slMulticastSpecified:1, /* slMulticast field is set - 1 bit */
+				rsvd10:2,
+				slMulticast:5); /* service level - 5 bits */
+
+	uint8		rsvd11[20];
 
 } PACK_SUFFIX STL_VFINFO_RECORD;
 
@@ -2031,7 +2002,7 @@ typedef struct {
 	struct {
 		uint32			LID;
 		uint8			Port;
-	} RID;
+	} PACK_SUFFIX RID;
 	
 	uint8				Reserved[3];
 	
@@ -2093,7 +2064,7 @@ typedef struct {	/* all fields are RW */
 	struct {
 		uint32			LID;
 		uint16			BlockNum;
-	} RID;
+	} PACK_SUFFIX RID;
 	uint16				reserved;				
 	STL_HFI_CONGESTION_CONTROL_TABLE HFICongestionControlTable;
 } PACK_SUFFIX STL_HFI_CONGESTION_CONTROL_TABLE_RECORD;
@@ -2127,7 +2098,7 @@ typedef struct {
 	struct {
 		uint32			LID;
 		uint8			Port;			/* for switch or HFI: port numnber */
-	} RID;
+	} PACK_SUFFIX RID;
 
 	uint8				Reserved[3];
 
@@ -2199,24 +2170,6 @@ BSWAP_STL_FABRICINFO_RECORD(
 	Dest->NumOmittedISLs = ntoh32(Dest->NumOmittedISLs);
 #endif /* CPU_LE */
 }
-
-/*
- * Port State Info
- *
- * STL Differences:
- * 		New for STL
- * 		Component Mask is only supported for LID and Port.
- */
-typedef struct {
-	struct {
-		uint32			LID;
-		uint8			Port;
-	} RID;
-
-	uint8				Reserved[3];
-
-	STL_PORT_STATES		PortState;
-} PACK_SUFFIX STL_PORT_STATE_INFO_RECORD;
 
 #if defined (__cplusplus)
 }

@@ -184,6 +184,7 @@ void sm_dbsync_initSmRec(SmRecp smrecp) {
 	smrecp->dbsync.informSyncStatus=smrecp->dbsync.informSyncFailCount=smrecp->dbsync.informTimeSyncFail=smrecp->dbsync.informTimeLastSync=0;
 	smrecp->dbsync.groupSyncStatus=smrecp->dbsync.groupSyncFailCount=smrecp->dbsync.groupTimeSyncFail=smrecp->dbsync.groupTimeLastSync=0;
 	smrecp->dbsync.serviceSyncStatus=smrecp->dbsync.serviceSyncFailCount=smrecp->dbsync.serviceTimeSyncFail=smrecp->dbsync.serviceTimeLastSync=0;
+	smrecp->dbsync.datelineGuidSyncStatus=smrecp->dbsync.datelineGuidSyncFailCount=smrecp->dbsync.datelineGuidTimeSyncFail=smrecp->dbsync.datelineGuidTimeLastSync=0;
 	/* fill in the XML consistency check version and clear data */
 	smrecp->dbsyncCCC.protocolVersion = FM_PROTOCOL_VERSION;
 	smrecp->dbsyncCCC.smVfChecksum = smrecp->dbsyncCCC.smConfigChecksum = 0;
@@ -673,6 +674,17 @@ Status_t sm_dbsync_upSmDbsyncStat(SmRecKey_t recKey, DBSyncDatTyp_t type, DBSync
                     smrecp->dbsync.mcrootTimeSyncFail = (uint32_t)time(NULL);
                 }
                 break;
+	    case DBSYNC_DATATYPE_DATELINE_GUID:
+		smrecp->dbsync.serviceSyncStatus = syncStatus;
+		if (syncStatus == DBSYNC_STAT_SYNCHRONIZED) {
+		    smrecp->dbsync.datelineGuidSyncFailCount = 0;
+		    smrecp->dbsync.datelineGuidTimeSyncFail = 0;
+		    smrecp->dbsync.datelineGuidTimeLastSync = (uint32_t)time(NULL);
+		} else if (syncStatus == DBSYNC_STAT_FAILURE) {
+		    ++smrecp->dbsync.datelineGuidSyncFailCount;
+		    smrecp->dbsync.datelineGuidTimeSyncFail = (uint32_t)time(NULL);
+		}
+		break;
             default:
                 status = VSTATUS_ILLPARM;
                 break;
@@ -725,55 +737,46 @@ Status_t sm_dbsync_configCheck(SmRecKey_t recKey, SMDBCCCSyncp smSyncSetting) {
 				smrecp->syncCapability = DBSYNC_CAP_NOTSUPPORTED;
 				sm_dbsync_disableStandbySm(smrecp, condition); 
 			} else {
-				if (smSyncSetting->smVfChecksum != 0 && smRecords.ourChecksums.smVfChecksum != 0) {
-					if (smSyncSetting->smVfChecksum != smRecords.ourChecksums.smVfChecksum) {
+				if (smSyncSetting->smVfChecksum != smRecords.ourChecksums.smVfChecksum) {
 
-						IB_LOG_WARN_FMT(__func__,
-							"SM at %s, portGuid="FMT_U64" has a different enabled Virtual Fabric configuration consistency checksum [%u] from us [%u]",
-							smrecp->nodeDescString, recKey, smSyncSetting->smVfChecksum, smRecords.ourChecksums.smVfChecksum);
+					IB_LOG_WARN_FMT(__func__,
+						"SM at %s, portGuid="FMT_U64" has a different enabled Virtual Fabric configuration consistency checksum [%u] from us [%u]",
+						smrecp->nodeDescString, recKey, smSyncSetting->smVfChecksum, smRecords.ourChecksums.smVfChecksum);
 
-						mismatchDetected = 1;
-						deactivateSM = 1;
-						condition = CSM_COND_STANDBY_SM_VF_DEACTIVATION;
-						smrecp->syncCapability = DBSYNC_CAP_NOTSUPPORTED;
-					}
+					mismatchDetected = 1;
+					deactivateSM = 1;
+					condition = CSM_COND_STANDBY_SM_VF_DEACTIVATION;
+					smrecp->syncCapability = DBSYNC_CAP_NOTSUPPORTED;
 				}
 
-				if (smSyncSetting->smConfigChecksum != 0 && smRecords.ourChecksums.smConfigChecksum != 0) {
-					if (smSyncSetting->smConfigChecksum != smRecords.ourChecksums.smConfigChecksum) {
+				if (smSyncSetting->smConfigChecksum != smRecords.ourChecksums.smConfigChecksum) {
 
-						IB_LOG_WARN_FMT(__func__,
-							"SM at %s, portGuid="FMT_U64" has a different SM configuration consistency checksum [%u] from us [%u]",
-							smrecp->nodeDescString, recKey, smSyncSetting->smConfigChecksum, smRecords.ourChecksums.smConfigChecksum);
+					IB_LOG_WARN_FMT(__func__,
+						"SM at %s, portGuid="FMT_U64" has a different SM configuration consistency checksum [%u] from us [%u]",
+						smrecp->nodeDescString, recKey, smSyncSetting->smConfigChecksum, smRecords.ourChecksums.smConfigChecksum);
 
-						mismatchDetected = 1;
-						deactivateSM = 1;
-						condition = CSM_COND_STANDBY_SM_DEACTIVATION;
-						smrecp->syncCapability = DBSYNC_CAP_NOTSUPPORTED;
-					}
+					mismatchDetected = 1;
+					deactivateSM = 1;
+					condition = CSM_COND_STANDBY_SM_DEACTIVATION;
+					smrecp->syncCapability = DBSYNC_CAP_NOTSUPPORTED;
 				}
-				if (smSyncSetting->pmConfigChecksum != 0 && smRecords.ourChecksums.pmConfigChecksum != 0) {
-					if (smSyncSetting->pmConfigChecksum != smRecords.ourChecksums.pmConfigChecksum) {
+				if (smSyncSetting->pmConfigChecksum != smRecords.ourChecksums.pmConfigChecksum) {
 
+					IB_LOG_WARN_FMT(__func__,
+						"SM at %s, portGuid="FMT_U64" detected a different PM configuration consistency checksum [%u] from us [%u]",
+						smrecp->nodeDescString, recKey, smSyncSetting->pmConfigChecksum, smRecords.ourChecksums.pmConfigChecksum);
 
-						IB_LOG_WARN_FMT(__func__,
-							"SM at %s, portGuid="FMT_U64" detected a different PM configuration consistency checksum [%u] from us [%u]",
-							smrecp->nodeDescString, recKey, smSyncSetting->pmConfigChecksum, smRecords.ourChecksums.pmConfigChecksum);
-
-						mismatchDetected = 1;
-						deactivateSM = 1;
-						condition = CSM_COND_SECONDARY_PM_DEACTIVATION;
-						smrecp->syncCapability = DBSYNC_CAP_NOTSUPPORTED;
-					}
+					mismatchDetected = 1;
+					deactivateSM = 1;
+					condition = CSM_COND_SECONDARY_PM_DEACTIVATION;
+					smrecp->syncCapability = DBSYNC_CAP_NOTSUPPORTED;
 				}
-				if (smSyncSetting->feConfigChecksum != 0 && smRecords.ourChecksums.feConfigChecksum != 0) {
-					if (smSyncSetting->feConfigChecksum != smRecords.ourChecksums.feConfigChecksum) {
-						IB_LOG_WARN_FMT(__func__,
-							"SM at %s, portGuid="FMT_U64" detected a different FE configuration consistency checksum [%u] from us [%u]",
-							smrecp->nodeDescString, recKey, smSyncSetting->feConfigChecksum, smRecords.ourChecksums.feConfigChecksum);
+				if (smSyncSetting->feConfigChecksum != smRecords.ourChecksums.feConfigChecksum) {
+					IB_LOG_WARN_FMT(__func__,
+						"SM at %s, portGuid="FMT_U64" detected a different FE configuration consistency checksum [%u] from us [%u]",
+						smrecp->nodeDescString, recKey, smSyncSetting->feConfigChecksum, smRecords.ourChecksums.feConfigChecksum);
 
-						mismatchDetected = 1;
-					}
+					mismatchDetected = 1;
 				}
 
 				if (mismatchDetected) {
@@ -1459,6 +1462,43 @@ Status_t sm_dbsync_syncFile(DBSyncType_t synctype, SMDBSyncFile_t *syncFile) {
     return status;
 }
 
+Status_t sm_dbsync_syncDatelineSwitchGUID(DBSyncType_t synctype) {
+	Status_t	status=VSTATUS_OK;
+	SmRecp		smrecp;
+	CS_HashTableItr_t itr;
+	SMSyncData_t	syncData={0};
+
+	IB_ENTER(__func__, synctype, 0, 0, 0);
+
+	/* do nothing if sync is not turned on or we are exiting */
+	if (!sm_config.db_sync_interval || dbsync_main_exit) return VSTATUS_OK;
+	if ((sizeof(uint64_t)) > sizeof(SMSyncData_t)) {
+		status = VSTATUS_NOMEM;
+		IB_LOG_ERROR_FMT(__func__, "SMSyncData_t type not large enough");
+	} else {
+		if ((status = vs_lock(&smRecords.smLock)) != VSTATUS_OK) {
+			IB_LOG_ERROR_FMT(__func__, "Can't lock SM Record table, rc: %d", status);
+		} else {
+			if (cs_hashtable_count(smRecords.smMap) > 1) {
+				cs_hashtable_iterator(smRecords.smMap, &itr);
+				do {
+					smrecp = cs_hashtable_iterator_value(&itr);
+					if (smrecp->portguid != sm_smInfo.PortGUID &&
+						smrecp->syncCapability == DBSYNC_CAP_SUPPORTED &&
+						smrecp->dbsync.fullSyncStatus == DBSYNC_STAT_SYNCHRONIZED) {
+						if (smrecp->dbsync.serviceSyncStatus == DBSYNC_STAT_SYNCHRONIZED) {
+							(void) sm_dbsync_queueMsg(synctype, DBSYNC_DATATYPE_DATELINE_GUID, smrecp->lid, smrecp->portguid, smrecp->isEmbedded, syncData);
+						}
+					}
+				} while (cs_hashtable_iterator_advance(&itr));
+			}
+			(void)vs_unlock(&smRecords.smLock);
+		}
+	}
+	IB_EXIT(__func__, status);
+	return status;
+}
+
 /*
  * sync a PA image data or a history file with all standby SMs. Needed for PA Fail over feature.
  */
@@ -1700,6 +1740,13 @@ void sm_dbsync_showSms(void) {
                     if (smrecp->dbsync.serviceSyncFailCount) {
                         sysPrintf("     SERVICE sync consecutive failure count is     %d\n", (int)smrecp->dbsync.serviceSyncFailCount);
                         sysPrintf("     Time of last SERVICE sync failure is   %s", getSmSyncTime(smrecp->dbsync.serviceTimeSyncFail));
+                    }
+                    /* DATELINE SWITCH GUID status */
+                    if ( (smrecp->dbsync.datelineGuidSyncStatus > DBSYNC_STAT_UNINITIALIZED && smrecp->dbsync.datelineGuidTimeLastSync ))
+                        sysPrintf("    Time of last DATELINE SWITCH GUID records sync in %s", getSmSyncTime(smrecp->dbsync.datelineGuidTimeLastSync));
+                    if (smrecp->dbsync.datelineGuidSyncFailCount) {
+                        sysPrintf("    DATELINE SWITCH GUID sync consecutive failure count is      %d\n", (int)smrecp->dbsync.datelineGuidSyncFailCount);
+                        sysPrintf("    Time of last DATELINE SWITCH GUID sync failure is   %s", getSmSyncTime(smrecp->dbsync.datelineGuidTimeSyncFail));
                     }
                 }
                 sysPrintf("\n");          

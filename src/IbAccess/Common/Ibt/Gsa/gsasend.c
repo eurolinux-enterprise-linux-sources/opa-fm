@@ -198,6 +198,9 @@ GsiDoSendDgrm(
 		// zero out the options
   		workRequest.Req.SendUD.Options.AsUINT16 = 0;
 		workRequest.Req.SendUD.Options.s.SignaledCompletion = TRUE; 
+#if INCLUDE_16B
+		workRequest.Req.SendUD.Options.s.SendFMH			= 0;
+#endif
 
 		// Fill in user settings
 		workRequest.Req.SendUD.QPNumber = pDgrmPrivate->DgrmElement.RemoteQP;

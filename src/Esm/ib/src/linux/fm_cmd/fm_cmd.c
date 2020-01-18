@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "hsm_config_client_api.h"
 #include "hsm_config_client_data.h"
 #include "hsm_com_client_data.h"
+#include "cs_g.h"
 
 extern int   getopt(int, char *const *, const char *);
 
@@ -105,7 +106,7 @@ static command_t commandList[] = {
 	{"smStateDump",sm_state_dump, FM_MGR_SM, "Dump Internal SM state into directory specified"},
 	{"smLogLevel", mgr_log_level, FM_MGR_SM, "Set the SM logging level (0=NONE+, 1=WARN+, 2=NOTICE+,\n                           3=INFO+, 4=VERBOSE+, 5=DEBUG2+, 6=DEBUG4+, 7=TRACE+)"},
 	{"smLogMode", mgr_log_mode, FM_MGR_SM, "Set the SM log mode flags (0/1 1=downgrade\n                           non-actionable, 0/2 2=logfile only)"},
-	{"smLogMask", mgr_log_mask, FM_MGR_SM, "Set the SM log mask for a specific subsystem to the\n                           value given see /etc/sysconfig/opafm.xml\n                           or /usr/lib/opa-fm/etc/opafm.xml\n                           for a list of subsystems and mask bit meanings"},
+	{"smLogMask", mgr_log_mask, FM_MGR_SM, "Set the SM log mask for a specific subsystem to the\n                           value given see /etc/opa-fm/opafm.xml\n                           or /usr/share/opa-fm/opafm.xml\n                           for a list of subsystems and mask bit meanings"},
 	{"smPerfDebug", sm_perf_debug_toggle, FM_MGR_SM, "Toggle performance debug output for SM"},
 	{"saPerfDebug", sa_perf_debug_toggle, FM_MGR_SM, "Toggle performance debug output for SA"},
 	{"saRmppDebug", mgr_rmpp_debug_toggle, FM_MGR_SM, "Toggle Rmpp debug output for SA"},
@@ -116,7 +117,7 @@ static command_t commandList[] = {
 	{"pmRmppDebug", mgr_rmpp_debug_toggle, FM_MGR_PM, "Toggle Rmpp debug output for PM"},
 	{"feLogLevel", mgr_log_level, FM_MGR_FE, "Set the FE logging level (0=NONE+, 1=WARN+, 2=NOTICE+,\n                           3=INFO+, 4=VERBOSE+, 5=DEBUG2+, 6=DEBUG4+, 7=TRACE+)"},
 	{"feLogMode", mgr_log_mode, FM_MGR_FE, "Set the FE log mode flags (0/1 1=downgrade\n                           non-actionable, 0/2 2=logfile only)"},
-	{"feLogMask", mgr_log_mask, FM_MGR_FE, "Set the FE log mask for a specific subsystem to the\n                           value given see /etc/sysconfig/opafm.xml\n                           or /usr/lib/opa-fm/etc/opafm.xml\n                           for a list of subsystems and mask bit meanings"},
+	{"feLogMask", mgr_log_mask, FM_MGR_FE, "Set the FE log mask for a specific subsystem to the\n                           value given see /etc/opa-fm/opafm.xml\n                           or /usr/share/opa-fm/opafm.xml\n                           for a list of subsystems and mask bit meanings"},
 	{"feDebug", mgr_debug_toggle, FM_MGR_FE, "Toggle debug output for FE"},
 	{"feRmppDebug", mgr_rmpp_debug_toggle, FM_MGR_FE, "Toggle Rmpp debug output for FE"},
 	{"smLooptestStart", sm_looptest_start, FM_MGR_SM, "START loop test in normal mode - specify the number of\n                           256 byte packets (default=0)"},
@@ -1015,7 +1016,7 @@ int main(int argc, char *argv[]) {
 	int						i;
 
 	/* Get options at the command line (overide default values) */
-    strcpy(Opts, "+i:d:h-");
+    cs_strlcpy(Opts, "+i:d:h-", sizeof(Opts));
 
     while ((arg = getopt(argc, argv, Opts)) != EOF) {
         switch (arg) {
